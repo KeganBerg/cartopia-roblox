@@ -1,0 +1,92 @@
+# Keeps the live Roblox game in step with both repos:
+#   - a push to this repo's main branch
+#   - a "web-updated" dispatch, sent by the web repo's notify-roblox workflow when its game rules change
+#   - a manual run from the Actions tab
+# Each run regenerates the catalog from the web game, runs the tests, builds the place with Rojo
+# and publishes it with Roblox Open Cloud. A failing test stops the publish, so the live game never
+# gets rules that disagree with the web game.
+#
+# Needs, under Settings > Secrets and variables > Actions:
+#   secret   ROBLOX_API_KEY      Open Cloud key with universe-places:write on this experience
+#   variable ROBLOX_UNIVERSE_ID  the experience's universe id
+#   variable ROBLOX_PLACE_ID     the start place's id
+name: Publish to Roblox
+
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [web-updated]
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      # Until the key and ids are set, runs still regenerate and test but skip the publish.
+      CAN_PUBLISH: ${{ secrets.ROBLOX_API_KEY != '' && vars.ROBLOX_UNIVERSE_ID != '' && vars.ROBLOX_PLACE_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the web game
+        uses: actions/checkout@v4
+        with:
+          repository: KeganBerg/Cartopia
+          path: web
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Regenerate the catalog and golden data from the web game
+        run: |
+          npm ci --prefix web
+          node tools/gen-catalog.mjs web
+          node tools/gen-golden.mjs web
+
+      - name: Install Luau
+        run: |
+          curl -sSL -o luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip
+          unzip -q luau.zip -d "$HOME/luau" && rm luau.zip
+          echo "$HOME/luau" >> "$GITHUB_PATH"
+
+      - name: Test
+        run: |
+          luau-analyze src/shared/*.luau
+          luau tests/run.luau
+
+      - name: Commit regenerated files
+        run: |
+          git add src/shared/Catalog.luau src/shared/RaceFloors.luau tests/Golden.luau
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Regenerate catalog from web game ${{ github.event.client_payload.sha || '' }}"
+          git push
+
+      - uses: CompeyDev/setup-rokit@v0.1.2
+        if: env.CAN_PUBLISH == 'true'
+
+      - name: Build the place
+        if: env.CAN_PUBLISH == 'true'
+        run: rojo build -o Cartopia.rbxl
+
+      - name: Publish with Open Cloud
+        if: env.CAN_PUBLISH == 'true'
+        env:
+          API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID }}
+          PLACE: ${{ vars.ROBLOX_PLACE_ID }}
+        run: |
+          curl --fail-with-body -sS -X POST \
+            "https://apis.roblox.com/universes/v1/$UNIVERSE/places/$PLACE/versions?versionType=Published" \
+            -H "x-api-key: $API_KEY" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @Cartopia.rbxl

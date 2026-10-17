@@ -88,3 +88,13 @@ New rules (functions) in `data.ts` or `race.ts` still need porting by hand; add 
 3. The town: grid placement, roads, and building and car models in Studio.
 4. UI: HUD, shop, showroom, garage and race screens.
 5. Port the rest of `src/game` (traffic sim, crates, rivals, quests, weather) the same way.
+
+## Publishing
+
+`.github/workflows/publish.yml` publishes the live game on every push to `main`, and when the web
+repo signals that its game rules changed. Each run regenerates the catalog from the web game, runs
+the tests and only publishes if they pass. Setup (Open Cloud key, ids, and the web repo's trigger)
+is in the project folder's `cartopia-roblox-ci/README.md`.
+
+A publish replaces the whole place with what Rojo builds, so anything made in Studio has to be
+saved into this repo (as `.rbxm` models) or the next publish overwrites it.
