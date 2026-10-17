@@ -40,31 +40,17 @@ emu.require(RS.Shared.Models.Builder).previewMeshes = true
 local view = TownView.new(folder, "Player1", Vector3.new(0, 0, 0), 1, function() end)
 view:render(save)
 
+local Gui = require("./gui")
 local parts = {}
 for _, d in folder:GetDescendants() do
 	if d:IsA("BasePart") and d.Transparency < 1 then
-		local cf = d.CFrame
-		local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = cf:GetComponents()
-		local shape = if d:IsA("MeshPart") then "mesh" elseif d:FindFirstChildOfClass("SpecialMesh") then "ellipsoid" else tostring(d.Shape):match("%.(%w+)$")
-		local gui = d:FindFirstChildOfClass("SurfaceGui")
-		local label = gui and gui:FindFirstChildOfClass("TextLabel")
-		table.insert(parts, {
-			shape = shape,
-			mesh = d:GetAttribute("Mesh"),
-			cf = { x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 },
-			size = { d.Size.X, d.Size.Y, d.Size.Z },
-			color = d.Color:ToHex(),
-			transparency = d.Transparency,
-			material = tostring(d.Material):match("%.(%w+)$"),
-			text = label and { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() } or nil,
-		})
+		table.insert(parts, Gui.partOf(d))
 	end
 end
 fs.writeFile(out, serde.encode("json", { parts = parts, buildings = #save.buildings, cars = #save.cars }))
 print(`drew {#parts} parts: {#save.buildings} buildings, {#save.roads} road tiles, {#save.cars} cars`)
 
 -- The client: the HUD over this town, optionally with a screen open (process.args[4]).
-local Gui = require("./gui")
 local player = Instance.new("Player")
 player.Name = "Player1"
 player.UserId = 1

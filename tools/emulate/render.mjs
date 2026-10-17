@@ -24,6 +24,13 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
   const meshes = JSON.parse(readFileSync(join(ROOT, 'build/meshes.json'), 'utf8'))
   const used = {}
   for (const p of scene.parts) if (p.mesh && meshes[p.mesh]) used[p.mesh] = meshes[p.mesh]
+  // Meshes the screens' 3D pictures (ViewportFrames) show.
+  const visit = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (n.viewport?.parts) for (const p of n.viewport.parts) if (p.mesh && meshes[p.mesh]) used[p.mesh] = meshes[p.mesh]
+    for (const v of Object.values(n)) if (v && typeof v === 'object') visit(v)
+  }
+  visit(gui)
   writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, gui: gui ?? null, camera: camera ?? null })}`)
   writeFileSync(join(dir, 'scene.html'), PAGE)
   const server = createServer((q, r) => {
@@ -41,6 +48,7 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
   const browser = await chromium.launch({ ...(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
   const page = await browser.newPage({ viewport: { width, height } })
   page.on('pageerror', (e) => console.error(e))
+  page.on('console', (m) => m.type() === 'error' && console.error(m.text()))
   await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`)
   await page.waitForFunction('window.DONE === true', null, { timeout: 180000 })
   await page.screenshot({ path: out, timeout: 180000 })
@@ -75,7 +83,9 @@ scene.add(sun)
 const unit = { Block: new T.BoxGeometry(1, 1, 1), Cylinder: new T.CylinderGeometry(0.5, 0.5, 1, 28).rotateZ(-Math.PI / 2), Ball: new T.SphereGeometry(0.5, 24, 16), ellipsoid: new T.SphereGeometry(0.5, 24, 16) }
 const MAT = { Neon: { emissive: 0.9 }, Metal: { metalness: 0.55, roughness: 0.35 }, Glass: { roughness: 0.1 }, Grass: { roughness: 1 }, Asphalt: { roughness: 1 }, Concrete: { roughness: 0.95 } }
 const geoCache = {}
-for (const p of S.parts) {
+// Every part as Roblox shapes it: blocks, cylinders along X, balls, meshes stretched to their part.
+function addParts(scene, parts) {
+for (const p of parts) {
   let geo = unit[p.shape] || unit.Block
   let scale = p.size
   if (p.mesh && S.meshes[p.mesh]) {
@@ -106,6 +116,8 @@ for (const p of S.parts) {
     scene.add(face)
   }
 }
+}
+addParts(scene, S.parts)
 const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 1, 5000)
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
@@ -128,6 +140,27 @@ function fill(node) {
   const stops = g.stops.map(([t, c], i) => rgba(c, 1 - (1 - node.bgT) * (1 - (g.t0 + (g.t1 - g.t0) * t))) + ' ' + (t * 100).toFixed(1) + '%')
   return 'linear-gradient(' + (g.rot + 90) + 'deg,' + stops.join(',') + ')'
 }
+// A ViewportFrame's picture: its own little scene, drawn from its camera with the frame's lighting.
+let vr = null
+function picture(v, w, h) {
+  vr ??= new T.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
+  vr.outputColorSpace = T.SRGBColorSpace
+  vr.toneMapping = T.ACESFilmicToneMapping
+  vr.setPixelRatio(2)
+  vr.setSize(w, h)
+  const sc = new T.Scene()
+  sc.add(new T.HemisphereLight(0xffffff, '#' + (v.ambient || 'aaafb9'), 1.6))
+  const light = new T.DirectionalLight(0xffffff, 2)
+  light.position.set(1, 2, 1.2)
+  sc.add(light)
+  addParts(sc, v.parts)
+  const [x, y, z, a, b, c, d, e, f, g, hh, i] = v.cam.cf
+  const cam = new T.PerspectiveCamera(v.cam.fov, w / h, 0.1, 5000)
+  new T.Matrix4().set(a, b, c, x, d, e, f, y, g, hh, i, z, 0, 0, 0, 1).decompose(cam.position, cam.quaternion, cam.scale)
+  vr.render(sc, cam)
+  return vr.domElement.toDataURL()
+}
+
 function draw(node, into = ui, ox = 0, oy = 0) {
   if (node.visible === false) return
   const el = document.createElement('div')
@@ -148,6 +181,12 @@ function draw(node, into = ui, ox = 0, oy = 0) {
     // Roblox's text stroke is an outline of that thickness around each letter.
     if (node.textStroke && node.textStroke[2] < 1) Object.assign(t.style, { webkitTextStroke: node.textStroke[0] * 2 + 'px ' + rgba(node.textStroke[1], node.textStroke[2]), paintOrder: 'stroke fill' })
     el.append(t)
+  }
+  if (node.viewport && node.viewport.cam && node.viewport.parts.length && pw > 4 && ph > 4) {
+    const img = document.createElement('img')
+    img.src = picture(node.viewport, pw, ph)
+    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' })
+    el.append(img)
   }
   if (node.clip) el.style.overflow = 'hidden'
   into.append(el)

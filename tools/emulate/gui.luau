@@ -92,6 +92,24 @@ local function padOf(g)
 	return pad.PaddingLeft.Offset, pad.PaddingRight.Offset, pad.PaddingTop.Offset, pad.PaddingBottom.Offset
 end
 
+-- A part as render.mjs draws it: shape, place (CFrame components), size and look.
+function Gui.partOf(d)
+	local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = d.CFrame:GetComponents()
+	local shape = if d:IsA("MeshPart") then "mesh" elseif d:FindFirstChildOfClass("SpecialMesh") then "ellipsoid" else enumName(d.Shape)
+	local surface = d:FindFirstChildOfClass("SurfaceGui")
+	local label = surface and surface:FindFirstChildOfClass("TextLabel")
+	return {
+		shape = shape,
+		mesh = d:GetAttribute("Mesh"),
+		cf = { x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 },
+		size = { d.Size.X, d.Size.Y, d.Size.Z },
+		color = d.Color:ToHex(),
+		transparency = d.Transparency,
+		material = enumName(d.Material),
+		text = label and { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() } or nil,
+	}
+end
+
 local sizeOf
 
 -- The size an AutomaticSize object grows to hold its text or its laid-out children.
@@ -218,7 +236,19 @@ local function node(g, r)
 		end
 	end
 	if g:IsA("ViewportFrame") then
-		n.viewport = true
+		-- What it shows: its parts and camera, which render.mjs draws as a little picture.
+		local parts = {}
+		for _, d in g:GetDescendants() do
+			if d:IsA("BasePart") and d.Transparency < 1 then
+				table.insert(parts, Gui.partOf(d))
+			end
+		end
+		local cam = g:FindFirstChildOfClass("Camera")
+		n.viewport = {
+			parts = parts,
+			cam = cam and { cf = { cam.CFrame:GetComponents() }, fov = cam.FieldOfView } or nil,
+			ambient = hex(g.Ambient),
+		}
 	end
 	if g.ClipsDescendants or g:IsA("ScrollingFrame") then
 		n.clip = true

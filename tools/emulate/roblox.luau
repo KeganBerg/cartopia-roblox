@@ -12,6 +12,7 @@ local luau = require("@lune/luau")
 local Emu = {}
 
 local Instance, CFrame, Vector3 = roblox.Instance, roblox.CFrame, roblox.Vector3
+local FixedCFrame
 
 -- A signal that never fires (clicks, renders): connecting works, nothing happens.
 local function signal()
@@ -41,6 +42,22 @@ end)
 pcall(roblox.implementMethod, "Instance", "GetPropertyChangedSignal", function()
 	return signal()
 end)
+
+-- Lune's CFrame.lookAt faces the wrong way (its LookVector points away from the target), so the
+-- game code gets a CFrame table with a correct lookAt and everything else from Lune's.
+local function lookAt(at, target, up)
+	up = up or Vector3.new(0, 1, 0)
+	local look = (target - at).Unit
+	local right = look:Cross(up)
+	if right.Magnitude < 1e-6 then
+		right = look:Cross(Vector3.new(0, 0, 1))
+	end
+	right = right.Unit
+	local up2 = right:Cross(look)
+	local back = -look
+	return CFrame.new(at.X, at.Y, at.Z, right.X, up2.X, back.X, right.Y, up2.Y, back.Y, right.Z, up2.Z, back.Z)
+end
+FixedCFrame = setmetatable({ lookAt = lookAt }, { __index = CFrame })
 
 local function pivotOf(model)
 	local ok, wp = pcall(function()
@@ -170,9 +187,10 @@ function Emu.load(placeFile: string)
 			DateTime = { now = function() return { UnixTimestampMillis = os.time() * 1000 } end },
 		}, nil)
 		-- Lune's load doesn't follow __index on the environment, so copy the Roblox types in.
-		for _, k in { "Instance", "CFrame", "Vector3", "Vector2", "Color3", "UDim", "UDim2", "Enum", "ColorSequence", "ColorSequenceKeypoint", "NumberSequence", "NumberRange", "BrickColor", "Rect", "Ray", "Font", "Content" } do
+		for _, k in { "Instance", "Vector3", "Vector2", "Color3", "UDim", "UDim2", "Enum", "ColorSequence", "ColorSequenceKeypoint", "NumberSequence", "NumberRange", "BrickColor", "Rect", "Ray", "Font", "Content" } do
 			e[k] = roblox[k]
 		end
+		e.CFrame = FixedCFrame
 		return e
 	end
 	return {
