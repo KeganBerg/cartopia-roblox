@@ -22,6 +22,8 @@ local STUDS_PER_UNIT = 10
 local view = Vector3.zero -- the point on the ground the camera looks at
 local zoom = 30
 local placed = false
+-- Off while an edit tool uses drags (laying road, moving a building): see setPanEnabled.
+local panEnabled = true
 
 local function distance(): number
 	local cam = workspace.CurrentCamera
@@ -109,7 +111,7 @@ function TownCamera.start()
 			end
 		end
 		local moving = input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch
-		if dragging and grab and moving then
+		if dragging and grab and moving and panEnabled then
 			-- Keep the spot that was grabbed under the pointer.
 			local now = Town.groundAt(Vector2.new(input.Position.X, input.Position.Y))
 			if now then
@@ -142,6 +144,11 @@ function TownCamera.start()
 		end
 		update()
 	end)
+end
+
+-- Lets edit tools take drags for themselves (Placement): off, a drag no longer pans the town.
+function TownCamera.setPanEnabled(on: boolean)
+	panEnabled = on
 end
 
 -- Moves the view to look at a world position.

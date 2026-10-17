@@ -111,40 +111,72 @@ const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 renderer.render(scene, cam)
 
-// Screens: ScreenGui frames as absolutely placed boxes, in tree order.
+// Screens: ScreenGui frames as absolutely placed boxes, drawn as Roblox would: children over
+// parents, siblings by ZIndex, UIStroke outlines outside the box (text strokes around the
+// letters), UIGradient colour stops and rotation, and Roblox's Fredoka One and Nunito fonts.
+const fonts = document.createElement('link')
+fonts.rel = 'stylesheet'
+fonts.href = 'https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;800;900&display=block'
+document.head.append(fonts)
 const ui = document.getElementById('ui')
+const FAMILY = { FredokaOne: "'Fredoka One','Arial Rounded MT Bold',system-ui,sans-serif", Nunito: "Nunito,system-ui,sans-serif" }
+const rgba = (h, t = 0) => { const n = parseInt(h, 16); return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + (1 - t).toFixed(3) + ')' }
+function fill(node) {
+  if (node.bg == null || node.bgT >= 1) return null
+  if (!node.grad) return rgba(node.bg, node.bgT)
+  const g = node.grad, n = g.stops.length
+  const stops = g.stops.map(([t, c], i) => rgba(c, 1 - (1 - node.bgT) * (1 - (g.t0 + (g.t1 - g.t0) * t))) + ' ' + (t * 100).toFixed(1) + '%')
+  return 'linear-gradient(' + (g.rot + 90) + 'deg,' + stops.join(',') + ')'
+}
 function draw(node, into = ui, ox = 0, oy = 0) {
   if (node.visible === false) return
   const el = document.createElement('div')
   const [px, py, pw, ph] = node.abs
   Object.assign(el.style, { left: px - ox + 'px', top: py - oy + 'px', width: pw + 'px', height: ph + 'px' })
-  const alpha = node.bgT > 0 ? Math.round((1 - node.bgT) * 255).toString(16).padStart(2, '0') : ''
-  if (node.bg != null && node.bgT < 1) el.style.background = node.grad ? 'linear-gradient(#' + node.grad[0] + alpha + ',#' + node.grad[1] + alpha + ')' : '#' + node.bg + alpha
-  if (node.corner != null) el.style.borderRadius = node.corner + 'px'
+  const bg = fill(node)
+  if (bg) el.style.background = bg
+  if (node.corner != null) el.style.borderRadius = Math.min(node.corner, pw / 2, ph / 2) + 'px'
   // UIStroke borders sit outside the box, so a shadow ring rather than a CSS border.
-  if (node.stroke) el.style.boxShadow = '0 0 0 ' + node.stroke[0] + 'px #' + node.stroke[1]
+  if (node.stroke && node.stroke[2] < 1) el.style.boxShadow = '0 0 0 ' + node.stroke[0] + 'px ' + rgba(node.stroke[1], node.stroke[2])
+  if (node.rot) el.style.transform = 'rotate(' + node.rot + 'deg)'
   if (node.text) {
-    el.textContent = node.text
-    el.style.color = '#' + node.textColor
-    el.style.fontSize = node.textSize + 'px'
+    const t = document.createElement('span')
+    t.textContent = node.text
+    Object.assign(t.style, { color: rgba(node.textColor, node.textT || 0), fontSize: node.textSize + 'px', fontFamily: FAMILY[node.font] || FAMILY.FredokaOne, fontWeight: node.font === 'Nunito' ? node.weight : 400, lineHeight: '1.15', textAlign: node.xAlign === 'Left' ? 'left' : node.xAlign === 'Right' ? 'right' : 'center', whiteSpace: node.wrapped ? 'normal' : 'pre', position: 'static', width: node.wrapped ? '100%' : 'auto' })
     el.style.justifyContent = node.xAlign === 'Left' ? 'flex-start' : node.xAlign === 'Right' ? 'flex-end' : 'center'
-    if (node.textStroke) el.style.webkitTextStroke = '1.2px #14213d', el.style.paintOrder = 'stroke fill', el.style.textShadow = '0 2px 0 #14213d'
+    el.style.alignItems = node.yAlign === 'Top' ? 'flex-start' : node.yAlign === 'Bottom' ? 'flex-end' : 'center'
+    // Roblox's text stroke is an outline of that thickness around each letter.
+    if (node.textStroke && node.textStroke[2] < 1) Object.assign(t.style, { webkitTextStroke: node.textStroke[0] * 2 + 'px ' + rgba(node.textStroke[1], node.textStroke[2]), paintOrder: 'stroke fill' })
+    el.append(t)
   }
   if (node.clip) el.style.overflow = 'hidden'
   into.append(el)
   // Children nest inside so a clipping frame (a scrolling list) hides what runs past it.
-  for (const k of Array.isArray(node.children) ? node.children : []) draw(k, el, px, py)
+  const kids = (Array.isArray(node.children) ? node.children : []).map((k, i) => [k, i]).sort((a, b) => (a[0].z ?? 1) - (b[0].z ?? 1) || a[1] - b[1])
+  for (const [k] of kids) draw(k, el, px, py)
 }
 if (S.gui) {
-  for (const b of Array.isArray(S.gui.bubbles) ? S.gui.bubbles : []) {
+  const nodes = [].concat(S.gui.nodes || S.gui)
+  const boards = nodes.filter((n) => n.billboard)
+  // Older dumps only had the bubble text; newer ones lay out each BillboardGui like a screen.
+  if (!boards.length) for (const b of Array.isArray(S.gui.bubbles) ? S.gui.bubbles : []) {
     const v = new T.Vector3(...b.at).project(cam)
     if (v.z > 1) continue
     const x = (v.x + 1) / 2 * W - b.size[0] / 2, y = (1 - v.y) / 2 * H - b.size[1] / 2
-    const ready = b.text.startsWith('🪙'), run = b.text.startsWith('⏱')
-    draw({ abs: [x, y, b.size[0], b.size[1]], bg: 'ffffff', bgT: 0, grad: ready ? ['ffd84a', 'f0a400'] : run ? ['34507f', '1f3358'] : ['ffffff', 'e3ecf7'], corner: 14, stroke: [3, '14213d'], text: b.text, textColor: 'ffffff', textSize: 18, textStroke: true })
+    draw({ abs: [x, y, b.size[0], b.size[1]], bg: 'ffffff', bgT: 0, corner: 14, stroke: [3, '14213d', 0], text: b.text, textColor: '1b2a4a', textSize: 18 })
   }
-  for (const n of [].concat(S.gui.nodes || S.gui)) draw(n)
+  for (const b of boards) {
+    const v = new T.Vector3(...b.at).project(cam)
+    if (v.z > 1) continue
+    const dx = (v.x + 1) / 2 * W - b.abs[2] / 2, dy = (1 - v.y) / 2 * H - b.abs[3] / 2
+    const move = (n) => { if (n.abs) n.abs = [n.abs[0] + dx, n.abs[1] + dy, n.abs[2], n.abs[3]]; for (const c of Array.isArray(n.children) ? n.children : []) move(c) }
+    move(b)
+    draw(b)
+  }
+  for (const n of nodes) if (!n.billboard) draw(n)
 }
+await document.fonts.ready
+await new Promise((r) => setTimeout(r, 300))
 window.DONE = true
 </script></body></html>`
 

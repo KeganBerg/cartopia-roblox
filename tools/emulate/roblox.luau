@@ -25,11 +25,22 @@ local function signal()
 	function s:Wait() end
 	return s
 end
-for _, pair in { { "ClickDetector", "MouseClick" }, { "GuiButton", "Activated" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "RemoteEvent", "OnServerEvent" }, { "RunService", "RenderStepped" }, { "RunService", "Heartbeat" } } do
+for _, pair in { { "ClickDetector", "MouseClick" }, { "GuiButton", "Activated" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "RemoteEvent", "OnServerEvent" }, { "RunService", "RenderStepped" }, { "RunService", "Heartbeat" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "GuiObject", "MouseEnter" }, { "GuiObject", "MouseLeave" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputEnded" }, { "TextBox", "FocusLost" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
 	pcall(roblox.implementProperty, pair[1], pair[2], function()
 		return signal()
 	end)
 end
+
+-- The emulator stands in for a desktop with a mouse (TouchEnabled and MouseEnabled are set on
+-- the service when the place loads: they exist but have no default to read).
+pcall(roblox.implementMethod, "UserInputService", "GetMouseLocation", function()
+	return roblox.Vector2.new(640, 400)
+end)
+
+-- Property change signals never fire here either.
+pcall(roblox.implementMethod, "Instance", "GetPropertyChangedSignal", function()
+	return signal()
+end)
 
 local function pivotOf(model)
 	local ok, wp = pcall(function()
@@ -98,6 +109,22 @@ local Task = {
 
 function Emu.load(placeFile: string)
 	local game = roblox.deserializePlace(fs.readFile(placeFile))
+	pcall(function()
+		local uis = game:GetService("UserInputService")
+		uis.TouchEnabled = false
+		uis.MouseEnabled = true
+	end)
+	-- Cameras report the reference screen size (no default otherwise).
+	local ws = game:GetService("Workspace")
+	pcall(function()
+		local cam = ws.CurrentCamera
+		if not cam then
+			cam = roblox.Instance.new("Camera")
+			cam.Parent = ws
+			ws.CurrentCamera = cam
+		end
+		cam.ViewportSize = roblox.Vector2.new(1280, 800)
+	end)
 	local cache = {}
 	local env
 	local function run(module)
