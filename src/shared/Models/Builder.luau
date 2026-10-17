@@ -126,7 +126,10 @@ local function makePart(p: { any }): BasePart
 	part.Color = color(look.color)
 	part.Transparency = look.transparency
 	part.Material = (Enum.Material :: any)[look.material]
-	part.CastShadow = look.transparency < 0.5
+	-- Kept cheap for big towns: only the town's Hit boxes take clicks and rays, and pieces smaller
+	-- than a stud or so cast no shadow (from the town view nobody sees it, and each one costs).
+	part.CanQuery = false
+	part.CastShadow = look.transparency < 0.5 and math.max(size.X, size.Y, size.Z) > 1.5
 	if look.paint then
 		part:SetAttribute("Paint", true)
 	end
@@ -135,6 +138,10 @@ local function makePart(p: { any }): BasePart
 	end
 	return part
 end
+
+-- Set by the preview tools (tools/emulate), which draw every mesh from its geometry, so stand-in
+-- boxes count as the real thing there.
+Builder.previewMeshes = false
 
 -- Whether a model of that name exists: "pizza@1" for buildings (id@level), "pip" for cars.
 function Builder.has(name: string): boolean

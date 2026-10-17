@@ -35,6 +35,8 @@ local save = towns:snapshot(1).save
 local folder = Instance.new("Folder")
 folder.Name = "Towns"
 folder.Parent = game.Workspace
+-- Meshes aren't uploaded here; render.mjs draws each from its geometry instead.
+emu.require(RS.Shared.Models.Builder).previewMeshes = true
 local view = TownView.new(folder, "Player1", Vector3.new(0, 0, 0), 1, function() end)
 view:render(save)
 

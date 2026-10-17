@@ -192,7 +192,35 @@ it('exports every building and car', async () => {
     const pieces = await render(<CarModel body={c.body} model={c.id} color={c.colors[0]} />)
     models.push({ id: c.id, kind: 'car', pieces, paint })
   }
-  writeFileSync(OUT, JSON.stringify({ geos: geoList, models }))
+  // Street pieces the town is assembled from (TownView draws each road tile from these, the way
+  // World.tsx's RoadTile does): sidewalks for every side and pair of ends, the rounded corners,
+  // manholes, and sidewalk furniture standing at its spot's origin, facing south.
+  const piece = async (id: string, el: React.ReactElement) => models.push({ id, kind: 'piece', pieces: await render(<group>{el}</group>) })
+  const { Sidewalk, CornerCurb, CornerFillet, StreetProp, Hydrant, StreetLamp } = await import('./scene/Roadside')
+  const { Manhole } = await import('./scene/BuildingDetail')
+  const { PROPS } = await import('./game/streetFurniture')
+  const ENDS = ['corner', 'ramp', 'open'] as const
+  for (const side of ['e', 'w', 's', 'n'] as const) {
+    for (const a of ENDS) for (const b of ENDS) await piece(`walk:${side}:${a}:${b}`, <Sidewalk side={side} ends={[a, b]} />)
+    await piece(`walk:${side}:open:open:drain`, <Sidewalk side={side} ends={['open', 'open']} drain />)
+  }
+  for (let turn = 0; turn < 4; turn++) {
+    await piece(`curb:${turn}`, <CornerCurb turn={turn} />)
+    await piece(`fillet:${turn}`, <CornerFillet turn={turn} />)
+  }
+  await piece('manhole', <Manhole x={0} z={0} />)
+  for (const kind of PROPS) await piece(`prop:${kind}`, <StreetProp kind={kind} side="s" x={0} z={0} />)
+  await piece('prop:hydrant', <Hydrant side="s" x={0} z={0} />)
+  await piece('prop:lamp', <StreetLamp side="s" x={0} z={0} />)
+  // Lawn detail (Tufts.tsx): one of each shape, in each of the season's tints it comes in.
+  const { Scatter } = await import('./scene/Outskirts')
+  const { PAL, SEASON } = await import('./scene/season')
+  const { shade } = await import('./scene/flora')
+  const greens = SEASON === 'winter' ? ['#c9b98f', '#bfae84', '#d6c79d'] : [shade(PAL.grass, -0.1), shade(PAL.grass, 0.06), PAL.grassSpeckle[2], PAL.grassSpeckle[3], shade(PAL.grass, -0.16)]
+  for (const [i, tint] of greens.entries()) await piece(`tuft:${i + 1}`, <Scatter sets={{ tuft: [{ x: 0, z: 0, tint }] }} />)
+  for (const [i, tint] of ['#ffffff', '#e8e8e8', '#d6d6d6'].entries()) await piece(`rock:${i + 1}`, <Scatter sets={{ rock: [{ x: 0, z: 0, tint, sy: 0.7 }] }} />)
+  for (const k of ['heap', 'mushroom', 'flower'] as const) await piece(k, <Scatter sets={{ [k]: [{ x: 0, z: 0 }] }} />)
+  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

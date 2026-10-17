@@ -5,7 +5,10 @@
     "Workspace": {
       "$className": "Workspace",
       "$properties": {
-        "FilteringEnabled": true
+        "FilteringEnabled": true,
+        "StreamingEnabled": true,
+        "StreamingTargetRadius": 1024,
+        "StreamingMinRadius": 256
       },
       "Ground": {
         "$className": "Part",
@@ -40,7 +43,10 @@
       "$properties": {
         "ClockTime": 14,
         "Brightness": 2,
-        "GlobalShadows": true
+        "GlobalShadows": true,
+        "Technology": "ShadowMap",
+        "EnvironmentDiffuseScale": 0.4,
+        "EnvironmentSpecularScale": 0.4
       }
     },
     "ReplicatedStorage": {

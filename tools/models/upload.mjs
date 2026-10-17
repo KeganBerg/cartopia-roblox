@@ -69,9 +69,9 @@ const assets = existsSync(ASSETS) ? JSON.parse(readFileSync(ASSETS, 'utf8')) : {
 const todo = packs.filter((p) => !assets[p.name])
 console.log(`${packs.length} packs, ${todo.length} to upload`)
 if (todo.length) {
-  const creator = await creatorOf(universe)
   let done = 0
   try {
+    const creator = await creatorOf(universe)
     for (const p of todo) {
       assets[p.name] = await upload(key, creator, p.name, join(GLB_DIR, p.file))
       done++
@@ -80,13 +80,11 @@ if (todo.length) {
       console.log(`${p.name} -> ${assets[p.name]}`)
     }
   } catch (err) {
-    console.error(err.message)
-    if (err.status === 401 || err.status === 403) {
-      // The key can't upload assets yet. The game still works, with boxes in place of these shapes.
-      console.log(`::warning title=3D shapes not uploaded::The Open Cloud key needs Assets read and write to upload the models (${done} of ${todo.length} uploaded).`)
-      process.exit(0)
-    }
-    process.exit(1)
+    // Never stops the publish: the game draws a box for each shape not uploaded, and the next
+    // run tries again.
+    const why = err.status === 401 || err.status === 403 ? 'The Open Cloud key needs Assets read and write to upload the models' : err.message
+    console.log(`::warning title=3D shapes not all uploaded::${why} (${done} of ${todo.length} uploaded).`)
+    process.exit(0)
   }
 }
 // Drop ids of packs no model uses any more.

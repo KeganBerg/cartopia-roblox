@@ -2,13 +2,15 @@
 #   - a push to this repo's main branch
 #   - a check of the web game every 15 minutes, which publishes only if its game data changed
 #   - a manual run from the Actions tab
-# Each run converts the web game's src/game code to Luau (tools/transpile), re-records the golden
+# Each run converts the web game's src/game code to Luau (tools/transpile) and its 3D models to
+# Roblox parts and meshes (tools/models, uploading new meshes), re-records the golden
 # data the tests compare against, runs the tests, builds the place with Rojo
 # and publishes it with Roblox Open Cloud. A failing test stops the publish, so the live game never
 # gets rules that disagree with the web game.
 #
 # Needs, under Settings > Secrets and variables > Actions:
-#   secret   ROBLOX_API_KEY      Open Cloud key with universe-places:write on this experience
+#   secret   ROBLOX_API_KEY      Open Cloud key with universe-places:write on this experience, and
+#                                Assets read and write so the 3D shapes can be uploaded
 #   variables ROBLOX_UNIVERSE_ID / ROBLOX_PLACE_ID only to override the ids below
 name: Publish to Roblox
 
@@ -53,6 +55,22 @@ jobs:
           node tools/gen-golden.mjs web
           node tools/gen-store-golden.mjs web
 
+      - name: Convert the web game's 3D models (buildings, cars, street pieces)
+        run: |
+          npm ci --prefix tools/models
+          node tools/models/build.mjs web
+
+      - name: Upload new 3D shapes to Roblox
+        if: env.CAN_PUBLISH == 'true'
+        env:
+          API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}
+        run: |
+          # Uploads only shapes not in tools/models/assets.json yet, then bakes their ids into Meshes.luau.
+          # A key without Assets permission leaves a warning and the game draws boxes in their place.
+          node tools/models/upload.mjs
+          node tools/models/build.mjs --json build/models.json
+
       - name: Install Luau 0.700 (newer releases flag type errors in the port)
         run: |
           curl -sSL -o luau.zip https://github.com/luau-lang/luau/releases/download/0.700/luau-ubuntu.zip
@@ -62,7 +80,8 @@ jobs:
       - name: See whether the web game changed
         id: diff
         run: |
-          git add src/shared/Game src/shared/RaceFloors.luau tests/Golden.luau tests/StoreGolden.luau
+          git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models tests/Golden.luau tests/StoreGolden.luau
+          if [ -f tools/models/assets.json ]; then git add tools/models/assets.json; fi
           if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi
           # A scheduled check publishes only when something is new: a web game change, or a commit
           # that never made it live (the "published" tag marks the last commit that did).

@@ -109,6 +109,10 @@ function quat([X, Y, Z]) {
 // ---------------------------------------------------------------------------------------------
 // Looks: colour, see-through, material and glow
 
+// Base colours of the web game's painted ground textures (textures.ts), drawn in Roblox with the
+// matching material so paving and asphalt keep some of their grain.
+const TEXTURED = { '#eadfc8': 'Pavement', '#9ba1a8': 'Asphalt' }
+
 function lookKey(look, paint) {
   const c = look.c
   const transparency = Math.round((1 - look.o) * 100) / 100
@@ -116,7 +120,10 @@ function lookKey(look, paint) {
   let material = 'SmoothPlastic'
   if (look.e && look.e !== '#000000') material = 'Neon'
   else if (transparency > 0.05 && (look.rough ?? 1) < 0.35) material = 'Glass'
-  else if ((look.met ?? 0) > 0.6) material = 'Metal'
+  // (The baked vertex-colour material the web game uses for kit pieces and plants reports metalness
+  // 1 with roughness 1; that's not metal.)
+  else if ((look.met ?? 0) > 0.6 && (look.rough ?? 1) < 0.8) material = 'Metal'
+  else if (TEXTURED[c]) material = TEXTURED[c]
   const color = material === 'Neon' && look.e ? look.e : c
   return { color, transparency, material, text: look.text ?? null, paint: !!paint }
 }
@@ -265,6 +272,32 @@ export function glb(meshes) {
 // ---------------------------------------------------------------------------------------------
 // Converting
 
+// Whether a geometry's vertices are still the shape its parameters describe. The web game often
+// clones a BoxGeometry or SphereGeometry and bakes a move or scale into its vertices (PropKit,
+// merged parts); the clone keeps its type and parameters, so trust those only when the vertices agree.
+const pristineCache = new WeakMap()
+function pristine(geo) {
+  if (pristineCache.has(geo)) return pristineCache.get(geo)
+  const P = geo.params
+  const want = {
+    BoxGeometry: () => [P.width, P.height, P.depth],
+    PlaneGeometry: () => [P.width, P.height, 0],
+    CylinderGeometry: () => [2 * Math.max(P.radiusTop, P.radiusBottom), P.height, 2 * Math.max(P.radiusTop, P.radiusBottom)],
+    CircleGeometry: () => [2 * P.radius, 2 * P.radius, 0],
+    SphereGeometry: () => [2 * P.radius, 2 * P.radius, 2 * P.radius],
+  }[geo.type]?.()
+  let ok = false
+  if (want && geo.pos.length) {
+    const b = bounds(geo.pos)
+    const big = Math.max(...want)
+    // Round shapes with an odd number of sides fall a little short of their radius one way.
+    const slack = geo.type === 'BoxGeometry' || geo.type === 'PlaneGeometry' ? 2e-3 : 0.04
+    ok = b.c.every((c) => Math.abs(c) < 0.02 * big + 1e-4) && b.s.every((x, k) => Math.abs(x - want[k]) <= slack * big + 1e-4)
+  }
+  pristineCache.set(geo, ok)
+  return ok
+}
+
 export function convert(data) {
   const { geos, models } = data
   const looks = []
@@ -300,7 +333,7 @@ export function convert(data) {
         parts.push([kind, ...p.map((x) => x * SCALE), ...q, ...size.map((x) => Math.max(THIN, x * SCALE)), look, ...(extra ? [extra] : [])])
         stats.parts++
       }
-      if (T && !T.mirrored && piece.group === undefined) {
+      if (T && !T.mirrored && piece.group === undefined && pristine(geo)) {
         const [X, Y, Z] = T.axes
         const [sx, sy, sz] = T.s
         const full = (start, length) => (start ?? 0) === 0 && near(length ?? Math.PI * 2, Math.PI * 2, 1e-3)
@@ -365,7 +398,9 @@ export function convert(data) {
     return m.key
   }
 
-  return { models: out, looks, meshes, stats }
+  // The season the models were drawn in, and its ground colours, for the town's grass.
+  const ground = { season: data.season ?? 'summer', grass: data.grass ?? '#7cc54e', meadow: data.ground ?? '#5aa83a' }
+  return { models: out, looks, meshes, stats, ground }
 }
 
 function mul(a, b) {
@@ -414,6 +449,12 @@ function write(result) {
 local Catalog = {}
 
 Catalog.SCALE = ${SCALE}
+
+-- The season the web game drew these in (trees, leaves and lawn follow it), and its grass colours:
+-- grass on the town's own land, meadow beyond it.
+Catalog.SEASON = ${str(result.ground.season)}
+Catalog.GRASS = ${str(result.ground.grass)}
+Catalog.MEADOW = ${str(result.ground.meadow)}
 
 Catalog.LOOKS = {
 `
