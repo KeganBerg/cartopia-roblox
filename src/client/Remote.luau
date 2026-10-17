@@ -14,6 +14,12 @@ local townEvent = remotes:WaitForChild("Town") :: RemoteEvent
 
 local Remote = {}
 
+-- Fires after every snapshot from the server: (snap) where snap is { save, need, panel, toasts }.
+local changed = Instance.new("BindableEvent")
+Remote.changed = changed.Event
+-- The last snapshot, or nil until the town arrives.
+Remote.last = nil :: any
+
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
 -- Returns ok and the action's result (or why it was refused).
 function Remote.act(name: string, ...: any): (boolean, any)
@@ -23,9 +29,8 @@ end
 townEvent.OnClientEvent:Connect(function(snap)
 	store.useGame.getState().loadSave(snap.save)
 	store.useGame.setState({ need = snap.need, panel = snap.panel })
-	for _, text in snap.toasts do
-		print(`[Cartopia] {text}`) -- placeholder until the HUD shows toasts
-	end
+	Remote.last = snap
+	changed:Fire(snap)
 end)
 
 return Remote

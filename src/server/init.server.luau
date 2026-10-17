@@ -5,6 +5,9 @@
 -- Remotes (in ReplicatedStorage.Cartopia):
 --   Act    RemoteFunction  client -> server: (action, ...args) -> ok, result or error text
 --   Town   RemoteEvent     server -> client: { save, need, panel, toasts } after every change
+--
+-- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
+-- own models (Shared.Models), and redrawn whenever it changes.
 
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
@@ -23,6 +26,8 @@ Js.setClock(now)
 
 local Saves = require(script.Saves)
 local Towns = require(script.Towns)
+local TownView = require(script.TownView)
+local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
 local TICK = 1 -- seconds between town clock ticks, as on the web
@@ -44,16 +49,98 @@ townEvent.Name = "Town"
 townEvent.Parent = remotes
 remotes.Parent = ReplicatedStorage
 
+-- The mesh packs load first, so towns are drawn with real meshes rather than stand-in boxes.
+local meshesReady = false
+task.spawn(function()
+	Builder.loadMeshes(45)
+	-- A copy of every car and building for the client's shop pictures and placement ghost.
+	local library = Instance.new("Folder")
+	library.Name = "ModelLibrary"
+	for _, kind in { "Cars", "Buildings" } do
+		local f = Instance.new("Folder")
+		f.Name = kind
+		f.Parent = library
+	end
+	local data = require(Game.data) :: any
+	for _, car in data.CARS do
+		local m = Builder.build(car.id, Color3.fromHex(car.colors[1]))
+		if m then
+			m.Name = car.id
+			m.Parent = library.Cars
+		end
+	end
+	for _, def in data.BUILDINGS do
+		local name = Builder.buildingName(def.id, 1)
+		local m = if name then Builder.build(name) else nil
+		if m then
+			m.Name = def.id
+			m.Parent = library.Buildings
+		end
+	end
+	library.Parent = ReplicatedStorage
+	meshesReady = true
+end)
+
+local townsFolder = Instance.new("Folder")
+townsFolder.Name = "Towns"
+townsFolder.Parent = workspace
+
+-- Every town gets its own lot, in a grid LOT studs apart; the first is at the spawn.
+local LOT = 1500
+local views: { [Player]: any } = {}
+local slots: { [number]: Player } = {}
+
+local function takeSlot(player: Player): number
+	local i = 0
+	while slots[i] do
+		i += 1
+	end
+	slots[i] = player
+	return i
+end
+
+local function lotOrigin(i: number): Vector3
+	return Vector3.new((i % 4) * LOT, 0, (i // 4) * LOT)
+end
+
+-- Where a player stands in their town: the cross street in the middle of the starter town.
+local function spawnAt(player: Player)
+	local view = views[player]
+	local character = player.Character
+	if view and character then
+		character:PivotTo(CFrame.new(view:tileToWorld(11.5, 11) + Vector3.new(0, 5, 0)))
+	end
+end
+
 -- Last save sent to each player, so ticks that change nothing send nothing.
 local sent: { [Player]: string } = {}
 
 local function push(player: Player, force: boolean?)
 	local snap = towns:snapshot(player.UserId)
 	local key = HttpService:JSONEncode(snap.save)
-	if force or #snap.toasts > 0 or sent[player] ~= key then
+	if force or #snap.toasts > 0 or snap.panel ~= nil or snap.need ~= nil or sent[player] ~= key then
 		sent[player] = key
 		townEvent:FireClient(player, snap)
+		local view = views[player]
+		if view then
+			local ok, err = pcall(view.render, view, snap.save)
+			if not ok then
+				warn(`[Cartopia] drawing {player.Name}'s town: {err}`)
+			end
+		end
 	end
+end
+
+-- Clicking a building in the world taps it, like a tap on the web.
+local function tap(player: Player, uid: string)
+	if not towns:isOpen(player.UserId) then
+		return
+	end
+	local ran, err = pcall(towns.run, towns, player.UserId, "tapBuilding", uid)
+	if not ran then
+		warn(`[Cartopia] {player.Name} tapBuilding: {err}`)
+	end
+	push(player)
 end
 
 local function save(player: Player, release: boolean?)
@@ -84,7 +171,24 @@ Players.PlayerAdded:Connect(function(player)
 		return
 	end
 	towns:open(player.UserId, data)
+	local start = os.clock()
+	while not meshesReady and os.clock() - start < 45 do
+		task.wait(0.2)
+	end
+	if not player.Parent then
+		return
+	end
+	local slot = takeSlot(player)
+	views[player] = TownView.new(townsFolder, player.Name, lotOrigin(slot), player.UserId, function(uid)
+		tap(player, uid)
+	end)
+	player:SetAttribute("TownSlot", slot)
 	push(player, true)
+	spawnAt(player)
+	player.CharacterAdded:Connect(function()
+		task.wait()
+		spawnAt(player)
+	end)
 end)
 
 -- Rate limit: a burst of 20 actions, refilling 10 a second.
@@ -104,6 +208,15 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	save(player, true)
 	towns:close(player.UserId)
+	if views[player] then
+		views[player]:destroy()
+		views[player] = nil
+	end
+	for i, p in slots do
+		if p == player then
+			slots[i] = nil
+		end
+	end
 	sent[player] = nil
 	budget[player] = nil
 end)

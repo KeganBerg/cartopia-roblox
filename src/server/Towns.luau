@@ -188,20 +188,27 @@ function Towns.run(self: Towns, userId: number, name: string, ...: any): any
 	end)
 end
 
--- What the player's client needs after a change: the save, the popups the action opened, and the
--- toasts it showed (taken off the town, since the server never runs the timers that clear them).
-function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, toasts: { string } }
+-- What the player's client needs after a change: the save, the popup the action opened (panel,
+-- with the building being upgraded) or the "you need more" note (need), and the toasts it showed.
+-- Popups, notes and toasts are taken off the town once sent: the server never runs the timers or
+-- close buttons that clear them on the web, and each should show once.
+function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string } }
 	local state = assert(self.states[userId], "town not open")
 	local toasts = {}
 	for _, t in state.toasts or {} do
 		table.insert(toasts, t.text)
 	end
-	if #toasts > 0 then
-		self:_with(userId, function()
-			self.store.useGame.setState({ toasts = {} })
-		end)
+	local need, panel, upgrading = state.need, state.panel, state.upgrading
+	if #toasts > 0 or need ~= nil or panel ~= nil then
+		-- A copy without them (setState can't clear a field: nil keys don't exist in Luau tables).
+		local next = table.clone(state)
+		next.toasts = {}
+		next.need = nil
+		next.panel = nil
+		next.panelBack = {}
+		self.states[userId] = next
 	end
-	return { save = self.saveOf(self.states[userId]), need = state.need, panel = state.panel, toasts = toasts }
+	return { save = self.saveOf(self.states[userId]), need = need, panel = panel, upgrading = upgrading, toasts = toasts }
 end
 
 -- The save to write to the DataStore.

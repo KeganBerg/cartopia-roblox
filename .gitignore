@@ -4,3 +4,5 @@
 *.rbxlx.lock
 sourcemap.json
 tools/transpile/node_modules
+build/
+tools/models/node_modules
