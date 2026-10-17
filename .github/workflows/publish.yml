@@ -33,15 +33,15 @@ jobs:
       # Until the key and ids are set, runs still regenerate and test but skip the publish.
       CAN_PUBLISH: ${{ secrets.ROBLOX_API_KEY != '' && vars.ROBLOX_UNIVERSE_ID != '' && vars.ROBLOX_PLACE_ID != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check out the web game
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: KeganBerg/Cartopia
           path: web
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -51,9 +51,9 @@ jobs:
           node tools/gen-catalog.mjs web
           node tools/gen-golden.mjs web
 
-      - name: Install Luau
+      - name: Install Luau (pinned: newer releases flag type errors 0.700 accepts)
         run: |
-          curl -sSL -o luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip
+          curl -sSL -o luau.zip https://github.com/luau-lang/luau/releases/download/0.700/luau-ubuntu.zip
           unzip -q luau.zip -d "$HOME/luau" && rm luau.zip
           echo "$HOME/luau" >> "$GITHUB_PATH"
 
