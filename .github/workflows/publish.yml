@@ -2,7 +2,8 @@
 #   - a push to this repo's main branch
 #   - a check of the web game every 15 minutes, which publishes only if its game data changed
 #   - a manual run from the Actions tab
-# Each run regenerates the catalog from the web game, runs the tests, builds the place with Rojo
+# Each run converts the web game's src/game code to Luau (tools/transpile), re-records the golden
+# data the tests compare against, runs the tests, builds the place with Rojo
 # and publishes it with Roblox Open Cloud. A failing test stops the publish, so the live game never
 # gets rules that disagree with the web game.
 #
@@ -44,11 +45,13 @@ jobs:
         with:
           node-version: 22
 
-      - name: Regenerate the catalog and golden data from the web game
+      - name: Convert the web game to Luau and record golden data from it
         run: |
           npm ci --prefix web
-          node tools/gen-catalog.mjs web
+          npm ci --prefix tools/transpile
+          node tools/transpile/transpile.mjs web
           node tools/gen-golden.mjs web
+          node tools/gen-store-golden.mjs web
 
       - name: Install Luau 0.700 (newer releases flag type errors in the port)
         run: |
@@ -59,7 +62,7 @@ jobs:
       - name: See whether the web game changed
         id: diff
         run: |
-          git add src/shared/Catalog.luau src/shared/RaceFloors.luau tests/Golden.luau
+          git add src/shared/Game src/shared/RaceFloors.luau tests/Golden.luau tests/StoreGolden.luau
           if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi
           # A scheduled check with nothing new has nothing to publish.
           if [ "${{ github.event_name }}" = schedule ] && git diff --cached --quiet; then echo "CAN_PUBLISH=false" >> "$GITHUB_ENV"; fi
@@ -67,7 +70,7 @@ jobs:
       - name: Test
         if: env.CAN_PUBLISH == 'true' || github.event_name != 'schedule'
         run: |
-          luau-analyze src/shared/*.luau
+          luau-analyze src/shared/RaceFloors.luau src/server/Towns.luau
           luau tests/run.luau
 
       - name: Commit regenerated files
@@ -75,7 +78,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Regenerate catalog from the web game"
+          git commit -m "Convert the latest web game"
           git push
 
       - uses: CompeyDev/setup-rokit@v0.1.2

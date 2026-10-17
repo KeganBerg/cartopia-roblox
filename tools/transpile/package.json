@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Transpiles the web game's rules to Luau. Run npm ci here once.",
+  "dependencies": { "typescript-to-lua": "1.37.1", "typescript": "6.0.2" }
+}
