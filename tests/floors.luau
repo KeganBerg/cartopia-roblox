@@ -1,11 +1,11 @@
 --!nocheck
--- Slow check (about a minute with -O2): recomputes every referee floor in Luau and compares it with the
+-- Slow check (a few minutes with -O2): recomputes every referee floor in Luau and compares it with the
 -- table generated from the web game. Run `luau -O2 tests/floors.luau` after changing Race physics.
-local Race = require("../src/shared/Race")
+local Race = require("../src/shared/Game/race")
 local RaceFloors = require("../src/shared/RaceFloors")
 local bad = 0
 for pi = 1, Race.MAX_RACE_PI do
-	local got = Race.computeRaceFloor(pi)
+	local got = Race.raceFloor(pi)
 	if got ~= RaceFloors[pi] then
 		bad += 1
 		print(`PI {pi}: table {RaceFloors[pi]}, computed {got}`)

@@ -1,10 +1,10 @@
 --!nocheck
--- Calls the Luau ports with every input in Golden.luau and checks they answer exactly what the web
--- game does. Each adapter takes the case's args (ids, not objects) and returns the same shape the
--- generator recorded.
+-- Calls the transpiled game rules with every input in Golden.luau and checks they answer exactly
+-- what the web game does. Each adapter takes the case's args (ids, not objects), makes the same call
+-- tools/gen-golden.mjs made in JavaScript, and returns the same shape it recorded.
 
-local Data = require("../src/shared/Data")
-local Race = require("../src/shared/Race")
+local Data = require("../src/shared/Game/data")
+local Race = require("../src/shared/Game/race")
 local Golden = require("./Golden")
 local NULL = require("./Null")
 
@@ -162,7 +162,7 @@ adapters.seasonOf = Data.seasonOf
 adapters.seasonCars = Data.seasonCars
 
 function adapters.drawTasks(period, key, level, oi)
-	return Data.drawTasks(period, key, level, function(id)
+	return Data.drawTasks(if period == "daily" then Data.DAILY_TASKS else Data.WEEKLY_TASKS, key, level, function(id)
 		return table.find(OWN_SETS[oi + 1], id) ~= nil
 	end)
 end
@@ -219,10 +219,9 @@ end
 
 -- Race
 adapters.dynoPull = Race.dynoPull
-adapters.computeRaceFloor = Race.computeRaceFloor
+adapters.computeRaceFloor = Race.raceFloor
 function adapters.shiftQuality(rpm, lo, hi)
-	local q, label = Race.shiftQuality(rpm, n(lo), n(hi))
-	return { q = q, label = label }
+	return Race.shiftQuality(rpm, n(lo), n(hi))
 end
 function adapters.scriptedRace(pi, react, shiftAt, fireGear, skill)
 	fireGear, skill = n(fireGear), n(skill)
@@ -236,7 +235,7 @@ function adapters.scriptedRace(pi, react, shiftAt, fireGear, skill)
 			table.insert(calls, Race.launchRacer(r, react))
 		end
 		if r.launched and r.gear < 3 and r.rpm >= shiftAt then
-			Race.shiftRacer(r, (Race.shiftQuality(r.rpm)))
+			Race.shiftRacer(r, Race.shiftQuality(r.rpm).q)
 		end
 		if fireGear ~= nil and r.gear >= fireGear then
 			Race.fireBoost(r)
@@ -269,7 +268,7 @@ end
 -- Exact match: same numbers to the last bit, same strings, same keys. An absent Luau field matches
 -- a JavaScript null or false only where the web value is missing too.
 local function same(a, b): boolean
-	if a == b then
+	if a == b or (b == NULL and a == nil) then
 		return true
 	end
 	if type(a) ~= "table" or type(b) ~= "table" or a == NULL or b == NULL then
