@@ -1,6 +1,6 @@
 # Keeps the live Roblox game in step with both repos:
 #   - a push to this repo's main branch
-#   - a "web-updated" dispatch, sent by the web repo's notify-roblox workflow when its game rules change
+#   - a check of the web game every 15 minutes, which publishes only if its game data changed
 #   - a manual run from the Actions tab
 # Each run regenerates the catalog from the web game, runs the tests, builds the place with Rojo
 # and publishes it with Roblox Open Cloud. A failing test stops the publish, so the live game never
@@ -15,8 +15,8 @@ name: Publish to Roblox
 on:
   push:
     branches: [main]
-  repository_dispatch:
-    types: [web-updated]
+  schedule:
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -51,24 +51,32 @@ jobs:
           node tools/gen-catalog.mjs web
           node tools/gen-golden.mjs web
 
-      - name: Install Luau (pinned: newer releases flag type errors 0.700 accepts)
+      - name: Install Luau 0.700 (newer releases flag type errors in the port)
         run: |
           curl -sSL -o luau.zip https://github.com/luau-lang/luau/releases/download/0.700/luau-ubuntu.zip
           unzip -q luau.zip -d "$HOME/luau" && rm luau.zip
           echo "$HOME/luau" >> "$GITHUB_PATH"
 
+      - name: See whether the web game changed
+        id: diff
+        run: |
+          git add src/shared/Catalog.luau src/shared/RaceFloors.luau tests/Golden.luau
+          if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi
+          # A scheduled check with nothing new has nothing to publish.
+          if [ "${{ github.event_name }}" = schedule ] && git diff --cached --quiet; then echo "CAN_PUBLISH=false" >> "$GITHUB_ENV"; fi
+
       - name: Test
+        if: env.CAN_PUBLISH == 'true' || github.event_name != 'schedule'
         run: |
           luau-analyze src/shared/*.luau
           luau tests/run.luau
 
       - name: Commit regenerated files
+        if: steps.diff.outputs.changed == 'true'
         run: |
-          git add src/shared/Catalog.luau src/shared/RaceFloors.luau tests/Golden.luau
-          if git diff --cached --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Regenerate catalog from web game ${{ github.event.client_payload.sha || '' }}"
+          git commit -m "Regenerate catalog from the web game"
           git push
 
       - uses: CompeyDev/setup-rokit@v0.1.2
