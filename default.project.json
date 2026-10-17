@@ -2,6 +2,45 @@
   "name": "Cartopia",
   "tree": {
     "$className": "DataModel",
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {
+        "FilteringEnabled": true
+      },
+      "Ground": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "Locked": true,
+          "Size": [2048, 16, 2048],
+          "Position": [0, -8, 0],
+          "Color": [0.42, 0.66, 0.29],
+          "Material": "Grass",
+          "TopSurface": "Smooth",
+          "BottomSurface": "Smooth"
+        }
+      },
+      "SpawnLocation": {
+        "$className": "SpawnLocation",
+        "$properties": {
+          "Anchored": true,
+          "Size": [12, 1, 12],
+          "Position": [0, 0.5, 0],
+          "Color": [0.85, 0.85, 0.85],
+          "Material": "SmoothPlastic",
+          "TopSurface": "Smooth",
+          "Duration": 0
+        }
+      }
+    },
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "ClockTime": 14,
+        "Brightness": 2,
+        "GlobalShadows": true
+      }
+    },
     "ReplicatedStorage": {
       "Shared": { "$path": "src/shared" }
     },
