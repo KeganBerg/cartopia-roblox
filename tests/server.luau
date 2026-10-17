@@ -19,12 +19,13 @@ local function copy(v)
 	return out
 end
 local function fakeStore()
-	local data, fail = {}, 0
-	local store = { data = data }
+	local data, fail, calls = {}, 0, 0
+	local store = { data = data, message = "DataStore request was rejected" }
 	function store:UpdateAsync(key, fn)
+		calls += 1
 		if fail > 0 then
 			fail -= 1
-			error("DataStore request was rejected")
+			error(store.message)
 		end
 		local new = fn(copy(data[key]))
 		if new ~= nil then
@@ -34,6 +35,9 @@ local function fakeStore()
 	end
 	function store.failNext(n)
 		fail = n
+	end
+	function store.calls()
+		return calls
 	end
 	return store
 end
@@ -62,8 +66,9 @@ return function(test)
 		local store = fakeStore()
 		local a, b = saves(store, "A"), saves(store, "B")
 		a:load(1)
-		local ok = pcall(b.load, b, 1)
+		local ok, err = pcall(b.load, b, 1)
 		expectEq(ok, false, "B loads while A holds the lock")
+		expectEq(err.reason, "locked", "why")
 		expectEq(b:write(1, { coins = 999 }), false, "B writes without the lock")
 		a:write(1, { coins = 7 }, true)
 		expectEq(b:load(1).coins, 7, "B loads after A releases")
@@ -86,6 +91,33 @@ return function(test)
 		store.failNext(Saves.RETRIES - 1)
 		expectEq(a:load(1), nil, "load after errors")
 		expectEq(a:holds(1), true, "holds the lock")
+	end)
+
+	test("saves: a DataStore that keeps failing is a failure, not a lock", function()
+		local store = fakeStore()
+		local a = saves(store, "A")
+		store.failNext(Saves.RETRIES)
+		local ok, err = pcall(a.load, a, 1)
+		expectEq(ok, false, "load")
+		expectEq(err.reason, "failed", "why")
+	end)
+
+	test("saves: Studio without API access gives up at once", function()
+		local store = fakeStore()
+		store.message = "StudioAccessToApisNotAllowed: You must publish this place to the web to access DataStore. 403"
+		local a = saves(store, "studio")
+		store.failNext(Saves.RETRIES)
+		local ok, err = pcall(a.load, a, 1)
+		expectEq(ok, false, "load")
+		expectEq(err.reason, "off", "why")
+		expectEq(store.calls(), 1, "tries")
+		expectEq(a:holds(1), false, "holds the lock")
+	end)
+
+	test("saves: a Studio session takes back its own lock from an earlier one", function()
+		local store = fakeStore()
+		saves(store, "studio"):load(1) -- an earlier Play that stopped without saving
+		expectEq(saves(store, "studio"):load(1), nil, "next Play loads")
 	end)
 
 	local now = Js.JsDate.UTC(2026, 9, 17, 12)

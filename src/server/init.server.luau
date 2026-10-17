@@ -65,9 +65,19 @@ end
 Players.PlayerAdded:Connect(function(player)
 	local ok, data = pcall(saves.load, saves, player.UserId)
 	if not ok then
-		warn(`[Cartopia] {data}`)
-		player:Kick("Your town is still open on another server. Please try again in a minute.")
-		return
+		local failure = if type(data) == "table" then data else { reason = "failed", message = tostring(data) }
+		warn(`[Cartopia] {failure.message}`)
+		if RunService:IsStudio() and failure.reason ~= "locked" then
+			-- Testing in Studio without saves: play on a fresh town that is never written.
+			warn("[Cartopia] Saves are off, so this town won't be saved. To test saving, publish the place and turn on Game Settings > Security > Enable Studio Access to API Services.")
+			data = nil
+		elseif failure.reason == "locked" then
+			player:Kick("Your town is still open on another server. Please try again in a minute.")
+			return
+		else
+			player:Kick("Couldn't load your town right now. Please try again in a minute.")
+			return
+		end
 	end
 	if not player.Parent then -- left while loading: just let the lock go
 		saves:write(player.UserId, data, true)

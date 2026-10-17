@@ -47,12 +47,22 @@ local function lockedByOther(self: Saves, record: Record?): boolean
 	return lock ~= nil and lock.job ~= self.job and self.now() - lock.at < Saves.LOCK_TTL
 end
 
--- Takes the lock and returns the save (nil for a new player). Errors when another server keeps the
--- lock through every retry, or the DataStore keeps failing; the caller should kick the player
--- rather than give them a blank town that would overwrite their real one.
+-- Why a load failed: another server holds the lock, or the DataStore itself failed. "off" is a
+-- DataStore that will never answer (Studio without API access, or an unpublished place), so it
+-- isn't retried.
+export type LoadError = { reason: "locked" | "failed" | "off", message: string }
+
+local function isOff(err: string): boolean
+	return string.find(err, "API Services", 1, true) ~= nil
+		or string.find(err, "403", 1, true) ~= nil
+		or string.find(err, "must publish", 1, true) ~= nil
+end
+
+-- Takes the lock and returns the save (nil for a new player). When it can't, it errors with a
+-- LoadError, and the caller should not give the player a blank town that would overwrite theirs.
 function Saves.load(self: Saves, userId: number): any?
 	local key = keyOf(userId)
-	local lastErr = "locked by another server"
+	local failure: LoadError = { reason = "locked", message = "locked by another server" }
 	for attempt = 1, Saves.RETRIES do
 		local busy = false
 		local save: any? = nil
@@ -73,12 +83,20 @@ function Saves.load(self: Saves, userId: number): any?
 			self.held[key] = true
 			return save
 		end
-		lastErr = if ok then "locked by another server" else tostring(err)
+		if ok then
+			failure = { reason = "locked", message = `{key} is locked by another server` }
+		else
+			local message = tostring(err)
+			failure = { reason = if isOff(message) then "off" else "failed", message = `loading {key}: {message}` }
+			if failure.reason == "off" then
+				break
+			end
+		end
 		if attempt < Saves.RETRIES then
 			self.wait(Saves.RETRY_WAIT)
 		end
 	end
-	error(`could not load {key}: {lastErr}`)
+	error(failure)
 end
 
 -- Writes the save and refreshes the lock (release = true lets it go). Returns false without
