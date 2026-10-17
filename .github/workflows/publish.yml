@@ -8,8 +8,7 @@
 #
 # Needs, under Settings > Secrets and variables > Actions:
 #   secret   ROBLOX_API_KEY      Open Cloud key with universe-places:write on this experience
-#   variable ROBLOX_UNIVERSE_ID  the experience's universe id
-#   variable ROBLOX_PLACE_ID     the start place's id
+#   variables ROBLOX_UNIVERSE_ID / ROBLOX_PLACE_ID only to override the ids below
 name: Publish to Roblox
 
 on:
@@ -30,8 +29,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      # Until the key and ids are set, runs still regenerate and test but skip the publish.
-      CAN_PUBLISH: ${{ secrets.ROBLOX_API_KEY != '' && vars.ROBLOX_UNIVERSE_ID != '' && vars.ROBLOX_PLACE_ID != '' }}
+      # Until the key is set, runs still regenerate and test but skip the publish.
+      CAN_PUBLISH: ${{ secrets.ROBLOX_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -90,8 +89,8 @@ jobs:
         if: env.CAN_PUBLISH == 'true'
         env:
           API_KEY: ${{ secrets.ROBLOX_API_KEY }}
-          UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID }}
-          PLACE: ${{ vars.ROBLOX_PLACE_ID }}
+          UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}
+          PLACE: ${{ vars.ROBLOX_PLACE_ID || '82604390904451' }}
         run: |
           curl --fail-with-body -sS -X POST \
             "https://apis.roblox.com/universes/v1/$UNIVERSE/places/$PLACE/versions?versionType=Published" \
