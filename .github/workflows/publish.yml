@@ -95,8 +95,11 @@ jobs:
           UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}
           PLACE: ${{ vars.ROBLOX_PLACE_ID || '82604390904451' }}
         run: |
-          curl --fail-with-body -sS -X POST \
+          code=$(curl -sS -o response.txt -w '%{http_code}' -X POST \
             "https://apis.roblox.com/universes/v1/$UNIVERSE/places/$PLACE/versions?versionType=Published" \
             -H "x-api-key: $API_KEY" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary @Cartopia.rbxl
+            --data-binary @Cartopia.rbxl)
+          # Roblox's answer goes in an annotation, so it shows on the run page without opening logs.
+          if [ "$code" != 200 ]; then echo "::error title=Roblox refused the publish::HTTP $code $(head -c 500 response.txt)"; exit 1; fi
+          echo "::notice title=Published to Roblox::$(cat response.txt)"
