@@ -470,7 +470,13 @@ export function convert(data) {
 
   // The season the models were drawn in, and its ground colours, for the town's grass.
   const ground = { season: data.season ?? 'summer', grass: data.grass ?? '#7cc54e', meadow: data.ground ?? '#5aa83a' }
-  return { models: out, scenery, looks, meshes, stats, ground, textures: data.textures ?? [] }
+  // Where each car wears a hat: place and turn in studs, and how much the hat is scaled.
+  const hatSpots = {}
+  for (const [id, m] of Object.entries(data.hatSpots ?? {})) {
+    const T = decompose(m)
+    if (T && !T.mirrored) hatSpots[id] = [...T.p.map((x) => x * SCALE), ...quat(T.axes), T.s[1]]
+  }
+  return { models: out, scenery, looks, meshes, stats, ground, hatSpots, textures: data.textures ?? [] }
 }
 
 function mul(a, b) {
@@ -503,7 +509,8 @@ export function packs(meshes) {
     const flush = () => {
       if (!list.length) return
       const hash = createHash('sha1').update(list.map((m) => m.key).join(',')).digest('hex').slice(0, 16)
-      out.push({ name: `${owner}-${hash}`, owner, meshes: list })
+      // (A hat's colours, "hat:cap|#d32f2f,#fafafa", don't belong in a file name.)
+      out.push({ name: `${owner.replace(/[|#]/g, '_')}-${hash}`, owner, meshes: list })
       list = []
       tris = 0
     }
@@ -562,6 +569,8 @@ Catalog.LOOKS = {
     }
     return s
   }
+  cat += '}\n\n-- Where each car wears a hat ("hat:<id>" models): { x, y, z, qx, qy, qz, qw, scale } from the car\'s\n-- middle on the ground, in studs.\nCatalog.HAT_SPOTS = {\n'
+  for (const [id, s] of Object.entries(result.hatSpots ?? {})) cat += `\t[${str(id)}] = { ${s.map(num).join(', ')} },\n`
   cat += '}\n\nCatalog.MODELS = {\n' + modelList(false) + '}\n\nreturn Catalog\n'
   writeFileSync(join(OUT_DIR, 'Catalog.luau'), cat)
   // The countryside, apart so the town's own models stay quick to load. Parts are in studs from

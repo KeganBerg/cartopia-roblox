@@ -14,6 +14,7 @@ local race = require(Game.race) :: any
 local data = require(Game.data) :: any
 local DragRace = require(ReplicatedStorage.Shared.DragRace)
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
+local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local TownCamera = require(script.Parent.TownCamera)
@@ -180,9 +181,10 @@ local function buildStrip(track: number): Model
 end
 
 -- A car on the strip, with its boost flame and wheelspin smoke.
-local function placeCar(model: string, job: Paint.Job, x: number, parent: Instance): (Model, BasePart, ParticleEmitter)
+local function placeCar(model: string, job: Paint.Job, hat: any, x: number, parent: Instance): (Model, BasePart, ParticleEmitter)
 	local m = library("Cars", model) or Instance.new("Model")
 	Paint.apply(m, job, library("Stripes", model))
+	Paint.wearHat(m, model, hat, Builder.build)
 	m.Parent = parent
 	local flame = part({ Name = "Flame", Size = Vector3.new(2.2, 1.2, 4), Color = hex("#ff9100"), Material = Enum.Material.Neon, Transparency = 1 }, parent)
 	local smokeAt = part({ Name = "Smoke", Size = Vector3.new(1, 1, 1), Transparency = 1 }, parent)
@@ -220,8 +222,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 	local carsFolder = Instance.new("Folder")
 	carsFolder.Name = "RaceCars"
 	carsFolder.Parent = world
-	local meModel, meFlame, meSmoke = placeCar(car.model, Paint.jobOf(car), LANE, carsFolder)
-	local themModel, themFlame, themSmoke = placeCar(rival.model, { color = rival.color }, -LANE, carsFolder)
+	local meModel, meFlame, meSmoke = placeCar(car.model, Paint.jobOf(car), car.hat, LANE, carsFolder)
+	local themModel, themFlame, themSmoke = placeCar(rival.model, { color = rival.color }, nil, -LANE, carsFolder)
 	local lamps = {}
 	for _, d in (world:FindFirstChild("Tree") :: Model):GetChildren() do
 		local i = d:GetAttribute("Lamp")

@@ -3,6 +3,9 @@
 -- is drawn in, and racing stripes laid over the body. Used for town cars, the drag strip and the
 -- garage's turntable alike, so a paint job looks the same everywhere.
 
+local Catalog = require(script.Parent.Catalog)
+local hats = require(script.Parent.Parent.Game.hats) :: any
+
 local Paint = {}
 
 local LIFT = 0.3
@@ -76,6 +79,45 @@ function Paint.apply(model: Model, job: Job, stripes: Model?)
 		end
 		s.Parent = model
 	end
+end
+
+-- The model name of a hat in its colours ("hat:cap|#d32f2f,#fafafa", as build.mjs names them), or
+-- nil for no hat.
+function Paint.hatName(hat: any): string?
+	local fit = hats.cleanHat(hat)
+	if not fit then
+		return nil
+	end
+	return `hat:{fit.id}|{table.concat(hats.hatPaint(fit), ",")}`
+end
+
+-- Puts a hat on a car (CarModel's hatSpot: on the roof, scaled to the car), taking off any it
+-- had. `build` makes a model by name (Builder.build); nil `hat` just takes the old one off.
+function Paint.wearHat(model: Model, carId: string, hat: any, build: (string) -> Model?)
+	local old = model:FindFirstChild("Hat")
+	if old then
+		old:Destroy()
+	end
+	local name = Paint.hatName(hat)
+	local spot = Catalog.HAT_SPOTS[carId]
+	if not name or not spot then
+		return
+	end
+	local h = build(name) or build(`hat:{hats.cleanHat(hat).id}|{table.concat(hats.hatPaint({ id = hats.cleanHat(hat).id }), ",")}`)
+	if not h then
+		return
+	end
+	h.Name = "Hat"
+	local at = model:GetPivot() * CFrame.new(spot[1], spot[2], spot[3], spot[4], spot[5], spot[6], spot[7])
+	local s = spot[8]
+	for _, d in h:GetDescendants() do
+		if d:IsA("BasePart") then
+			local cf = d.CFrame
+			d.Size *= s
+			d.CFrame = at * (cf - cf.Position + cf.Position * s)
+		end
+	end
+	h.Parent = model
 end
 
 return Paint
