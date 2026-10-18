@@ -205,6 +205,20 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 		return { { userId = 2, name = "Mika", here = true }, { userId = 3, name = "Juno" } }
 	end,
 })
+-- The kart desk, as init.server.luau makes it.
+local karts = emu.require(SSS.Server.Karts).new(towns, {
+	store = store,
+	data = emu.require(G.data),
+	kart = emu.require(G.kart),
+	gpBeat = emu.require(G.gpBeat),
+	raceCar = emu.require(G.raceCar),
+	fairRace = emu.require(G.fairRace),
+	boosts = emu.require(G.boosts),
+	random = races.mods.random,
+	clock = function()
+		return raceClock
+	end,
+})
 do
 	local g = races.mods.ghosts
 	g:card(2, { car = "Pip", model = "pip", color = "#1e88e5", pi = 14, town = "Gearville" })
@@ -334,6 +348,10 @@ local function raceDesk(op, arg)
 			return races:start(1, arg.mode, arg.which)
 		elseif op == "finish" then
 			return races:finish(1, arg)
+		elseif op == "kartStart" and type(arg) == "table" then
+			return karts:start(1, arg.kind, arg.which)
+		elseif op == "kartFinish" then
+			return karts:finish(1, arg)
 		end
 		return nil, "not a race"
 	end)
@@ -854,7 +872,8 @@ local function shot(name, world, w, h)
 	local parts = {}
 	if world then
 		for _, d in world:GetDescendants() do
-			-- An invisible part still shows the words on its SurfaceGui (the Daily Spin's amounts).
+			-- An invisible part still shows the words on its SurfaceGui (the Daily Spin's amounts, a
+			-- kart circuit's crowds).
 			if d:IsA("BasePart") and (d.Transparency < 1 or d:FindFirstChildOfClass("SurfaceGui")) then
 				table.insert(parts, Gui.partOf(d))
 			end
@@ -2275,6 +2294,241 @@ print(`class cups won: {(function()
 	return n
 end)()}`)
 
+-- Kart races (client/KartRun): a Grand Prix round from the Grand Prix page, driven on the AI's own
+-- line (the web's ?autopilot) until the podium, then Bumper Blast from the front page's button,
+-- then a custom race's card.
+local KartRun = emu.require(client.KartRun)
+-- Parts per circuit (each track both ways round), kept low enough for phones.
+do
+	local KartWorld = emu.require(client.KartWorld)
+	local Kt = emu.require(G.kart)
+	local most = 0
+	for _, def in Kt.TRACKS do
+		for _, rev in { false, true } do
+			local m = KartWorld.circuit(Kt.buildTrack(def, rev))
+			local n, by = 0, {}
+			for _, d in m:GetDescendants() do
+				if d:IsA("BasePart") then
+					n += 1
+					-- Parts of a model (a shop, a tree) count under the model's name.
+					local top = d
+					while top.Parent ~= m do
+						top = top.Parent
+					end
+					local key = if top:IsA("Model") and top.Name ~= "Gantry" then `{top.Name}*` else d.Name
+					by[key] = (by[key] or 0) + 1
+				end
+			end
+			local top = {}
+			for k, v in by do
+				table.insert(top, { k, v })
+			end
+			table.sort(top, function(a, b)
+				return a[2] > b[2]
+			end)
+			local parts = {}
+			for i = 1, math.min(16, #top) do
+				table.insert(parts, `{top[i][1]} {top[i][2]}`)
+			end
+			print(`kart circuit {def.id}{if rev then " reversed" else ""}: {n} parts ({table.concat(parts, ", ")})`)
+			most = math.max(most, n)
+		end
+	end
+	print(`kart circuits: at most {most} parts`)
+	assert(most <= 3000, `a kart circuit has {most} parts (phones want 3000 or fewer)`)
+end
+local kartMost, kartRaceMost, kartPeak = {}, {}, {}
+-- The sounds a kart race plays (Sfx.play by name), counted.
+local KartSfx = emu.require(client.Sounds.Sfx)
+local kartHeard = {}
+do
+	local play = KartSfx.play
+	KartSfx.play = function(name, ...)
+		kartHeard[name] = (kartHeard[name] or 0) + 1
+		return play(name, ...)
+	end
+end
+local function runKart(tag, shotAt, start)
+	topUp()
+	hud.ctx.close()
+	renderSteps = {}
+	calls = {}
+	handlerErrors = {}
+	table.clear(kartHeard)
+	start()
+	local screen = raceScreen()
+	assert(screen, `{tag}: no kart race screen ({table.concat(calls, ", ")}) {table.concat(handlerErrors, "; ")}`)
+	KartRun.autopilot = true
+	local frames, podium = 0, nil
+	local DT = 1 / 20
+	while frames < 200 / DT do
+		frames += 1
+		raceClock += DT
+		local step = renderSteps.KartRun
+		if not step then
+			break
+		end
+		step(DT)
+		Emu.resumeWaits()
+		-- Parts in the circuit as the race goes round (shops and trees fill in near the camera).
+		if frames % 40 == 0 then
+			local c = game.Workspace:FindFirstChild("KartCircuit")
+			local n, race, by = 0, 0, {}
+			for _, d in if c then c:GetDescendants() else {} do
+				if d:IsA("BasePart") then
+					n += 1
+					if d:FindFirstAncestor("KartRace") then
+						race += 1
+					else
+						local m = d:FindFirstAncestorWhichIsA("Model")
+						local key = if m and m ~= c then `{m.Name}*` else d.Name
+						by[key] = (by[key] or 0) + 1
+					end
+				end
+			end
+			if n - race > (kartMost[tag] or 0) then
+				local top = {}
+				for k, v in by do
+					table.insert(top, { k, v })
+				end
+				table.sort(top, function(a, b)
+					return a[2] > b[2]
+				end)
+				local list = {}
+				for i = 1, math.min(10, #top) do
+					table.insert(list, `{top[i][1]} {top[i][2]}`)
+				end
+				kartPeak[tag] = `{string.format("%.0f", frames * DT)}s: {table.concat(list, ", ")}`
+			end
+			kartMost[tag] = math.max(kartMost[tag] or 0, n - race)
+			kartRaceMost[tag] = math.max(kartRaceMost[tag] or 0, race)
+		end
+		if shotAt[frames] then
+			shot(`{tag}-{frames}`, game.Workspace:FindFirstChild("KartCircuit"))
+		end
+		podium = find(screen, function(d)
+			return d.Name == "Podium"
+		end)
+		if podium then
+			-- Half a second more, so the podium has the server's answer.
+			for _ = 1, 12 do
+				raceClock += DT
+				renderSteps.KartRun(DT)
+				Emu.resumeWaits()
+			end
+			podium = find(screen, function(d)
+				return d.Name == "Podium"
+			end)
+			shot(`{tag}-result`, game.Workspace:FindFirstChild("KartCircuit"))
+			break
+		end
+	end
+	KartRun.autopilot = false
+	print(`{tag}: {frames} frames ({string.format("%.1f", frames * DT)}s); podium: {cardText(podium)}`)
+	print(`{tag}: at most {kartMost[tag]} circuit parts and {kartRaceMost[tag]} kart and effect parts during the race (most at {kartPeak[tag]})`)
+	assert(kartMost[tag] <= 3000, `{tag}: {kartMost[tag]} circuit parts during the race (phones want 3000 or fewer)`)
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	assert(podium, `{tag}: the race never reached the podium`)
+	local heard = {}
+	for name, n in kartHeard do
+		table.insert(heard, `{name} ×{n}`)
+	end
+	table.sort(heard)
+	print(`{tag} sounds: {table.concat(heard, ", ")}`)
+	assert(kartHeard.countdown == 5 and kartHeard["countdown-go"] == 1, `{tag}: the start lights weren't heard`)
+	assert((kartHeard.win or 0) + (kartHeard.lose or 0) == 1, `{tag}: no win or lose sound at the line`)
+	assert((kartHeard["arcade-ding"] or 0) >= 2, `{tag}: the laps weren't heard`)
+	assert(#handlerErrors == 0, `{tag}: {table.concat(handlerErrors, "; ")}`)
+	for _, c in calls do
+		assert(c:sub(1, 2) == "ok", `{tag}: {c}`)
+	end
+	return podium
+end
+-- The Rookie Cup needs level 2 and three cars.
+towns:_with(1, function(s)
+	local cars = table.clone(s.cars)
+	while #cars < 3 do
+		table.insert(cars, { uid = `kart{#cars}`, model = "pip", color = "#ff0000", upgrades = { engine = 0, turbo = 0, tires = 0, weight = 0 } })
+	end
+	store.useGame.setState({ level = math.max(store.useGame.getState().level, 2), cars = cars })
+end)
+local gpBefore = towns:snapshot(1).save
+runKart("kart-gp", { [40] = true, [700] = true }, function()
+	hud.openPanel("race", "hub")
+	local tile = find(hud.gui, function(d)
+		return d:IsA("TextButton") and (d.Name == "GrandPrix" or (d.Parent and d.Parent.Name == "GrandPrix"))
+	end)
+	assert(tile, "no Grand Prix tile")
+	signalFor(tile, "Activated"):Fire()
+	Emu.resumeWaits()
+	if SHOTS then
+		shot("page-gp", nil)
+	end
+	local go = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil and d:FindFirstAncestor("rookie") ~= nil
+	end)
+	assert(go, `no race button for the Rookie Cup ({table.concat(calls, ", ")})`)
+	signalFor(go, "Activated"):Fire()
+end)
+local gpAfter = towns:snapshot(1).save
+print(`kart gp: coins {gpBefore.coins} -> {gpAfter.coins}, fuel {gpBefore.fuel} -> {gpAfter.fuel}, rookie round {((gpAfter.gp or {}).rookie or {}).round or 0}`)
+assert(gpAfter.coins > gpBefore.coins, "the Grand Prix round paid nothing")
+local kartBack = cardButton("Back")
+assert(kartBack, "no Back on the podium")
+signalFor(kartBack, "Activated"):Fire()
+Emu.resumeWaits()
+assert(not raceScreen(), "the kart race screen stayed up")
+local blastBefore = towns:snapshot(1).save.coins
+runKart("kart-blast", { [40] = true }, function()
+	hud.openPanel("race", "hub")
+	local m = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "Bumper Blast", 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+	end)
+	assert(m, "no Bumper Blast button on the front page")
+	signalFor(m, "Activated"):Fire()
+end)
+print(`kart blast: coins {blastBefore} -> {towns:snapshot(1).save.coins}`)
+assert(cardButton("Again"), "no ↻ Again on the Bumper Blast podium")
+closeRace()
+-- A custom race's card: pick the canyon, reversed, with max boost, and start it.
+topUp()
+hud.ctx.close()
+hud.openPanel("race", "hub")
+local customMini = find(hud.gui, function(d)
+	return d:IsA("TextButton") and string.find(label(d), "Custom race", 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+end)
+assert(customMini, "no Custom race button on the front page")
+signalFor(customMini, "Activated"):Fire()
+if SHOTS then
+	shot("page-custom", nil)
+end
+renderSteps = {}
+calls = {}
+for _, pick in { "Canyon", "Reversed", "Max boost" } do
+	local customCard = hud.gui:FindFirstChild("CustomRace", true)
+	assert(customCard, "no custom race card")
+	local b = find(customCard, function(d)
+		if not d:IsA("TextButton") then
+			return false
+		end
+		for _, l in d:GetChildren() do
+			if l:IsA("TextLabel") and string.find(l.Text, pick, 1, true) then
+				return true
+			end
+		end
+		return false
+	end)
+	assert(b, `no {pick} on the custom race card`)
+	signalFor(b, "Activated"):Fire()
+end
+signalFor(hud.gui:FindFirstChild("CustomRace", true):FindFirstChild("Race", true), "Activated"):Fire()
+local customScreen = raceScreen()
+local customTitle = customScreen and customScreen:FindFirstChild("Title")
+print(`kart custom: {customTitle and customTitle.Text or "no race"} ({table.concat(calls, ", ")})`)
+assert(customTitle and customTitle.Text == "🛠️ Custom · 🏜️ Canyon ↺", "the custom race didn't start as picked")
+signalFor(customScreen:FindFirstChild("Leave"):FindFirstChild("Face"), "Activated"):Fire()
+Emu.resumeWaits()
+assert(not raceScreen(), "the custom race didn't close")
 -- The Daily Spin: Spin, run the wheel round until it lands, and see the prize was paid once.
 do
 	closeRace()
