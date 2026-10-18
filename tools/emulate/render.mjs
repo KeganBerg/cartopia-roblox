@@ -184,8 +184,19 @@ for (const p of parts) {
     const t = TEX[p.texture.image].clone()
     t.repeat.set(p.size[0] / p.texture.span[0], p.size[2] / p.texture.span[1])
     t.offset.set(p.texture.offset[0] / p.texture.span[0], p.texture.offset[1] / p.texture.span[1])
-    const top = mat.clone(); top.map = t; top.color.set('#ffffff')
+    const top = mat.clone(); top.map = t; top.color.set('#' + (p.texture.color || 'ffffff'))
     mats = [mat, mat, top, mat, mat, mat]
+    // A see-through texture (snow lying over the lawn): the part's own colour shows through it.
+    const tt = p.texture.transparency || 0
+    if (tt > 0) {
+      top.color.lerp(new T.Color('#' + p.color), tt)
+      top.map = null
+      const tinted = mat.clone(); tinted.map = t; tinted.color.set('#' + (p.texture.color || 'ffffff')); tinted.transparent = true; tinted.opacity = 1 - tt; tinted.polygonOffset = true; tinted.polygonOffsetFactor = -1
+      const over = new T.Mesh(new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0.5, 0), tinted)
+      over.userData.texturedTop = true
+      mats.overlay = over
+      top.color.set('#' + p.color)
+    }
   }
   const mesh = new T.Mesh(geo, mats)
   const [x, y, z, a, b, c, d, e, f, g, h, i] = p.cf
@@ -195,6 +206,12 @@ for (const p of parts) {
   // A real MeshPart from an uploaded pack: Roblox's glTF import turned its geometry half round.
   if (p.imported) mesh.matrix.multiply(new T.Matrix4().makeRotationY(Math.PI))
   mesh.matrix.multiply(new T.Matrix4().makeScale(...scale))
+  if (Array.isArray(mats) && mats.overlay) {
+    const o = mats.overlay
+    o.matrixAutoUpdate = false
+    o.matrix.copy(mesh.matrix)
+    scene.add(o)
+  }
   mesh.castShadow = p.transparency < 0.5 && Math.max(...p.size) < 500
   mesh.receiveShadow = true
   scene.add(mesh)

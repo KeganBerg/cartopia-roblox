@@ -9,7 +9,8 @@
 --     view, so the weather always fills the screen (Precip);
 --   - lightning in storms: a jagged bolt of beams somewhere in view, then weather.strike() so a
 --     sound can rumble (onThunder);
---   - a rainbow over the town after a shower, while the streets are still wet.
+--   - a rainbow over the town after a shower, while the streets are still wet;
+--   - the ground: roads dark and wet in the rain, lawns and lots white and roads slushy in snow.
 --
 -- DayNight owns the light and sets it a few times a second; this nudges what it set, every frame,
 -- from what DayNight last wrote (see `nudge`), so the two never fight or compound. The skybox and
@@ -556,7 +557,7 @@ local function rainbow(k: Kit, o: number, cam: Camera, origin: Vector3)
 	local cf = cam.CFrame
 	local up, right, fwd = cf.UpVector, cf.RightVector, cf.LookVector
 	-- Pulled towards the camera so it hangs over the roofs, and shrunk to look the same size.
-	local d = (cf.Position - origin):Dot(fwd)
+	local d = (origin - cf.Position):Dot(fwd)
 	local pull = math.min(d * 0.4, 200)
 	local s = (d - pull) / math.max(d, 1)
 	local feet = origin - up * BOW_RADIUS * 0.25 * s - fwd * pull
@@ -601,6 +602,108 @@ local function townOrigin(): Vector3
 	return Vector3.zero
 end
 
+-- ---------- The ground (weatherLook.ts wetRoad and weatherBaked) ----------
+-- Rain darkens what faces up (roads by a third, lawns and lots a little); snow lies white on the
+-- lawns and lots and in grey slush on the roads. No new parts: the town's own ground pieces
+-- (TownView's Turf, Lot and Asphalt) are recoloured, each keeping what it was in attributes so
+-- it always goes back to its own colour. The meadows round the town stay as they are, as on the web.
+local SNOW_COAT = Color3.new(0.93, 0.95, 0.98)
+local SLUSH = Color3.new(0.78, 0.82, 0.86)
+local groundParts: { BasePart } = {}
+local groundScan = -math.huge
+local groundWas = { wet = 0, cover = 0 }
+
+local function groundLook(p: BasePart, wet: number, cover: number)
+	local base = p:GetAttribute("WeatherColor")
+	if typeof(base) ~= "Color3" then
+		base = p.Color
+		p:SetAttribute("WeatherColor", base)
+	end
+	local tex = p:FindFirstChild("Ground")
+	if tex and tex:IsA("Texture") and tex:GetAttribute("WeatherT") == nil then
+		tex:SetAttribute("WeatherT", tex.Transparency)
+	end
+	if p.Name == "Asphalt" then
+		-- Dark and wet, then grey slush in patches (about half the road on average).
+		local c = scale(base :: Color3, 1 - 0.32 * wet)
+		p.Color = c:Lerp(SLUSH, cover * 0.6 * 0.85)
+	else
+		-- Facing up: a glossy film in the rain, a white coat in the snow.
+		local snowy = math.min(1, cover * 1.1)
+		p.Color = scale(base :: Color3, 1 - 0.12 * wet):Lerp(SNOW_COAT, snowy)
+		if tex and tex:IsA("Texture") then
+			local t0 = tex:GetAttribute("WeatherT") :: number
+			tex.Transparency = t0 + (1 - t0) * snowy * 0.9
+			tex.Color3 = scale(Color3.new(1, 1, 1), 1 - 0.12 * wet)
+		end
+	end
+end
+
+local function groundRestore()
+	for _, p in groundParts do
+		local base = p:GetAttribute("WeatherColor")
+		if typeof(base) == "Color3" then
+			p.Color = base
+		end
+		p:SetAttribute("WeatherColor", nil)
+		local tex = p:FindFirstChild("Ground")
+		if tex and tex:IsA("Texture") then
+			local t0 = tex:GetAttribute("WeatherT")
+			if type(t0) == "number" then
+				tex.Transparency = t0
+			end
+			tex.Color3 = Color3.new(1, 1, 1)
+			tex:SetAttribute("WeatherT", nil)
+		end
+	end
+	groundParts = {}
+	groundScan = -math.huge
+end
+
+local GROUND_NAMES = { Turf = true, Lot = true, Asphalt = true }
+local function ground(w: any, t: number)
+	local wet = math.clamp(w.wet or 0, 0, 1)
+	local cover = math.clamp(w.cover or 0, 0, 1)
+	if wet < 0.005 and cover < 0.005 then
+		if #groundParts > 0 then
+			groundRestore()
+		end
+		groundWas.wet, groundWas.cover = 0, 0
+		return
+	end
+	-- New plots and roads turn up now and then: look again every few seconds.
+	local fresh = false
+	if t - groundScan > 4 then
+		groundScan = t
+		local towns = workspace:FindFirstChild("Towns")
+		local seen = {}
+		for _, p in groundParts do
+			seen[p] = true
+		end
+		if towns then
+			for _, d in towns:GetDescendants() do
+				if GROUND_NAMES[d.Name] and d:IsA("BasePart") and not seen[d] then
+					table.insert(groundParts, d)
+					fresh = true
+				end
+			end
+		end
+	end
+	-- Only when the weather has moved on enough to see (it changes over minutes).
+	if not fresh and math.abs(wet - groundWas.wet) < 0.01 and math.abs(cover - groundWas.cover) < 0.01 then
+		return
+	end
+	groundWas.wet, groundWas.cover = wet, cover
+	local keep = {}
+	for _, p in groundParts do
+		if p.Parent then
+			groundLook(p, wet, cover)
+			table.insert(keep, p)
+		end
+	end
+	groundParts = keep
+end
+
 -- What the last step drew, for the emulator's pictures and tests.
 TownWeather.last = nil :: any
 
@@ -615,6 +718,8 @@ function TownWeather.step(now: number, t: number)
 		if active then
 			active = false
 			release()
+			groundRestore()
+			groundWas.wet, groundWas.cover = 0, 0
 			if kit then
 				kit.folder.Parent = nil
 			end
@@ -636,6 +741,7 @@ function TownWeather.step(now: number, t: number)
 	light(w, night, fx)
 	precip(k, w, night, fr, if small(cam) then SIZES.small else SIZES.big)
 	rainbow(k, fx.rainbow, cam, townOrigin())
+	ground(w, t)
 	TownWeather.last = { weather = w, night = night, fx = fx, frame = fr }
 end
 

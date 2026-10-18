@@ -4,7 +4,8 @@
 -- the town clock, which DayNight follows), a ten-second build-up, then the drop: the screen edges
 -- glow in a new colour on every beat, lasers sweep over the town, the drop flashes, the RAVE MODE
 -- title lands, a tag in the HUD counts down, and every neon light in town (street lamps, signs,
--- the club's windows) flashes the club's colour on the kick, back to normal afterwards.
+-- the club's windows) flashes the club's colour on the kick, back to normal afterwards. The HUD
+-- dances too (theme.css :root.techno): buttons bounce and rock, the nav tiles change colour.
 --
 -- It comes on:
 --   - when the DJ (Kegan's account: the server checks, see server/Rave.luau) presses the Neon
@@ -146,6 +147,17 @@ type Layer = {
 }
 local layer: Layer? = nil
 
+-- Colours a frame whose look comes from a UIGradient (its transparency fade): the gradient
+-- carries the colour, so it reads the same wherever the gradient's colour is taken as is.
+local function tint(f: Frame, c: Color3)
+	local grad = f:FindFirstChildOfClass("UIGradient")
+	if grad then
+		grad.Color = ColorSequence.new(c)
+	else
+		f.BackgroundColor3 = c
+	end
+end
+
 local function edge(parent: Instance, name: string, pos: UDim2, size: UDim2, anchor: Vector2, rot: number): Frame
 	return Ui.new("Frame", { Name = name, AnchorPoint = anchor, Position = pos, Size = size, BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1), Parent = parent }, {
 		Ui.new("UIGradient", { Rotation = rot, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.45, 0.6), NumberSequenceKeypoint.new(1, 1) }) }),
@@ -174,7 +186,7 @@ local function buildLayer(): Layer
 	for _, s in sides do
 		local wide = s[5] :: boolean
 		local d = edge(gui, `Dark{s[1]}`, s[2] :: UDim2, if wide then UDim2.new(1, 0, 0.3, 0) else UDim2.new(0.25, 0, 1, 0), s[3] :: Vector2, s[4] :: number)
-		d.BackgroundColor3 = Color3.fromRGB(8, 0, 30)
+		tint(d, Color3.fromRGB(8, 0, 30))
 		table.insert(dark, d)
 	end
 	for _, s in sides do
@@ -240,9 +252,10 @@ local function drawLayer(L: Layer, b: any, toDrop: number, t: number, soft: bool
 	local drop = if calmish then 0 else b.drop
 	-- Glow: inset 0 0 (50 + tk*90)px (tk*14)px, alpha .25 + tk*.4 - build*.2.
 	local thick = 50 + tk * 90 + tk * 14
-	local alpha = math.clamp(0.25 + tk * 0.4 - build * 0.2, 0, 1)
+	-- A CSS inset shadow fades out softer than a gradient strip; three quarters of it reads the same.
+	local alpha = math.clamp(0.25 + tk * 0.4 - build * 0.2, 0, 1) * 0.75
 	for i, g in L.glow do
-		g.BackgroundColor3 = c
+		tint(g, c)
 		g.BackgroundTransparency = 1 - alpha
 		g.Size = if i <= 2 then UDim2.new(1, 0, 0, thick) else UDim2.new(0, thick, 1, 0)
 	end
@@ -267,7 +280,7 @@ local function drawLayer(L: Layer, b: any, toDrop: number, t: number, soft: bool
 			l.Position = UDim2.fromOffset(mid.X, mid.Y)
 			l.Size = UDim2.fromOffset(5, len)
 			l.Rotation = ang
-			l.BackgroundColor3 = hsl(h, 0.65)
+			tint(l, hsl(h, 0.65))
 			l.BackgroundTransparency = 1 - math.clamp(la, 0, 1)
 		end
 	end
@@ -332,7 +345,8 @@ local function drawLayer(L: Layer, b: any, toDrop: number, t: number, soft: bool
 end
 
 -- ---------- The tag in the HUD (TechnoTag): an equaliser and the time to the drop, then left ----------
-type Tag = { frame: Frame, stroke: UIStroke, bars: { Frame }, left: TextLabel, name: TextLabel }
+-- Under the town's name, as the web's .hud-center .tk-tag.
+type Tag = { wrap: Frame, frame: Frame, stroke: UIStroke, bars: { Frame }, left: TextLabel, name: TextLabel }
 local tag: Tag? = nil
 local function buildTag(): Tag?
 	local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
@@ -342,7 +356,9 @@ local function buildTag(): Tag?
 		return nil
 	end
 	local w = 7 + 18 + 6 + Ui.textWidth("RAVE MODE", 13) + 6 + Ui.textWidth("DROP IN 0:00", 13) + 9 + 4
-	local frame = Ui.new("Frame", { Name = "RaveTag", LayoutOrder = -1, Size = UDim2.fromOffset(w, 22), BackgroundColor3 = Color3.new(1, 1, 1), Parent = center }, {
+	-- Its own slot in the HUD's list, with the web's 6px under it.
+	local wrap = Ui.new("Frame", { Name = "RaveTag", LayoutOrder = 2, Size = UDim2.fromOffset(w, 28), BackgroundTransparency = 1, Parent = center })
+	local frame = Ui.new("Frame", { Name = "Tag", Size = UDim2.fromOffset(w, 22), BackgroundColor3 = Color3.new(1, 1, 1), Parent = wrap }, {
 		Ui.corner(10),
 		Ui.gradient("#2a1150", "#12082b"),
 	})
@@ -353,8 +369,8 @@ local function buildTag(): Tag?
 		table.insert(bars, Ui.new("Frame", { Name = `Eq{i}`, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromOffset(7 + (i - 1) * 5, 17), Size = UDim2.fromOffset(3, 6), BorderSizePixel = 0, Parent = frame }, { Ui.corner(1) }))
 	end
 	local name = Ui.text({ Name = "Name", Text = "RAVE MODE", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(7 + 18 + 6, 0), Size = UDim2.new(0, Ui.textWidth("RAVE MODE", 13) + 2, 1, 0), Parent = frame })
-	local left = Ui.text({ Name = "Left", Text = "", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(7 + 18 + 6 + Ui.textWidth("RAVE MODE", 13) + 6, 0), Size = UDim2.new(0, Ui.textWidth("DROP IN 0:00", 13) + 4, 1, 0), Parent = frame })
-	return { frame = frame, stroke = stroke, bars = bars, left = left, name = name }
+	local left = Ui.text({ Name = "Left", Text = "", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(7 + 18 + 6 + Ui.textWidth("RAVE MODE", 13) + 8, 0), Size = UDim2.new(0, Ui.textWidth("DROP IN 0:00", 13) + 4, 1, 0), Parent = frame })
+	return { wrap = wrap, frame = frame, stroke = stroke, bars = bars, left = left, name = name }
 end
 
 local function drawTag(T: Tag, b: any, now: number, tk: number, h: number)
@@ -378,8 +394,194 @@ local function drawTag(T: Tag, b: any, now: number, tk: number, h: number)
 	Ui.setText(T.left, text)
 	T.left.TextColor3 = hsl(h, 0.75)
 	-- The tag hugs what it shows.
-	local w = 7 + 18 + 6 + Ui.textWidth("RAVE MODE", 13) + (if text ~= "" then 6 + Ui.textWidth(text, 13) else 0) + 9
+	local w = 7 + 18 + 6 + Ui.textWidth("RAVE MODE", 13) + (if text ~= "" then 8 + Ui.textWidth(text, 13) else 0) + 9
 	T.frame.Size = UDim2.fromOffset(w, 22)
+	T.wrap.Size = UDim2.fromOffset(w, 28)
+end
+
+-- ---------- The HUD dances (theme.css :root.techno) ----------
+-- Buttons and counters bounce on the kick and rock side to side, neighbours the opposite way; the
+-- nav tiles (Shop, Cars, Edit, Race, Goals, Collect all) go round the colour wheel, a new colour on
+-- every beat; the town's name takes the beat's colour. What each piece was is kept on it as
+-- attributes (RaveRot, RaveHue) so it goes back exactly afterwards; the bounce is a UIScale of
+-- its own (RaveScale). Reduced motion and Reduce flashing keep the colours and drop the movement.
+local function hudRoot(): Instance?
+	local pg = Players.LocalPlayer and Players.LocalPlayer:FindFirstChild("PlayerGui")
+	local hud = pg and pg:FindFirstChild("Cartopia")
+	return hud and hud:FindFirstChild("Root")
+end
+
+-- The pieces that bounce, in order (every other one rocks the other way).
+local function dancers(root: Instance): { GuiObject }
+	local list: { GuiObject } = {}
+	local function add(o: Instance?)
+		if o and o:IsA("GuiObject") then
+			table.insert(list, o)
+		end
+	end
+	local function kids(o: Instance?)
+		if o then
+			local k = o:GetChildren()
+			table.sort(k, function(a, b)
+				local la = if a:IsA("GuiObject") then a.LayoutOrder else 0
+				local lb = if b:IsA("GuiObject") then b.LayoutOrder else 0
+				return la < lb
+			end)
+			for _, c in k do
+				add(c)
+			end
+		end
+	end
+	local left = root:FindFirstChild("Left")
+	add(left and left:FindFirstChild("Speedo"))
+	local pills = left and left:FindFirstChild("Pills")
+	kids(pills)
+	local center = root:FindFirstChild("Center")
+	add(center and center:FindFirstChild("MyCars"))
+	local right = root:FindFirstChild("Right")
+	add(right and right:FindFirstChild("Fuel"))
+	kids(root:FindFirstChild("BottomBar"))
+	add(root:FindFirstChild("Race"))
+	add(root:FindFirstChild("Walk"))
+	local dock = root:FindFirstChild("Dock")
+	kids(dock)
+	return list
+end
+
+-- The nav tiles, whose colours go round the wheel.
+local function tiles(root: Instance): { Instance }
+	local list: { Instance } = {}
+	for _, name in { "BottomBar", "Race", "Dock" } do
+		local o = root:FindFirstChild(name)
+		if o then
+			table.insert(list, o)
+		end
+	end
+	return list
+end
+
+-- CSS hue-rotate, near enough: the colour's hue turned by deg (greys stay grey).
+local function hueTurn(c: Color3, deg: number): Color3
+	local h, s, v = c:ToHSV()
+	if s < 0.15 then
+		return c
+	end
+	return Color3.fromHSV((h + deg / 360) % 1, math.min(1, s * 1.15), v)
+end
+local function seqTurn(cs: ColorSequence, deg: number): ColorSequence
+	local keys = {}
+	for _, k in cs.Keypoints do
+		table.insert(keys, ColorSequenceKeypoint.new(k.Time, hueTurn(k.Value, deg)))
+	end
+	return ColorSequence.new(keys)
+end
+
+local hudTouched: { Instance } = {}
+local hudHue = -1
+local function hudDance(b: any, h: number, tk: number, calmish: boolean)
+	local root = hudRoot()
+	if not root then
+		return
+	end
+	local m = if calmish then 0 else b.kick
+	local drop = if calmish then 0 else b.drop
+	-- The town's name in the beat's colour.
+	local center = root:FindFirstChild("Center")
+	-- (A shadowed label: the letters are its Face, the label itself the shadow under them.)
+	local label = center and center:FindFirstChild("TownName")
+	local name = label and (label:FindFirstChild("Face") or label)
+	if name and name:IsA("TextLabel") then
+		if name:GetAttribute("RaveText") == nil then
+			name:SetAttribute("RaveText", name.TextColor3)
+			table.insert(hudTouched, name)
+		end
+		name.TextColor3 = hsl(h, 0.72)
+	end
+	-- Bounce and rock.
+	for i, o in dancers(root) do
+		if o:GetAttribute("RaveRot") == nil then
+			o:SetAttribute("RaveRot", o.Rotation)
+			table.insert(hudTouched, o)
+		end
+		local sc = o:FindFirstChild("RaveScale") :: UIScale?
+		if not sc and not o:FindFirstChildOfClass("UIScale") then
+			sc = Ui.new("UIScale", { Name = "RaveScale", Parent = o }) :: any
+		end
+		if sc then
+			sc.Scale = 1 + m * 0.07 + drop * 0.12
+		end
+		local sign = if i % 2 == 0 then -1 else 1
+		o.Rotation = (o:GetAttribute("RaveRot") :: number) + m * b.side * 2.5 * sign
+	end
+	-- The nav tiles' colours, once a beat.
+	if h ~= hudHue then
+		hudHue = h
+		for _, tile in tiles(root) do
+			for _, d in tile:GetDescendants() do
+				if d:IsA("UIGradient") then
+					local was = d:GetAttribute("RaveHue")
+					if typeof(was) ~= "ColorSequence" then
+						was = d.Color
+						d:SetAttribute("RaveHue", was)
+						table.insert(hudTouched, d)
+					end
+					d.Color = seqTurn(was :: ColorSequence, h)
+				elseif d:IsA("UIStroke") or (d:IsA("GuiObject") and not d:IsA("TextLabel")) then
+					local key = if d:IsA("UIStroke") then "Color" else "BackgroundColor3"
+					local was = d:GetAttribute("RaveHue")
+					if typeof(was) ~= "Color3" then
+						was = (d :: any)[key]
+						d:SetAttribute("RaveHue", was)
+						table.insert(hudTouched, d)
+					end
+					(d :: any)[key] = hueTurn(was :: Color3, h)
+					if d:IsA("ImageLabel") then
+						local wasImg = d:GetAttribute("RaveHueImage")
+						if typeof(wasImg) ~= "Color3" then
+							wasImg = d.ImageColor3
+							d:SetAttribute("RaveHueImage", wasImg)
+						end
+						d.ImageColor3 = hueTurn(wasImg :: Color3, h)
+					end
+				end
+			end
+		end
+	end
+end
+local function hudRestore()
+	for _, d in hudTouched do
+		local text = d:GetAttribute("RaveText")
+		if typeof(text) == "Color3" then
+			(d :: any).TextColor3 = text
+		end
+		local rot = d:GetAttribute("RaveRot")
+		if type(rot) == "number" then
+			(d :: any).Rotation = rot
+			local sc = d:FindFirstChild("RaveScale")
+			if sc then
+				sc:Destroy()
+			end
+		end
+		local was = d:GetAttribute("RaveHue")
+		if typeof(was) == "ColorSequence" then
+			(d :: any).Color = was
+		elseif typeof(was) == "Color3" then
+			if d:IsA("UIStroke") then
+				d.Color = was
+			else
+				(d :: any).BackgroundColor3 = was
+			end
+		end
+		local img = d:GetAttribute("RaveHueImage")
+		if typeof(img) == "Color3" then
+			(d :: any).ImageColor3 = img
+		end
+		for _, a in { "RaveText", "RaveRot", "RaveHue", "RaveHueImage" } do
+			d:SetAttribute(a, nil)
+		end
+	end
+	hudTouched = {}
+	hudHue = -1
 end
 
 -- ---------- The heads-up as it starts building (FlashWarning.tsx RaveHeadsUp) ----------
@@ -559,12 +761,13 @@ function Rave.step(now: number, t: number)
 				techno.stopEvent("techno")
 			end
 			restoreLights()
+			hudRestore()
 			droppedAt = nil
 			if layer then
 				layer.gui.Enabled = false
 			end
 			if tag then
-				tag.frame:Destroy()
+				tag.wrap:Destroy()
 				tag = nil
 			end
 		else
@@ -593,9 +796,11 @@ function Rave.step(now: number, t: number)
 	drawLayer(L, b, techno.technoToDrop(now), t, soft, calmish)
 	tag = tag or buildTag()
 	local tk = if soft then 0.2 + 0.12 * math.sin((b.n / 32) * math.pi) else b.kick
+	local hue = ((if soft then b.bar * 67 else b.beat * 67) % 360 + 360) % 360
 	if tag then
-		drawTag(tag, b, now, tk, ((if soft then b.bar * 67 else b.beat * 67) % 360 + 360) % 360)
+		drawTag(tag, b, now, tk, hue)
 	end
+	hudDance(b, hue, tk, calmish)
 	scan(t)
 	local n = clock.nightAmount(clock.dayPhase(now))
 	local hit = if soft then 0.25 else math.max(b.kick, b.drop)

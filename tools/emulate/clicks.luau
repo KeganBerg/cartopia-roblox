@@ -2291,7 +2291,14 @@ do
 	local cam = game.Workspace.CurrentCamera
 	cam.FieldOfView = 30
 	local dist = 800 / 30 * 10 / 2 / math.tan(math.rad(15))
-	cam.CFrame = roblox.CFrame.lookAt(roblox.Vector3.new(75, 80, 75).Unit * dist, roblox.Vector3.new(0, 0, 0))
+	do
+		-- Lune's CFrame.lookAt faces away from the target; built by hand, as Roblox's.
+		local at = roblox.Vector3.new(75, 80, 75).Unit * dist
+		local look = (roblox.Vector3.new(0, 0, 0) - at).Unit
+		local right = look:Cross(roblox.Vector3.new(0, 1, 0)).Unit
+		local up = right:Cross(look)
+		cam.CFrame = roblox.CFrame.new(at.X, at.Y, at.Z, right.X, up.X, -look.X, right.Y, up.Y, -look.Y, right.Z, up.Z, -look.Z)
+	end
 	local noon = clock.nextPhaseAt(0, NOW)
 	local function parts()
 		local n = 0
@@ -2303,6 +2310,9 @@ do
 		return n
 	end
 	local before = parts()
+	-- DayNight's own noon light, which render.mjs's default lights stand for.
+	DayNight.apply(noon)
+	local lightBase = W.lighting(game)
 	local function weatherShot(name, extraGuis)
 		if not SHOTS then
 			return
@@ -2310,6 +2320,7 @@ do
 		shot(name, view.folder)
 		local scene = serde.decode("json", fs.readFile(`build/shot-{name}.json`))
 		scene.lighting = W.lighting(game)
+		scene.lightingBase = lightBase
 		scene.effects = W.effects(game.Workspace:FindFirstChild("TownWeather"))
 		fs.writeFile(`build/shot-{name}.json`, serde.encode("json", scene))
 		if extraGuis then
@@ -2323,7 +2334,20 @@ do
 		end
 	end
 	local problems = 0
-	for _, kind in { "clear", "rain", "storm", "drizzle", "fog", "wind", "snow", "blizzard", "mist", "clearing", "heat" } do
+	-- The town's own ground pieces, which the weather recolours (and puts back).
+	local asphalt, turf
+	for _, d in townsFolder:GetDescendants() do
+		if d.Name == "Asphalt" and d:IsA("BasePart") then
+			asphalt = asphalt or d
+		elseif d.Name == "Turf" and d:IsA("BasePart") then
+			turf = turf or d
+		end
+	end
+	local asphaltWas, turfWas = asphalt and asphalt.Color, turf and turf.Color
+	local function lum(c)
+		return c.R * 0.2126 + c.G * 0.7152 + c.B * 0.0722
+	end
+	for _, kind in { "clear", "rain", "storm", "drizzle", "fog", "wind", "snow", "blizzard", "dust", "mist", "clearing", "heat" } do
 		DayNight.apply(noon)
 		TownWeather.pin(kind)
 		-- The storm's first strike lands 3 to 8 seconds in; 20 s finds it mid-flash.
@@ -2350,10 +2374,22 @@ do
 			assert(#fx.beams >= 16, "no lightning in the storm")
 		elseif kind == "clearing" then
 			assert(#fx.beams == 12, "no rainbow after the shower")
+			for _, b in fx.beams do
+				-- About as wide as the screen is tall, standing over the town.
+				assert(b.width[1] > 0 and b.width[1] < 20, `a rainbow band {b.width[1]} studs wide`)
+			end
 		elseif kind == "rain" then
 			assert((rates.Rain or 0) > 100 and (rates.Splash or 0) > 50, "no rain")
+			if asphalt then
+				assert(lum(asphalt.Color) < lum(asphaltWas) * 0.75, "the roads didn't get wet")
+				print(`weather rain: roads {asphaltWas:ToHex()} -> {asphalt.Color:ToHex()}`)
+			end
 		elseif kind == "snow" then
 			assert((rates.Snow or 0) > 50, "no snow")
+			if turf then
+				assert(lum(turf.Color) > 0.85, "no snow on the lawns")
+				print(`weather snow: lawn {turfWas:ToHex()} -> {turf.Color:ToHex()}, roads {asphalt and asphalt.Color:ToHex() or "none"}`)
+			end
 		elseif kind == "clear" then
 			assert(#fx.emitters == 0 and #fx.beams == 0, "something falls on a clear day")
 		end
@@ -2365,6 +2401,8 @@ do
 	TownWeather.pin("clear")
 	TownWeather.step(noon, 2)
 	assert(math.abs(game:GetService("Lighting").Brightness - bright) < 1e-6, "clear weather changed the light")
+	assert(not asphalt or asphalt.Color == asphaltWas, "the roads stayed wet")
+	assert(not turf or turf.Color == turfWas, "the snow stayed on the lawns")
 	print(`weather: {parts() - before} parts added, {problems} problems`)
 
 	-- Rave Mode: the build-up (heads-up, countdown), then the drop (title, tag, lights).
@@ -2383,22 +2421,30 @@ do
 		end
 	end
 	local neonWas = neon and neon.Color
-	for _, step in { { "build", 7000, 7 }, { "drop", 10050, 10.05 }, { "groove", 14000, 14 } } do
+	for _, step in { { "build", 7500, 7.5 }, { "drop", 10600, 10.6 }, { "groove", 14000, 14 } } do
 		local now = from + step[2]
 		DayNight.apply(now)
 		TownWeather.pin(nil)
 		TownWeather.step(now, step[3])
+		-- A frame half a second earlier too (the title lands on the first frame after the drop).
+		Rave.step(now - 500, step[3] - 0.5)
 		Rave.step(now, step[3])
 		local rg = player.PlayerGui:FindFirstChild("RaveMode")
 		local tagFrame = hudGui and hudGui:FindFirstChild("RaveTag", true)
-		print(`rave {step[1]}: on {Rave.isOn(now)}, night {string.format("%.2f", clock.nightAmount(clock.dayPhase(now)))}, to drop {techno.technoToDrop(now)} ms, layer {rg ~= nil}, tag {tagFrame and tagFrame.Left.Text or "none"}, heads-up {player.PlayerGui:FindFirstChild("RaveHeadsUp") ~= nil}`)
+		print(`rave {step[1]}: on {Rave.isOn(now)}, night {string.format("%.2f", clock.nightAmount(clock.dayPhase(now)))}, to drop {techno.technoToDrop(now)} ms, layer {rg ~= nil}, tag {tagFrame and tagFrame.Tag.Left.Text or "none"}, heads-up {player.PlayerGui:FindFirstChild("RaveHeadsUp") ~= nil}`)
 		assert(Rave.isOn(now) and rg and tagFrame, "Rave Mode didn't show")
+		local townName = hudGui and hudGui.Root.Center.TownName.Face
+		assert(townName.TextColor3 ~= roblox.Color3.new(1, 1, 1), "the town's name didn't take the beat's colour")
 		local guis = { rg, hudGui }
 		local hu = player.PlayerGui:FindFirstChild("RaveHeadsUp")
 		if hu then
 			table.insert(guis, hu)
 		end
 		weatherShot(`rave-{step[1]}`, guis)
+		-- The heads-up goes after nine seconds (a timer the emulator doesn't run).
+		if hu then
+			hu:Destroy()
+		end
 	end
 	assert(player:GetAttribute("RaveOn") == true, "the music hook didn't hear the rave start")
 	if neon then
@@ -2413,6 +2459,9 @@ do
 		assert(neon.Color == neonWas, "the town's neon didn't go back")
 	end
 	assert(not (hudGui and hudGui:FindFirstChild("RaveTag", true)), "the rave tag stayed")
+	assert(not (hudGui and hudGui:FindFirstChild("RaveScale", true)), "the HUD kept dancing")
+	local townName = hudGui and hudGui.Root.Center.TownName.Face
+	assert(townName.TextColor3 == roblox.Color3.new(1, 1, 1), "the town's name kept the rave's colour")
 	print(`rave: hook heard {#changes} changes, neon {neon and "back" or "none in town"}`)
 	townsFolder:Destroy()
 	print("weather and rave: 0 problems")

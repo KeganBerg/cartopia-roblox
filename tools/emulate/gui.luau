@@ -107,7 +107,7 @@ function Gui.partOf(d)
 		texture = (function()
 			for _, t in d:GetChildren() do
 				if t:IsA("Texture") and t:GetAttribute("Image") then
-					return { image = t:GetAttribute("Image"), span = { t.StudsPerTileU, t.StudsPerTileV }, offset = { t.OffsetStudsU, t.OffsetStudsV } }
+					return { image = t:GetAttribute("Image"), span = { t.StudsPerTileU, t.StudsPerTileV }, offset = { t.OffsetStudsU, t.OffsetStudsV }, transparency = t.Transparency, color = t.Color3:ToHex() }
 				end
 			end
 			return nil
