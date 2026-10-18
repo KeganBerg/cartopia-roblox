@@ -8,6 +8,7 @@
 
 local Icons = require(script.Parent.Icons)
 local Motion = require(script.Parent.Motion)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Ui = {}
 
@@ -414,6 +415,7 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 		end
 	end)
 	Motion.panelIn(overlay, shadow, titleLabel)
+	Sfx.menuOpen()
 	return overlay, sheet, body, extras
 end
 
@@ -575,6 +577,7 @@ function Ui.tabs(parent: Instance, items: { { id: string, label: string } }, val
 		Ui.text({ Name = "Label", Text = it.label, TextSize = textSize, Size = UDim2.fromScale(1, 1), TextColor3 = Ui.MUTED, Parent = face })
 		faces[it.id] = face
 		face.Activated:Connect(function()
+			Sfx.tab()
 			pick(it.id)
 			onChange(it.id)
 		end)

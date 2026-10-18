@@ -21,6 +21,7 @@ local data = require(Game.data) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Motion = require(script.Parent.Motion)
+local Sfx = require(script.Parent.Sounds.Sfx)
 local Icons = require(script.Parent.Icons)
 local Shop = require(script.Parent.Shop)
 local Cars = require(script.Parent.Cars)
@@ -127,6 +128,7 @@ function Hud.start()
 			if instant then
 				o:Destroy()
 			else
+				Sfx.menuClose()
 				Motion.panelOut(o)
 			end
 		end
