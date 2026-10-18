@@ -180,9 +180,12 @@ local function listItem(parent: Instance, order: number, model: string, color: s
 	b.Activated:Connect(onTap)
 end
 
-function Cars.open(ctx: any, tab: string?): Instance
+-- tab: the tab to open on, or { car = uid, paint = colour } for the garage's Paint tab with that
+-- colour tried on the car (after winning it from a paint rival).
+function Cars.open(ctx: any, tab: any): Instance
 	local s0 = store.useGame.getState()
-	local current = tab or lastTab
+	local paintPick = if type(tab) == "table" then tab else nil
+	local current: string = if paintPick then "garage" else tab or lastTab
 	CallCards.reset()
 	CrateDepot.reset()
 	local overlay = Ui.new("TextButton", { Name = "Panel", Text = "", AutoButtonColor = false, ZIndex = 20, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = ctx.gui })
@@ -302,6 +305,16 @@ function Cars.open(ctx: any, tab: string?): Instance
 	local modSkinning: { uid: string, slot: string, skin: SkinShop.Trying }? = nil
 	-- Cars whose mod meshes have been asked for (they load the first time a car needs them).
 	local asked: { [string]: boolean } = {}
+	if paintPick then
+		for _, c in s0.cars do
+			if c.uid == paintPick.car then
+				selected, garageTab = c.uid, "paint"
+				local job = table.clone(Paint.jobOf(c))
+				job.color = paintPick.paint
+				painting = { uid = c.uid, job = job }
+			end
+		end
+	end
 	local function garage()
 		local s = store.useGame.getState()
 		local rows = {}

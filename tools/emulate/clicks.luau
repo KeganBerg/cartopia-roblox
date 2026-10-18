@@ -145,6 +145,9 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 	grip = emu.require(G.grip),
 	weather = emu.require(G.weather),
 	venues = emu.require(G.scene_venues),
+	paintRivals = emu.require(G.paintRivals),
+	rivals = emu.require(G.rivals),
+	distance = emu.require(G.distance),
 	DragRace = emu.require(RS.Shared.DragRace),
 	random = {
 		NextNumber = function()
@@ -251,6 +254,11 @@ local function raceDesk(op, arg)
 			return races:quickRivals(1), nil
 		elseif op == "campaign" then
 			return races:campaign(1), nil
+		elseif op == "rows" then
+			return races:rows(1), nil
+		elseif op == "keep" then
+			races:keep(1)
+			return true, nil
 		elseif op == "start" and type(arg) == "table" then
 			return races:start(1, arg.mode, arg.which)
 		elseif op == "finish" then
@@ -554,7 +562,7 @@ if SHOTS then
 		hud.openPanel(p)
 		shot(`panel-{p}`, nil)
 	end
-	for _, t in { "hub", "quick", "campaign" } do
+	for _, t in { "hub", "quick", "campaign", "rivals" } do
 		hud.ctx.close()
 		hud.openPanel("race", t)
 		shot(`menu-{t}`, nil)
@@ -849,17 +857,27 @@ local function label(b)
 end
 -- Drives one Quick Race through the race screen's buttons, taking pictures at the frames listed
 -- (tag names them). Returns the frames it ran, the shifts made and the result card, if it came up.
-local function runRace(tag, shotAt)
-	renderSteps = {}
-	hud.ctx.close()
+-- start: starts the race (default: the first Quick Race card's button); nil to drive a race
+-- already on screen.
+local function runRace(tag, shotAt, start)
+	if start ~= false then
+		renderSteps = {}
+	end
 	calls = {}
 	handlerErrors = {}
-	hud.openPanel("race", "quick")
-	local go = find(hud.gui, function(d)
-		return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil
-	end)
-	assert(go, "no race button on the Quick Race page")
-	signalFor(go, "Activated"):Fire()
+	if start ~= false then
+		hud.ctx.close()
+		if start then
+			start()
+		else
+			hud.openPanel("race", "quick")
+			local go = find(hud.gui, function(d)
+				return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil
+			end)
+			assert(go, "no race button on the Quick Race page")
+			signalFor(go, "Activated"):Fire()
+		end
+	end
 	local screen = raceScreen()
 	assert(screen, `no race screen ({table.concat(calls, ", ")}) {table.concat(handlerErrors, "; ")}`)
 	local shift = find(screen, function(d) return d.Name == "Face" and d.Parent.Name == "Shift" end)
@@ -941,3 +959,144 @@ end
 print(`race: {frames} frames, {shifts} shifts, coins {coinsBefore} -> {towns:snapshot(1).save.coins}`)
 print(`race result card: {table.concat(texts, " | ")}`)
 print(`race calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+
+-- The result card's words, in order.
+local function cardText(result)
+	local out = {}
+	if result then
+		for _, d in result:GetDescendants() do
+			if d:IsA("TextLabel") and d.Name ~= "Face" and d.Text ~= "" then
+				table.insert(out, d.Text)
+			end
+		end
+	end
+	return table.concat(out, " | ")
+end
+local function cardButton(text)
+	local screen = raceScreen()
+	return screen and find(screen, function(d)
+		return d:IsA("TextButton") and string.find(label(d), text, 1, true) ~= nil
+	end)
+end
+-- Closes the race screen left up by the last race (its result card's last button).
+local function closeRace()
+	local screen = raceScreen()
+	if not screen then
+		return
+	end
+	local b = cardButton("Collect") or cardButton("Back")
+	if b then
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	assert(not raceScreen(), "the last race screen didn't close")
+end
+closeRace()
+local function topUp()
+	closeRace()
+	towns:_with(1, function(s)
+		s.fuel = math.max(s.fuel, 50)
+	end)
+end
+
+-- Paint rivals: the roster page, a race over a half mile at the beach, and its colour won.
+topUp()
+local rowStart = function()
+	hud.openPanel("race", "rivals")
+	local tile = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Name == "marina"
+	end)
+	assert(tile, "no Marina tile on the Paint Rivals page")
+	signalFor(tile, "Activated"):Fire()
+	local go = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil and d:FindFirstAncestor("Picked") ~= nil
+	end)
+	assert(go, "no race button for Marina")
+	signalFor(go, "Activated"):Fire()
+end
+local rf, _, rres = runRace("row", { [60] = true, [700] = true, [1100] = true }, rowStart)
+print(`paint rival: {rf} frames; card: {cardText(rres)}`)
+print(`paint rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+local row = towns:snapshot(1).save.rivalRow or {}
+if (row.marina or 0) > 0 then
+	local paintIt = cardButton("Paint it")
+	assert(paintIt, "no Paint it button after winning Marina's colour")
+	signalFor(paintIt, "Activated"):Fire()
+	Emu.resumeWaits()
+	assert(not raceScreen(), "the race screen stayed up")
+	local tried = find(hud.gui, function(d)
+		return d.Name == "Shop" and d:FindFirstChild("PaintShop", true) ~= nil
+	end)
+	print(`paint it: garage paint tab open {tried ~= nil}`)
+	if SHOTS then
+		shot("row-paintit", nil)
+	end
+else
+	local back = cardButton("Back")
+	if back then
+		signalFor(back, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	print("paint rival: lost to Marina")
+end
+
+-- A mile race on Main Street at night (Duchess Merlot), for the long strip and its finish line.
+if SHOTS then
+	topUp()
+	local mileStart = function()
+		hud.openPanel("race", "rivals")
+		local tile = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Name == "merlot"
+		end)
+		signalFor(tile, "Activated"):Fire()
+		local go = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil and d:FindFirstAncestor("Picked") ~= nil
+		end)
+		signalFor(go, "Activated"):Fire()
+	end
+	local mf, _, mres = runRace("mile", { [60] = true, [1500] = true, [2100] = true }, mileStart)
+	print(`mile: {mf} frames; card: {cardText(mres)}`)
+	local back = cardButton("Back")
+	if back then
+		signalFor(back, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+end
+
+-- The rival in town: race them from the front page, then double or nothing.
+topUp()
+towns:_with(1, function()
+	store.useGame.setState({ level = math.max(store.useGame.getState().level, emu.require(G.rivals).RIVAL_LEVEL) })
+end)
+hud.ctx.close()
+local rivalStart = function()
+	hud.openPanel("race", "hub")
+	local tileFace = find(hud.gui, function(d)
+		return d.Name == "Rival" and d:IsA("Frame")
+	end)
+	assert(tileFace, "no Rival tile")
+	local go = find(tileFace, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "🏁 %$") ~= nil
+	end)
+	assert(go, "no race button on the Rival tile")
+	signalFor(go, "Activated"):Fire()
+end
+local tf, _, tres = runRace("rival", { [60] = true }, rivalStart)
+print(`town rival: {tf} frames; card: {cardText(tres)}`)
+print(`town rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+local double = cardButton("Double or nothing")
+if double then
+	local coins = towns:snapshot(1).save.coins
+	signalFor(double, "Activated"):Fire()
+	Emu.resumeWaits()
+	local bf, _, bres = runRace("bet", { [60] = true }, false)
+	print(`double or nothing: {bf} frames, coins {coins} -> {towns:snapshot(1).save.coins}; card: {cardText(bres)}`)
+	local done = cardButton("Collect") or cardButton("Back")
+	if done then
+		signalFor(done, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+else
+	print("town rival: no double or nothing offered")
+end
+print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)

@@ -373,7 +373,7 @@ function Hud.start()
 		elseif panel == "shop" then
 			open = Shop.open(ctx, arg)
 		elseif panel == "cars" or panel == "garage" or panel == "showroom" or panel == "crates" or panel == "book" then
-			open = Cars.open(ctx, if panel == "cars" then arg elseif panel == "garage" then "garage" elseif panel == "showroom" then "shop" else panel)
+			open = Cars.open(ctx, if panel == "cars" then arg elseif panel == "garage" then (arg or "garage") elseif panel == "showroom" then "shop" else panel)
 		elseif panel == "upgrade" then
 			open = Upgrade.open(ctx, arg)
 		elseif panel == "goals" then

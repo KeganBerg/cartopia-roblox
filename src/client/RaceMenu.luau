@@ -1,9 +1,11 @@
 --!strict
 -- The Race menu, as the web game's RacePanel (ui/Race.tsx, RaceHub.tsx): a front page with the
 -- Campaign tile (its next race one tap away) and Quick Race; Quick Race's three rival cards; the
--- Campaign's chapters, each with its five races and stars. Along the bottom, the car you race
--- with (tap to change it). The rivals and prizes come from the server (server/Races), which also
--- starts the race and pays it.
+-- Campaign's chapters, each with its five races and stars; the paint rivals (PaintRivals.tsx),
+-- each racing for their colour; and the rival in town on the front page (Rivals.tsx RivalTile),
+-- with double or nothing after a win. Along the bottom, the car you race with (tap to change it).
+-- The rivals and prizes come from the server (server/Races), which also starts the race and pays
+-- it.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -22,13 +24,16 @@ local trial = require(Game.trial) :: any
 local rivals = require(Game.rivals) :: any
 local distance = require(Game.distance) :: any
 local fairRace = require(Game.fairRace) :: any
+local paintRivals = require(Game.paintRivals) :: any
 
 local RaceMenu = {}
 
-local TITLES = { hub = "Race", quick = "Quick Race", campaign = "Campaign" }
+local TITLES = { hub = "Race", quick = "Quick Race", campaign = "Campaign", rivals = "Paint Rivals" }
 local DARK = Color3.fromHex("#14213d")
 local lastTab = "hub"
 local lastChapter: number? = nil
+-- The paint rival picked on the Rivals page (nil: the easiest one not beaten yet).
+local lastRow: string? = nil
 
 local ZERO = { engine = 0, turbo = 0, tires = 0, weight = 0 }
 
@@ -48,6 +53,117 @@ end
 local function myCar(): any?
 	local s = store.useGame.getState()
 	return raceCar.raceCarOf(s.cars, s.raceCar)
+end
+
+-- The town rival a card is for (its id is "rival-<id>").
+local function townRival(card: any): any?
+	for _, d in rivals.RIVALS do
+		if card.id == `rival-{d.id}` then
+			return d
+		end
+	end
+	return nil
+end
+
+local starting = false
+local race: (ctx: any, mode: string, which: any, back: string) -> boolean
+
+-- What each kind of race adds to the race screen: the title, the rival's words, and the result
+-- card's buttons (Race.tsx: the paint rival's rematch, the town rival's double or nothing).
+local function extrasFor(ctx: any, mode: string, which: any, started: any, back: string): any
+	local rv = started.rival
+	local function again(m: string, w: any): () -> ()
+		return function()
+			if not race(ctx, m, w, back) then
+				ctx.open("race", back)
+			end
+		end
+	end
+	if mode == "row" then
+		local def = paintRivals.paintRival(which)
+		return {
+			title = rv.name,
+			buttons = function(res: any): { DragStrip.Button }?
+				local list: { DragStrip.Button } = {}
+				if res.paint then
+					local car = myCar()
+					if car then
+						table.insert(list, { text = "🎨 Paint it", go = function()
+							ctx.open("garage", { car = car.uid, paint = res.paint })
+						end })
+					end
+				end
+				local beaten = res.won or (rv.wins or 0) > 0
+				table.insert(list, { text = if beaten then `↻ Rematch {`${Ui.commas(paintRivals.rowPrize(def, false))}`}` else "↻ Retry", kind = "garage", go = again("row", which) })
+				table.insert(list, { text = "Back" })
+				return list
+			end,
+		}
+	elseif mode == "rival" or mode == "bet" then
+		local def = townRival(rv)
+		local bet = mode == "bet"
+		return {
+			title = if bet then `🎲 Double or nothing · ${Ui.commas(started.stake or rv.prize)}` else `{rv.name} · Round {(rv.visit or 0) + 1} of {rivals.RIVAL_VISITS}`,
+			heading = function(res: any): string?
+				if res.won then
+					return if res.bonus then "RIVAL BEATEN!" else nil
+				end
+				return if bet then "BUSTED!" else "BEATEN!"
+			end,
+			quote = function(res: any): string?
+				if not def then
+					return nil
+				end
+				local l = def.lines
+				local said = if bet then (if res.won then l.betLost else l.betWon) elseif res.won then (if res.bonus then l.quit else l.sore) else l.gloat
+				if res.bet then
+					said ..= `  “{l.bet}”`
+				end
+				return said
+			end,
+			buttons = function(res: any): { DragStrip.Button }?
+				if res.bet then
+					local offer: { DragStrip.Button } = {
+						{ text = `Keep ${Ui.commas(res.bet)}`, kind = "garage", go = function()
+							Remote.race("keep", nil, true)
+							ctx.open("race", back)
+						end },
+						{ text = "🎲 Double or nothing", go = again("bet", nil) },
+					}
+					return offer
+				elseif not res.won and not bet then
+					local retry: { DragStrip.Button } = { { text = "Back", kind = "garage" }, { text = `↻ Rematch ⛽{data.RACE_FUEL}`, go = again("rival", nil) } }
+					return retry
+				end
+				return nil
+			end,
+		}
+	end
+	return nil
+end
+
+-- Starts a race and swaps whatever is open for the race screen; `back` is the race menu's page to
+-- come back to. False when the server didn't start it (no fuel, nothing to race).
+race = function(ctx: any, mode: string, which: any, back: string): boolean
+	if starting then
+		return false
+	end
+	local car = myCar()
+	if not car then
+		ctx.toast("You need a car to race")
+		return false
+	end
+	starting = true
+	local ok, res = Remote.race("start", { mode = mode, which = which })
+	starting = false
+	if not ok then
+		return false
+	end
+	ctx.close()
+	DragStrip.run(ctx, res, car, function()
+		ctx.open("race", back)
+	end, extrasFor(ctx, mode, which, res, back))
+	return true
 end
 
 -- A tile: a dark rounded card with a coloured top, its tag, title and lines.
@@ -79,30 +195,13 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 
 	local quick: { any }? = nil
 	local campaign: { any }? = nil
+	local rows: { any }? = nil
 	local show: (string) -> ()
 
 	-- Starts a race and swaps the menu for the race screen; back here after it.
-	local busy = false
 	local function start(mode: string, which: any)
-		if busy then
-			return
-		end
-		local car = myCar()
-		if not car then
-			ctx.toast("You need a car to race")
-			return
-		end
-		busy = true
-		local ok, res = Remote.race("start", { mode = mode, which = which })
-		busy = false
-		if not ok then
-			return
-		end
 		lastTab = tab
-		ctx.close()
-		DragStrip.run(ctx, res, { model = car.model, color = car.color }, function()
-			ctx.open("race", lastTab)
-		end)
+		race(ctx, mode, which, tab)
 	end
 
 	-- ── The bar: the car you race with ────────────────────────────────────────────────────────
@@ -364,7 +463,10 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 
 		-- The rival in town (Rivals.tsx RivalTile).
 		local cur = rivals.currentRival(level, s.rivals or {}, now())
-		local rivalFace = hubTile(cell(3, 4, 1, 1, 3), "Rival", soon("Rival races"))
+		local function openRows()
+			show("rivals")
+		end
+		local rivalFace = hubTile(cell(3, 4, 1, 1, 3), "Rival", openRows)
 		do
 			local color = if cur then cur.def.color else "#ff7043"
 			Ui.gradient(color, color).Parent = rivalFace
@@ -389,14 +491,28 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			local line = if cur == nil then "Every rival beaten." elseif cur.locked then `Rolls into town at level {rivals.RIVAL_LEVEL}.` elseif (cur.away or 0) > 0 then `Tuning up. Back in {math.max(0, math.ceil((cur.away - now()) / 60000))}m.` elseif cur.visit == 0 then cur.def.lines.intro else cur.def.lines.back[cur.visit]
 			local bub = Ui.new("Frame", { Position = UDim2.fromOffset(0, 70), Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = mid }, { Ui.corner(10), Ui.stroke(2, Ui.LINE) })
 			Ui.text({ Text = line, Body = true, TextSize = 12, TextColor3 = Ui.INK, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(8, 0), Size = UDim2.new(1, -16, 1, 0), ZIndex = 4, Parent = bub })
+			-- The paint rivals' colours, the ones won so far lit (.rm-paints).
+			local strip = Ui.new("Frame", { Name = "Paints", Position = UDim2.fromOffset(0, 100), Size = UDim2.new(1, 0, 0, 10), BackgroundTransparency = 1, ZIndex = 4, Parent = mid }, {
+				Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalFlex = Enum.UIFlexAlignment.Fill, Padding = UDim.new(0, 2) }),
+			})
+			for _, r in paintRivals.PAINT_RIVALS do
+				local got = ((s.rivalRow or {})[r.id] or 0) > 0
+				Ui.new("Frame", { Size = UDim2.fromOffset(6, 10), BackgroundColor3 = Color3.fromHex(r.paint), BackgroundTransparency = if got then 0 else 0.7, ZIndex = 4, Parent = strip }, { Ui.corner(3) })
+			end
 			local at = { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(96, 52) }
 			if cur and cur.locked then
-				goButton(rivalFace, at, `🔒 Lv{rivals.RIVAL_LEVEL}`, soon("Rival races"), "garage")
+				goButton(rivalFace, at, `🔒 Lv{rivals.RIVAL_LEVEL}`, function()
+					ctx.toast(`{cur.def.name} comes to town at level {rivals.RIVAL_LEVEL}`)
+				end, "garage")
 			elseif cur and (cur.away or 0) > 0 then
 				goButton(rivalFace, at, `⏱ {math.max(0, math.ceil((cur.away - now()) / 60000))}m`, nil, "grey")
 			elseif cur then
 				-- The rival's car is close to your best one (Rivals.tsx rivalMatch).
-				local ladder = rivals.rivalPi(cur.def, cur.visit, myPi)
+				local best = 10
+				for _, c in s.cars do
+					best = math.max(best, raceCar.carPi(c))
+				end
+				local ladder = rivals.rivalPi(cur.def, cur.visit, best)
 				local best, bestD = nil, math.huge
 				for _, c in data.CARS do
 					local d = math.abs(data.performance(c, ZERO) - ladder)
@@ -407,9 +523,11 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 				local idx = table.find(rivals.RIVALS, cur.def) or 1
 				local skill = if best and (idx - 1 >= 2 or cur.visit == rivals.RIVAL_VISITS - 1) then best.skill else nil
 				local pi = fairRace.fairNow(ladder, rivals.rivalShift(cur.def, cur.visit), skill)
-				goButton(rivalFace, at, `🏁 {money(rivals.rivalPrize(pi))}\n⛽{data.RACE_FUEL}`, soon("Rival races"))
+				goButton(rivalFace, at, `🏁 {money(rivals.rivalPrize(pi))}\n⛽{data.RACE_FUEL}`, function()
+					start("rival", nil)
+				end)
 			else
-				goButton(rivalFace, at, "🎨", soon("Rival races"), "garage")
+				goButton(rivalFace, at, "🎨", openRows, "garage")
 			end
 			if idle then
 				rivalFace.BackgroundTransparency = 0
@@ -635,6 +753,127 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		end
 	end
 
+	-- ── Paint rivals: the picked one on a banner, their colour as the prize, the roster ─────────
+	local function rowsPage(page: Frame)
+		local list = rows
+		if not list then
+			Ui.text({ Text = "Loading...", Body = true, TextSize = 20, Size = UDim2.fromScale(1, 1), TextColor3 = Ui.MUTED, Parent = page })
+			return
+		end
+		local byId: { [string]: any } = {}
+		local nextUp: string? = nil
+		for i, card in list do
+			local def = paintRivals.PAINT_RIVALS[i]
+			byId[def.id] = card
+			if not nextUp and (card.wins or 0) == 0 then
+				nextUp = def.id
+			end
+		end
+		local sel = if lastRow and byId[lastRow] then lastRow else (nextUp or paintRivals.PAINT_RIVALS[1].id)
+		local def = paintRivals.paintRival(sel)
+		local card = byId[sel]
+		local beaten = (card.wins or 0) > 0
+		local v = venues.venue(def.venue)
+		local car = myCar()
+		local myPi = if car then raceCar.carPi(car) else 0
+		local function flames(t: number): string
+			return string.rep("🔥", t)
+		end
+		local paintName = "Paint"
+		for _, p in data.PAINTS do
+			if p.color == def.paint then
+				paintName = p.name
+			end
+		end
+
+		-- Left: the banner and the prize.
+		local left = Ui.new("Frame", { Name = "Picked", Size = UDim2.new(0.42, -6, 1, 0), BackgroundTransparency = 1, Parent = page })
+		local base = Color3.fromHex(def.paint)
+		local _, banner = tile(left, { Name = "Banner", Size = UDim2.new(1, 0, 0.62, -6) }, if def.night then "#1b2350" else v.sky, if def.night then "#0b1030" else "#14213d", true)
+		banner.ClipsDescendants = true
+		local pic = Thumb.new("Cars", card.model, UDim2.new(0.62, 0, 0.5, 0), base)
+		pic.AnchorPoint = Vector2.new(1, 1)
+		pic.Position = UDim2.new(1, -6, 1, -40)
+		pic.Parent = banner
+		Ui.text({ Text = `{v.icon} {v.name}{if def.night then " · 🌙" else ""} · {distance.DIST[def.dist].label}`, Body = true, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(14, 12), Size = UDim2.new(1, -28, 0, 18), Parent = banner })
+		Ui.text({ Text = card.name, TextSize = 28, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(14, 32), Size = UDim2.new(1, -28, 0, 36), Stroke = 3, Shadow = 3, Parent = banner })
+		local bubble = Ui.new("Frame", { Position = UDim2.fromOffset(14, 74), Size = UDim2.new(0.62, 0, 0, 44), BackgroundColor3 = Ui.WHITE, Parent = banner }, { Ui.corner(12), Ui.stroke(2, Ui.LINE) })
+		Ui.text({ Text = def.line, Body = true, TextSize = 13, TextWrapped = true, TextColor3 = Ui.INK, Position = UDim2.fromOffset(8, 0), Size = UDim2.new(1, -16, 1, 0), Parent = bubble })
+		local chips = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -10), Size = UDim2.new(1, -24, 0, 26), BackgroundTransparency = 1, Parent = banner }, {
+			Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+		})
+		local skill = if card.skill and data.SKILLS[card.skill] then data.SKILLS[card.skill].icon else nil
+		for i, text in { flames(def.tier), `PI {def.pi}`, skill or "", if beaten then `✔ ×{card.wins}` else `🏁 {money(card.prize)}` } do
+			if text ~= "" then
+				local w = math.ceil(Ui.textWidth(text, 13)) + 18
+				local c = Ui.new("Frame", { LayoutOrder = i, Size = UDim2.fromOffset(w, 26), BackgroundColor3 = if i == 4 and beaten then Color3.fromHex("#2e7d32") else DARK, BackgroundTransparency = 0.2, Parent = chips }, { Ui.corner(9) })
+				Ui.text({ Text = text, Body = true, TextSize = 13, Size = UDim2.fromScale(1, 1), TextColor3 = if i == 2 and def.pi > myPi then Color3.fromHex("#ff8a80") else Ui.WHITE, Parent = c })
+			end
+		end
+
+		-- The prize: their colour on your car.
+		local prize = Ui.new("Frame", { Name = "Prize", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -62), Size = UDim2.new(1, 0, 0.38, -68), BackgroundColor3 = if beaten then Color3.fromHex("#e8f5e9") else Ui.WHITE, Parent = left }, { Ui.corner(16), Ui.stroke(2.5, if beaten then Color3.fromHex("#43a047") else Ui.EDGE) })
+		local mine = if car then Thumb.car(car.model, UDim2.new(0.45, 0, 1, -8), { color = def.paint, finish = car.finish, stripe = car.stripe }, nil, car.mods) else Thumb.new("Cars", card.model, UDim2.new(0.45, 0, 1, -8), base)
+		mine.Position = UDim2.fromOffset(6, 4)
+		mine.Parent = prize
+		Ui.text({ Text = if beaten then "✔" else "🔒", TextSize = 18, Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(24, 24), Parent = prize })
+		Ui.text({ Text = paintName, TextSize = 22, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.new(0.47, 0, 0.5, -30), Size = UDim2.new(0.53, -10, 0, 28), Parent = prize })
+		local sw = Ui.new("Frame", { Position = UDim2.new(0.47, 0, 0.5, 4), Size = UDim2.fromOffset(22, 22), BackgroundColor3 = base, Parent = prize }, { Ui.round(), Ui.stroke(2, Ui.LINE) })
+		Ui.text({ Text = if beaten then "Yours to paint" else "🎨 Win it", Body = true, TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.new(1, 8, 0, 0), Size = UDim2.fromOffset(160, 22), Parent = sw })
+		raceButton(left, { Name = "Go", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -4), Size = UDim2.new(1, 0, 0, 52) }, card.prize, function()
+			start("row", sel)
+		end)
+
+		-- Right: every rival as a tile in their colour, a row per tier.
+		local right = Ui.new("Frame", { Name = "Roster", AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.new(0.58, -6, 1, 0), BackgroundTransparency = 1, Parent = page }, {
+			Ui.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+		})
+		for tier = 1, 5 do
+			local inTier = {}
+			for _, r in paintRivals.PAINT_RIVALS do
+				if r.tier == tier then
+					table.insert(inTier, r)
+				end
+			end
+			local won = 0
+			for _, r in inTier do
+				if (byId[r.id].wins or 0) > 0 then
+					won += 1
+				end
+			end
+			local rowF = Ui.new("Frame", { Name = `Tier{tier}`, LayoutOrder = tier, Size = UDim2.new(1, 0, 0.2, -5), BackgroundTransparency = 1, Parent = right })
+			local head = Ui.new("Frame", { Size = UDim2.new(0, 92, 1, 0), BackgroundColor3 = if won == #inTier then Color3.fromHex("#fff3c4") else Color3.fromHex("#eef3f8"), Parent = rowF }, { Ui.corner(12), Ui.stroke(2, Ui.EDGE) })
+			Ui.text({ Text = flames(tier), TextSize = 12, Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 16), Parent = head })
+			Ui.text({ Text = paintRivals.TIERS[tier + 1], TextSize = 17, TextColor3 = Ui.INK, Position = UDim2.new(0, 0, 0.5, -10), Size = UDim2.new(1, 0, 0, 20), Parent = head })
+			Ui.text({ Text = if won == #inTier then "👑" else `{won}/{#inTier}`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -6), Size = UDim2.new(1, 0, 0, 16), Parent = head })
+			local tiles = Ui.new("Frame", { Position = UDim2.fromOffset(100, 0), Size = UDim2.new(1, -100, 1, 0), BackgroundTransparency = 1, Parent = rowF }, {
+				Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+			})
+			for i, r in inTier do
+				local c = byId[r.id]
+				local isSel = r.id == sel
+				local done = (c.wins or 0) > 0
+				local b = Ui.new("TextButton", { Name = r.id, Text = "", AutoButtonColor = false, LayoutOrder = i, Size = UDim2.new(0.25, -5, 1, 0), BackgroundColor3 = Color3.fromHex(r.paint):Lerp(Ui.WHITE, 0.55), Parent = tiles }, {
+					Ui.corner(12),
+					Ui.stroke(if isSel then 3.5 else 2, if isSel then Color3.fromHex("#1e88e5") elseif r.id == nextUp then Color3.fromHex("#ffb300") else Ui.LINE),
+				})
+				local t = Thumb.new("Cars", c.model, UDim2.new(1, -8, 0.62, 0), Color3.fromHex(r.paint))
+				t.Position = UDim2.fromOffset(4, 2)
+				t.Parent = b
+				Ui.text({ Text = r.icon, TextSize = 18, Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(24, 24), Parent = b })
+				if done then
+					local tick = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Color3.fromHex("#43a047"), Parent = b }, { Ui.round(), Ui.stroke(1.5, Ui.WHITE) })
+					Ui.text({ Text = "✔", TextSize = 12, Size = UDim2.fromScale(1, 1), Parent = tick })
+				end
+				Ui.text({ Text = `PI {r.pi}`, TextSize = 14, TextColor3 = Ui.INK, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -4), Size = UDim2.new(1, 0, 0, 16), Parent = b })
+				b.Activated:Connect(function()
+					lastRow = r.id
+					show("rivals")
+				end)
+			end
+		end
+	end
+
 	show = function(which: string)
 		tab = which
 		lastTab = which
@@ -656,6 +895,8 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			quickPage(page)
 		elseif which == "campaign" then
 			campaignPage(page)
+		elseif which == "rivals" then
+			rowsPage(page)
 		else
 			hub(page)
 		end
@@ -669,6 +910,15 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		if ok and overlay.Parent then
 			campaign = list
 			if tab ~= "quick" then
+				show(tab)
+			end
+		end
+	end)
+	task.spawn(function()
+		local ok, list = Remote.race("rows", nil, true)
+		if ok and overlay.Parent then
+			rows = list
+			if tab == "rivals" then
 				show(tab)
 			end
 		end
