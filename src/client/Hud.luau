@@ -20,6 +20,7 @@ local store = require(Game.store) :: any
 local data = require(Game.data) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Motion = require(script.Parent.Motion)
 local Icons = require(script.Parent.Icons)
 local Shop = require(script.Parent.Shop)
 local Cars = require(script.Parent.Cars)
@@ -78,6 +79,8 @@ function Hud.start()
 	})
 	-- Everything sits in one frame laid out at the web's 1280x800 and scaled to fit the screen:
 	-- phones see the same screen, smaller (never bigger than on the web).
+	-- Every button on the screen presses, hovers and taps, as on the web (UIMotion).
+	Motion.bindAll(gui)
 	local root = Ui.new("Frame", { Name = "Root", BackgroundTransparency = 1, Size = UDim2.fromOffset(REF_W, REF_H), Parent = gui })
 	local scale = Ui.new("UIScale", { Scale = 1, Parent = root })
 	local left = Ui.new("Frame", { Name = "Left", Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(250, 120), BackgroundTransparency = 1, Parent = root })
@@ -116,12 +119,14 @@ function Hud.start()
 		end)
 	end
 
-	-- One menu at a time.
+	-- One menu at a time. Closing drops the menu away (Motion.panelOut); opening another in its
+	-- place swaps them at once.
 	local open: Instance? = nil
-	local function close()
+	local function close(instant: boolean?)
 		if open then
-			open:Destroy()
+			local o = open
 			open = nil
+			Motion.panelOut(o, instant)
 		end
 	end
 
@@ -130,7 +135,9 @@ function Hud.start()
 		-- The town being visited (Popups/Visit sets it): { townName, ... }, or nil at home.
 		visiting = nil :: any,
 		gui = root,
-		close = close,
+		close = function()
+			close()
+		end,
 		toast = toast,
 		open = function(name: string, arg: any?)
 			openPanel(name, arg)
@@ -459,7 +466,8 @@ function Hud.start()
 		if panel ~= "shop" and panel ~= "inventory" and panel ~= "upgrade" and panel ~= "need" then
 			Placement.cancel()
 		end
-		close()
+		Motion.swapping = open ~= nil
+		close(true)
 		if panel == "edit" then
 			Placement.edit(root, ctx, arg)
 		elseif panel == "inventory" then
@@ -485,6 +493,7 @@ function Hud.start()
 		else
 			toast("That screen is coming to Roblox soon")
 		end
+		Motion.swapping = false
 	end
 
 	-- ── Refresh ───────────────────────────────────────────────────────────────────────────────

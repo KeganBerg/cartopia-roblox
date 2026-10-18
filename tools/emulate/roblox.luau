@@ -38,6 +38,11 @@ pcall(roblox.implementMethod, "UserInputService", "GetMouseLocation", function()
 	return roblox.Vector2.new(640, 400)
 end)
 
+-- No frames run here, so nothing waits on them (a menu closing goes at once: client/Motion).
+pcall(roblox.implementMethod, "RunService", "IsRunning", function()
+	return false
+end)
+
 -- Text is measured with the same estimate the screen dumps use (tools/emulate/gui.luau).
 pcall(roblox.implementMethod, "TextService", "GetTextSize", function(_, text, size, font)
 	local family = if font == roblox.Enum.Font.FredokaOne then "FredokaOne" else "Nunito"

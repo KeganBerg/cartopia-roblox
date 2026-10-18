@@ -16,6 +16,7 @@ local raceCar = require(Game.raceCar) :: any
 local venues = require(Game.scene_venues) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Motion = require(script.Parent.Motion)
 local Thumb = require(script.Parent.Thumb)
 local CallCardArt = require(script.Parent.CallCardArt)
 local callCards = require(Game.callCards) :: any
@@ -403,32 +404,58 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		local function title(face: GuiObject, text: string, bottom: number, size: number?)
 			return Ui.text({ Text = text, TextSize = size or 24, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Bottom, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -bottom), Size = UDim2.new(1, -24, 0, 60), Stroke = 2.5, Shadow = 3, ZIndex = 4, Parent = face })
 		end
+		-- The tiles' pictures move, as the web's race clips play behind its tiles (TileClip): the
+		-- road streams away under the cars, the start lights count down to green and the gantry
+		-- falls behind, the finish banner sways, the Grand Prix car weaves through the bends.
+		-- Each tile adds a step here, and one loop runs them while the front page shows.
+		local steps: { (number, number) -> () } = {}
+		local LIGHT_OFF = Color3.fromHex("#3a3a3a")
+		local RED, AMBER, GREEN = Color3.fromHex("#e53935"), Color3.fromHex("#ffb300"), Color3.fromHex("#43e047")
 		-- The picture: sky, the road and the cars on it, darker toward the bottom for the words.
+		-- o.move: "start" (Campaign), "finish" (Pro Tour), "weave" (Grand Prix) or "cruise".
 		local function scene(face: GuiObject, o: { [string]: any })
 			local night = o.night == true
-			local sky = Ui.new("Frame", { Name = "Sky", BorderSizePixel = 0, Size = UDim2.fromScale(1, o.horizon or 0.6), BackgroundColor3 = Ui.WHITE, Parent = face })
+			local horizon = o.horizon or 0.6
+			local sky = Ui.new("Frame", { Name = "Sky", BorderSizePixel = 0, Size = UDim2.fromScale(1, horizon), BackgroundColor3 = Ui.WHITE, Parent = face })
 			Ui.gradient(if night then "#121a3a" else (o.skyTop or "#8ec9ff"), if night then "#3b3f7a" else (o.skyBottom or "#e6f4ff")).Parent = sky
-			local ground = Ui.new("Frame", { Name = "Ground", BorderSizePixel = 0, Position = UDim2.fromScale(0, o.horizon or 0.6), Size = UDim2.fromScale(1, 1 - (o.horizon or 0.6)), BackgroundColor3 = Ui.WHITE, Parent = face })
+			local ground = Ui.new("Frame", { Name = "Ground", BorderSizePixel = 0, Position = UDim2.fromScale(0, horizon), Size = UDim2.fromScale(1, 1 - horizon), BackgroundColor3 = Ui.WHITE, ClipsDescendants = true, Parent = face })
 			Ui.gradient(o.groundTop or (if night then "#3a4150" else "#7d8691"), o.groundBottom or (if night then "#20252f" else "#4d5560")).Parent = ground
+			local move = o.move or "cruise"
+			-- Lane lines running toward you; they stream off toward the horizon as you drive.
+			local dashes: { Frame } = {}
 			if o.road ~= false then
-				-- Lane lines running toward you.
-				for i = 0, 3 do
-					Ui.new("Frame", { BorderSizePixel = 0, BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.25, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.08 + i * 0.26, 0), Size = UDim2.new(0, 4 + i * 2, 0.14, 0), Parent = ground })
+				for _ = 1, 5 do
+					table.insert(dashes, Ui.new("Frame", { BorderSizePixel = 0, BackgroundColor3 = Ui.WHITE, AnchorPoint = Vector2.new(0.5, 0.5), Parent = ground }))
 				end
 			end
+			local function road(u0: number)
+				for i, d in dashes do
+					-- u: 0 at the horizon, 1 at the bottom edge; nearer lines are longer and wider.
+					local u = 1 - ((i - 1) / #dashes + u0) % 1
+					local k = u * u
+					d.Position = UDim2.fromScale(0.5, 0.02 + k * 1.05)
+					d.Size = UDim2.new(0, 2 + u * 6, 0.03 + k * 0.2, 0)
+					d.BackgroundTransparency = 0.25 + (1 - u) * 0.5
+				end
+			end
+			road(0.15)
+			local lights: { Frame } = {}
+			local bar: Frame? = nil
+			local banner: Frame? = nil
 			if o.banner == "lights" then
-				local bar = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 52), Size = UDim2.fromOffset(84, 26), BackgroundColor3 = Color3.fromHex("#1a1a1a"), Parent = face }, { Ui.corner(4) })
+				bar = Ui.new("Frame", { Name = "Lights", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 52), Size = UDim2.fromOffset(84, 26), BackgroundColor3 = Color3.fromHex("#1a1a1a"), Parent = face }, { Ui.corner(4) })
 				for i, c in { "#e53935", "#e53935", "#ffb300" } do
-					Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new((i - 0.5) / 3, 0, 0.5, 0), Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Color3.fromHex(c), Parent = bar }, { Ui.round() })
+					table.insert(lights, Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new((i - 0.5) / 3, 0, 0.5, 0), Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Color3.fromHex(c), Parent = bar }, { Ui.round() }))
 				end
 			elseif o.banner == "finish" then
-				local row = Ui.new("Frame", { Position = UDim2.fromOffset(0, 30), Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = Color3.fromHex("#7a2e2a"), BorderSizePixel = 0, Parent = face })
-				Ui.text({ Text = "FINISH", TextSize = 22, Size = UDim2.fromScale(1, 1), TextColor3 = Color3.fromHex("#f5e9d7"), Parent = row })
-				for i = 0, 23 do
-					Ui.new("Frame", { BorderSizePixel = 0, BackgroundColor3 = if i % 2 == 0 then Ui.WHITE else Ui.BLACK, Position = UDim2.new(i / 24, 0, 1, 0), Size = UDim2.new(1 / 24, 1, 0, 6), Parent = row })
+				banner = Ui.new("Frame", { Name = "Finish", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 44), Size = UDim2.new(1.1, 0, 0, 28), BackgroundColor3 = Color3.fromHex("#7a2e2a"), BorderSizePixel = 0, Parent = face })
+				Ui.text({ Text = "FINISH", TextSize = 22, Size = UDim2.fromScale(1, 1), TextColor3 = Color3.fromHex("#f5e9d7"), Parent = banner })
+				for i = 0, 27 do
+					Ui.new("Frame", { BorderSizePixel = 0, BackgroundColor3 = if i % 2 == 0 then Ui.WHITE else Ui.BLACK, Position = UDim2.new(i / 28, 0, 1, 0), Size = UDim2.new(1 / 28, 1, 0, 6), Parent = banner })
 				end
 			end
 			local cars = o.cars or {}
+			local pics: { { pic: ViewportFrame, at: UDim2 } } = {}
 			for i, c in cars do
 				local n = #cars
 				local w = if n == 1 then 0.62 else 0.48
@@ -437,10 +464,60 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 				pic.Position = UDim2.fromScale(if n == 1 then 0.5 else (i - 0.5) / n, o.carsAt or 0.8)
 				pic.ZIndex = 2
 				pic.Parent = face
+				table.insert(pics, { pic = pic, at = pic.Position })
 			end
 			local shade = Ui.new("Frame", { Name = "Shade", BorderSizePixel = 0, BackgroundColor3 = Ui.BLACK, Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = face })
 			Ui.new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.55, 1), NumberSequenceKeypoint.new(1, 0.35) }), Parent = shade })
 			gloss(face)
+
+			-- Each tile starts at its own point in the loop, so they don't all move in step.
+			local offset = 1.2 + #steps * 1.3
+			local barScale = if bar then Motion.scaleOf(bar) else nil
+			local roadAt = 0
+			table.insert(steps, function(t: number, dt: number)
+				local tt = t + offset
+				local speed = 0.55
+				if move == "start" then
+					-- 5 seconds: red, red, amber, then green; the cars launch and the gantry falls behind.
+					local ph = tt % 5
+					local go = ph >= 1.5
+					local lit = if ph < 0.5 then 1 elseif ph < 1 then 2 elseif ph < 1.5 then 3 else 0
+					for i, l in lights do
+						l.BackgroundColor3 = if go then GREEN elseif i <= lit then (if i == 3 then AMBER else RED) else LIGHT_OFF
+					end
+					local g = if go then math.min(1, (ph - 1.5) / 3) else 0
+					local e = 1 - (1 - g) ^ 2
+					if bar and barScale then
+						barScale.Scale = 1 - e * 0.7
+						bar.Position = UDim2.new(0.5, 0, horizon * e * 0.92, 52 * (1 - e))
+						bar.Visible = g < 1
+					end
+					speed = if go then 0.25 + e * 0.9 else 0
+				elseif move == "finish" and banner then
+					-- The banner flaps in the wind.
+					banner.Rotation = math.sin(tt * 1.7) * 1.6
+					banner.Position = UDim2.new(0.5, 0, 0, 44 + math.sin(tt * 2.3) * 2)
+					speed = 0.8
+				elseif move == "weave" then
+					speed = 0
+				end
+				roadAt = (roadAt + speed * dt) % 1
+				road(roadAt)
+				-- The cars: an engine's rumble, a racer edging ahead and back, a weave through bends.
+				for i, p in pics do
+					local x, y, r = 0, math.sin(tt * 19 + i * 2) * 0.8, 0
+					if move == "finish" or (move == "start" and #pics > 1) then
+						y += math.sin(tt * 0.9 + i * math.pi) * 3
+					elseif move == "weave" then
+						x = math.sin(tt * 1.1) * 10
+						r = math.cos(tt * 1.1) * 5
+					else
+						y += math.sin(tt * 1.4 + i) * 1.5
+					end
+					p.pic.Position = p.at + UDim2.fromOffset(x, y)
+					p.pic.Rotation = r
+				end
+			end)
 		end
 		local function money2(n: number): string
 			return money(n)
@@ -497,7 +574,7 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			if rv then
 				table.insert(cars, { model = rv.model, color = rv.color })
 			end
-			scene(camp, { banner = "lights", cars = cars, carsAt = 0.62, carsH = 0.26, horizon = 0.42 })
+			scene(camp, { banner = "lights", move = "start", cars = cars, carsAt = 0.62, carsH = 0.26, horizon = 0.42 })
 			hubTag(camp, "CAMPAIGN", "#ffb21a")
 		end
 		if list then
@@ -526,7 +603,7 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		local tv = venues.venue(leg.venue)
 		local tourOpen = list ~= nil and list[1] ~= nil and list[1].cleared == true
 		local tourFace = hubTile(cell(2, 2, 1, 3, 3), "Tour", soon("The Pro Tour"))
-		scene(tourFace, { banner = "finish", night = leg.night, cars = if car then { { model = car.model, color = car.color }, { model = (if list and list[1] and list[1].races[5] then list[1].races[5].rival.model else car.model), color = "#cfd8dc" } } else {}, carsAt = 0.62, carsH = 0.26, horizon = 0.42 })
+		scene(tourFace, { banner = "finish", move = "finish", night = leg.night, cars = if car then { { model = car.model, color = car.color }, { model = (if list and list[1] and list[1].races[5] then list[1].races[5].rival.model else car.model), color = "#cfd8dc" } } else {}, carsAt = 0.62, carsH = 0.26, horizon = 0.42 })
 		hubTag(tourFace, "PRO TOUR", "#b48cff")
 		title(tourFace, if leg.night then `{tv.name} at Midnight` else `{tv.name} {leg.name}`, if tourOpen then 52 else 58, 24)
 		if tourOpen then
@@ -603,8 +680,13 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 				local idx = table.find(rivals.RIVALS, cur.def) or 1
 				local skill = if best and (idx - 1 >= 2 or cur.visit == rivals.RIVAL_VISITS - 1) then best.skill else nil
 				local pi = fairRace.fairNow(ladder, rivals.rivalShift(cur.def, cur.visit), skill)
-				goButton(rivalFace, at, `🏁 {money(rivals.rivalPrize(pi))}\n⛽{data.RACE_FUEL}`, function()
+				local go = goButton(rivalFace, at, `🏁 {money(rivals.rivalPrize(pi))}\n⛽{data.RACE_FUEL}`, function()
 					start("rival", nil)
+				end)
+				-- The rival's in town: the race button throbs to be tapped (.rm-go.rm-alert).
+				local throb = Motion.scaleOf(go)
+				table.insert(steps, function(t: number)
+					throb.Scale = 1 + (1 - math.cos(t * math.pi * 2 / 1.6)) * 0.025
 				end)
 			else
 				goButton(rivalFace, at, "🎨", openRows, "garage")
@@ -623,6 +705,13 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		scene(evFace, { night = ev.night, horizon = 0.55, skyTop = "#ffb36b", skyBottom = "#ffe0b2", cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.95 })
 		do
 			local ring = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 12, 0.5, 0), Size = UDim2.fromOffset(60, 60), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = evFace }, { Ui.round(), Ui.stroke(4, Color3.fromHex(ev.color or "#26a69a")) })
+			-- The ring glows in the event's colour (.rm-ev-car's ev-glow).
+			local glow = ring:FindFirstChildOfClass("UIStroke") :: UIStroke
+			table.insert(steps, function(t: number)
+				local k = (1 - math.cos(t * math.pi * 2 / 2.4)) / 2
+				glow.Thickness = 4 + k * 2.5
+				glow.Transparency = k * 0.35
+			end)
 			local evCar = if car then Thumb.new("Cars", car.model, UDim2.fromScale(1, 1), Color3.fromHex(car.color)) else nil
 			if evCar then
 				evCar.ZIndex = 4
@@ -672,7 +761,7 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		end
 		local round = (gp[series.id] and gp[series.id].round) or 0
 		local gpFace = hubTile(cell(3, 3, 3, 3, 3), "GrandPrix", soon("The Grand Prix"))
-		scene(gpFace, { horizon = 0.35, groundTop = "#7cc56a", groundBottom = "#4f9a46", road = false, cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.72 })
+		scene(gpFace, { horizon = 0.35, groundTop = "#7cc56a", groundBottom = "#4f9a46", road = false, move = "weave", cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.72 })
 		hubTag(gpFace, "GRAND PRIX", "#ffd84a")
 		title(gpFace, series.name, 40, 19)
 		do
@@ -742,6 +831,12 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			Ui.text({ Text = m[1], TextSize = 19, Size = UDim2.fromScale(1, 1), Parent = icon })
 			Ui.text({ Text = m[2], TextSize = 15, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, LineHeight = 0.9, Position = UDim2.fromOffset(48, 0), Size = UDim2.new(1, -52, 1, 0), Stroke = 2, Shadow = 1.5, Parent = face })
 		end
+
+		Motion.loop(page, function(t: number, dt: number)
+			for _, step in steps do
+				step(t, dt)
+			end
+		end)
 	end
 
 	-- ── Quick Race: three rivals ──────────────────────────────────────────────────────────────
@@ -980,6 +1075,8 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		end
 	end
 
+	-- The page last drawn: a new page pops in, a redraw of the same one (fresh data) doesn't.
+	local drawn: string? = nil
 	show = function(which: string)
 		tab = which
 		lastTab = which
@@ -1026,6 +1123,10 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			page.Position = UDim2.fromOffset(0, 44)
 			page.Size = UDim2.new(1, 0, 1, -44)
 		end
+		if drawn ~= nil and drawn ~= which then
+			Motion.pop(page, 0.22, 0.96)
+		end
+		drawn = which
 		if which == "quick" then
 			quickPage(page)
 		elseif which == "campaign" then

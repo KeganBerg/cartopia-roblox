@@ -60,7 +60,7 @@ local function signalFor(inst, name)
 	signals[key] = s
 	return s
 end
-for _, pair in { { "GuiButton", "Activated" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputChanged" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
+for _, pair in { { "GuiButton", "Activated" }, { "RunService", "RenderStepped" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputChanged" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
 	roblox.implementProperty(pair[1], pair[2], function(inst)
 		return signalFor(inst, pair[2])
 	end)
@@ -1205,6 +1205,29 @@ if SHOTS then
 		hud.ctx.close()
 		hud.openPanel("race", t)
 		shot(`menu-{t}`, nil)
+	end
+	-- The front page's tiles move (client/Motion loops): frames of them a quarter second apart,
+	-- run by firing only the loops the page started.
+	do
+		local rs = signalFor(game:GetService("RunService"), "RenderStepped")
+		local before = {}
+		for c in rs.fns do
+			before[c] = true
+		end
+		hud.ctx.close()
+		hud.openPanel("race", "hub")
+		local loops = {}
+		for c, fn in rs.fns do
+			if not before[c] then
+				table.insert(loops, fn)
+			end
+		end
+		for f = 1, 20 do
+			for _, fn in loops do
+				fn(0.25)
+			end
+			shot(`hub-anim-{f}`, nil)
+		end
 	end
 	hud.ctx.close()
 	hud.openPanel("book")
