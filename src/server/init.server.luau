@@ -33,6 +33,7 @@ local Towns = require(script.Towns)
 local TownView = require(script.TownView)
 local Races = require(script.Races)
 local Crates = require(script.Crates)
+local Splash = require(script.Splash)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
@@ -74,6 +75,8 @@ local crateRemote = Instance.new("RemoteFunction")
 crateRemote.Name = "Crate"
 crateRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
+
+Splash.start()
 
 -- The mesh packs load first, so towns are drawn with real meshes rather than stand-in boxes.
 -- Workspace's ShapesLoaded / ShapesTotal / ShapesReady attributes tell the clients' loading screen
@@ -211,6 +214,12 @@ Players.PlayerAdded:Connect(function(player)
 		return
 	end
 	towns:open(player.UserId, data)
+	-- Their own race car on their loading screen.
+	pcall(function()
+		local save = towns:snapshot(player.UserId).save
+		local car = (require(Game.raceCar) :: any).raceCarOf(save.cars or {}, save.raceCar)
+		Splash.forPlayer(player, car and car.model, car and car.color)
+	end)
 	local start = os.clock()
 	while not meshesReady and os.clock() - start < 45 do
 		task.wait(0.2)

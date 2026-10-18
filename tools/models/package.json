@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Turns the web game's 3D models into Roblox parts (see build.mjs)",
   "dependencies": {
-    "meshoptimizer": "0.22.0"
+    "meshoptimizer": "0.22.0",
+    "sharp": "0.34.4"
   }
 }

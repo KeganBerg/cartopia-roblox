@@ -4,6 +4,8 @@
 //
 //   node tools/emulate/render.mjs <web repo> <scene.json> <out.png> [gui.json]
 //
+// SIZE=390x844 draws at another screen size (1280x800 by default).
+//
 // Uses the web repo's three.js and Playwright. CHROMIUM=<path> picks the browser.
 
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
@@ -41,7 +43,20 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
       try { textures[name] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/textures', `${name}.png`)).toString('base64') } catch {}
     }
   }
-  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, gui: gui ?? null, camera: camera ?? null })}`)
+  // The loading screen's pictures (tools/splash/build.mjs), by key.
+  const images = {}
+  try {
+    const list = JSON.parse(readFileSync(join(ROOT, 'build/splash/list.json'), 'utf8'))
+    const want = new Set()
+    const find = (n) => {
+      if (!n || typeof n !== 'object') return
+      if (n.image?.key) want.add(n.image.key)
+      for (const v of Object.values(n)) if (v && typeof v === 'object') find(v)
+    }
+    find(gui)
+    for (const e of list) if (want.has(e.key)) images[e.key] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/splash', e.file)).toString('base64')
+  } catch {}
+  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, gui: gui ?? null, camera: camera ?? null })}`)
   writeFileSync(join(dir, 'scene.html'), PAGE)
   const server = createServer((q, r) => {
     const f = join(dir, decodeURIComponent(new URL(q.url, 'http://x').pathname))
@@ -224,6 +239,24 @@ function draw(node, into = ui, ox = 0, oy = 0) {
     Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' })
     el.append(img)
   }
+  if (node.image && S.images?.[node.image.key] && node.image.t < 1) {
+    // An ImageLabel: fitted like Roblox's ScaleType, tinted (ImageColor3 multiplies) when not white.
+    const src = S.images[node.image.key]
+    const fit = { Crop: 'cover', Fit: 'contain' }[node.image.scale] || 'fill'
+    const wrap = document.createElement('div')
+    Object.assign(wrap.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 1 - node.image.t, isolation: 'isolate' })
+    const img = document.createElement('img')
+    img.src = src
+    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit })
+    wrap.append(img)
+    if (node.image.color && node.image.color.toLowerCase() !== 'ffffff') {
+      const tint = document.createElement('div')
+      const mask = { WebkitMaskImage: 'url(' + src + ')', maskImage: 'url(' + src + ')', WebkitMaskSize: '100% 100%', maskSize: '100% 100%' }
+      Object.assign(tint.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', background: '#' + node.image.color, mixBlendMode: 'multiply' }, mask)
+      wrap.append(tint)
+    }
+    el.append(wrap)
+  }
   if (node.clip) el.style.overflow = 'hidden'
   into.append(el)
   // Children nest inside so a clipping frame (a scrolling list) hides what runs past it.
@@ -257,6 +290,6 @@ window.DONE = true
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [web, sceneFile, out, guiFile, cam] = process.argv.slice(2)
-  await render({ web, scene: JSON.parse(readFileSync(sceneFile, 'utf8')), out, gui: guiFile && guiFile !== '-' ? JSON.parse(readFileSync(guiFile, 'utf8')) : null, camera: cam ? JSON.parse(cam) : undefined })
+  await render({ web, scene: JSON.parse(readFileSync(sceneFile, 'utf8')), out, gui: guiFile && guiFile !== '-' ? JSON.parse(readFileSync(guiFile, 'utf8')) : null, camera: cam ? JSON.parse(cam) : undefined, ...(process.env.SIZE ? { width: +process.env.SIZE.split('x')[0], height: +process.env.SIZE.split('x')[1] } : {}) })
   console.log(`wrote ${out}`)
 }
