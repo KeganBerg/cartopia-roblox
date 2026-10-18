@@ -496,6 +496,19 @@ local function shot(name, world)
 	local at = cf.Position + cf.LookVector * 50
 	fs.writeFile(`build/shot-{name}-cam.json`, serde.encode("json", { from = { cf.Position.X, cf.Position.Y, cf.Position.Z }, at = { at.X, at.Y, at.Z }, fov = cam.FieldOfView }))
 end
+-- Walk: the camera follows the avatar, and the second press brings the town view back.
+do
+	hud.ctx.close()
+	local walkShadow = hud.gui:FindFirstChild("WalkButton", true)
+	local walkButton = walkShadow and (if walkShadow:IsA("GuiButton") then walkShadow else walkShadow:FindFirstChildWhichIsA("GuiButton", true))
+	assert(walkButton, "no Walk button")
+	shot("hud", nil)
+	signalFor(walkButton, "Activated"):Fire()
+	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Custom, "walking didn't hand the camera to the avatar")
+	signalFor(walkButton, "Activated"):Fire()
+	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Scriptable, "the town view didn't come back")
+	print("walk: on and off")
+end
 if SHOTS then
 	for _, p in { "shop", "goals", "menu", "cars" } do
 		hud.ctx.close()

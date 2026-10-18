@@ -28,6 +28,12 @@ local placed = false
 local panEnabled = true
 -- Off while another screen drives the camera (the drag race): see setPaused.
 local paused = false
+-- On while the player walks their town on foot (see setWalking): Roblox's own camera follows them.
+local walking = false
+-- Told whenever walking starts or stops (the HUD's Walk button).
+local walkListeners: { (boolean) -> () } = {}
+-- The avatar's controls (PlayerModule), found once the module loads.
+local controls: any = nil
 
 local function distance(): number
 	local cam = workspace.CurrentCamera
@@ -65,15 +71,26 @@ function TownCamera.start()
 	local player = Players.LocalPlayer
 	-- The town is played from above, so the avatar stays put instead of walking off.
 	task.spawn(function()
-		local ok, controls = pcall(function()
+		local ok, found = pcall(function()
 			local module = player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule", 10)
 			return module and (require(module :: ModuleScript) :: any):GetControls()
 		end)
-		if ok and controls then
-			controls:Disable()
+		if ok and found then
+			controls = found
+			if not walking then
+				controls:Disable()
+			end
 		end
 	end)
 	fitZoom()
+	-- A new avatar (after a fall off the map, say) keeps the camera on it while walking.
+	player.CharacterAdded:Connect(function()
+		if walking then
+			task.defer(function()
+				TownCamera.setPaused(paused)
+			end)
+		end
+	end)
 
 	local dragging: InputObject? = nil
 	local grab: Vector3? = nil
@@ -81,7 +98,7 @@ function TownCamera.start()
 	local pinch: number? = nil
 
 	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
-		if processed or paused then
+		if processed or paused or walking then
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -93,6 +110,9 @@ function TownCamera.start()
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input: InputObject, processed: boolean)
+		if walking then
+			return
+		end
 		if input.UserInputType == Enum.UserInputType.MouseWheel and not processed then
 			zoom = math.clamp(zoom * (1 + input.Position.Z * 0.12), ZOOM_MIN, ZOOM_MAX)
 			return
@@ -139,7 +159,7 @@ function TownCamera.start()
 	end)
 
 	RunService:BindToRenderStep("TownCamera", Enum.RenderPriority.Camera.Value + 1, function()
-		if paused then
+		if paused or walking then
 			return
 		end
 		if not placed then
@@ -158,9 +178,62 @@ function TownCamera.setPanEnabled(on: boolean)
 	panEnabled = on
 end
 
+-- The camera that follows the avatar, for walking.
+local function follow()
+	local cam = workspace.CurrentCamera
+	local character = Players.LocalPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	cam.CameraType = Enum.CameraType.Custom
+	cam.FieldOfView = 70
+	if humanoid then
+		cam.CameraSubject = humanoid
+	end
+end
+
 -- Hands the camera to another screen (true) or takes it back (false).
 function TownCamera.setPaused(on: boolean)
 	paused = on
+	if not on and walking then
+		follow()
+	end
+end
+
+function TownCamera.isWalking(): boolean
+	return walking
+end
+
+function TownCamera.onWalking(fn: (boolean) -> ())
+	table.insert(walkListeners, fn)
+end
+
+-- Walking (true): the avatar walks and jumps around the town with Roblox's usual controls and
+-- camera. Back to the town view (false): the view comes back over wherever they walked to.
+function TownCamera.setWalking(on: boolean)
+	if walking == on then
+		return
+	end
+	walking = on
+	for _, fn in walkListeners do
+		fn(on)
+	end
+	if controls then
+		if on then
+			controls:Enable()
+		else
+			controls:Disable()
+		end
+	end
+	if on then
+		follow()
+	else
+		local character = Players.LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then
+			view = Vector3.new(root.Position.X, 0, root.Position.Z)
+			clamp()
+		end
+		update()
+	end
 end
 
 -- Moves the view to look at a world position.
