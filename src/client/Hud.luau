@@ -27,6 +27,7 @@ local Rescue = require(script.Parent.Rescue)
 local Menu = require(script.Parent.Menu)
 local Upgrade = require(script.Parent.Upgrade)
 local Placement = require(script.Parent.Placement)
+local TownCamera = require(script.Parent.TownCamera)
 local Jobs = require(script.Parent.Jobs)
 local RaceMenu = require(script.Parent.RaceMenu)
 
@@ -302,6 +303,7 @@ function Hud.start()
 	end)
 	iconButton(3, "edit", "cone", "EDIT", function()
 		close()
+		TownCamera.setWalking(false)
 		Placement.edit(root, ctx)
 	end)
 	local race = Ui.new("Frame", { Name = "Race", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -10, 1, -10), Size = UDim2.fromOffset(84, 66 + 5), BackgroundTransparency = 1, Parent = root })
@@ -310,6 +312,20 @@ function Hud.start()
 	end, { radius = 18, stroke = 3, drop = 5, dark = 0.35, gloss = 0.55, shade = 0.82 })
 	Icons.draw("flag", raceFace, 30, Ui.WHITE, Color3.fromHex("#5cce47"), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
 	Ui.text({ Text = "RACE", TextSize = 20, Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 22), Shadow = 2, Stroke = 0.6, Parent = raceFace })
+
+	-- Walk: drops the camera behind the avatar to walk the town on foot; Town goes back up.
+	local walk = Ui.new("Frame", { Name = "Walk", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -250), Size = UDim2.fromOffset(60, 78), BackgroundTransparency = 1, Parent = root })
+	local walkLabel: TextLabel
+	local walkIcon: TextLabel
+	local _, walkFace = Ui.button({ Name = "WalkButton", Position = UDim2.fromOffset(2.5, 5.5), Size = UDim2.fromOffset(55, 55), Parent = walk }, "white", function()
+		TownCamera.setWalking(not TownCamera.isWalking())
+	end, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
+	walkIcon = Ui.text({ Text = "🚶", TextSize = 30, Size = UDim2.fromScale(1, 1), Parent = walkFace })
+	walkLabel = Ui.text({ Text = "WALK", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
+	TownCamera.onWalking(function(on: boolean)
+		walkIcon.Text = if on then "🏙️" else "🚶"
+		walkLabel.Text = if on then "TOWN" else "WALK"
+	end)
 
 	local dock = Ui.new("Frame", { Name = "Dock", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -104), Size = UDim2.fromOffset(60, 136), BackgroundTransparency = 1, Parent = root })
 	local _, goalsFace = Ui.button({ Name = "Goals", Position = UDim2.fromOffset(2.5, 2.5 + 3), Size = UDim2.fromOffset(55, 55), Parent = dock }, "white", function()

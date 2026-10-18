@@ -160,6 +160,10 @@ function Crates.draw(parent: Instance, ctx: any)
 
 	local function redraw(view: string, opens: { any }?)
 		shown = { view = view, opens = opens }
+		-- The page was closed while the crate opened: the prize waits for the next visit.
+		if not root.Parent then
+			return
+		end
 		for _, c in root:GetChildren() do
 			c:Destroy()
 		end
