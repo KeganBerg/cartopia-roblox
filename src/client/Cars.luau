@@ -723,7 +723,7 @@ function Cars.open(ctx: any, tab: string?): Instance
 	-- The tabs the Roblox game doesn't have yet say so and stay on the page you're on.
 	for _, t in TABS do
 		if not READY[t.id] then
-			local face = (page :: any).Tabs[t.id].Face :: TextButton
+			local face = (_tabs :: any)[t.id].Face :: TextButton
 			face.Activated:Connect(function()
 				ctx.toast(`{t.label:sub(((t.label:find(" ")) or 0) + 1)} is coming to Roblox soon`)
 				pickTab(current)

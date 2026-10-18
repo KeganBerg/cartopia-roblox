@@ -222,7 +222,7 @@ local function row(list: Instance, order: number, o: RowOpts)
 		Ui.corner(10),
 		Ui.text({ Text = o.icon, TextSize = 22, Size = UDim2.fromScale(1, 1) }),
 	})
-	local main = Ui.new("TextButton", { Name = "Main", Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Position = UDim2.fromOffset(56, 8), Size = UDim2.new(1, -56 - 76, 1, -16), Parent = r })
+	local main = Ui.new("TextButton", { Name = "Main", Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Position = UDim2.fromOffset(56, 8), Size = UDim2.new(1, -56 - 84, 1, -16), Parent = r })
 	main.Activated:Connect(function()
 		if not o.done then
 			o.onGo()
@@ -252,7 +252,7 @@ local function head(list: Instance, order: number, text: string, pct: number?)
 	local l = Ui.text({ Text = text, TextSize = 14, TextColor3 = Color3.fromHex("#546e7a"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(2, 0), Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Parent = h })
 	if pct then
 		-- The bar fills the rest of the line, as the web's flex: 1.
-		local w = math.max(70, #text * 7.4 + 16)
+		local w = math.max(70, math.ceil(Ui.textWidth(text, 14)) + 16)
 		bar(h, { Position = UDim2.new(0, w, 0.5, -4), Size = UDim2.new(1, -w - 2, 0, 8) }, pct, "#dfe5ea")
 	end
 	return l
@@ -527,7 +527,7 @@ function Goals.open(ctx: any): Instance
 	Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 4), Parent = list })
 	Ui.new("UIListLayout", { Padding = UDim.new(0, GAP), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
 
-	local row: Frame
+	local row: ScrollingFrame
 	local function badges(st: any)
 		local counts = dots(st)
 		for _, it in items do

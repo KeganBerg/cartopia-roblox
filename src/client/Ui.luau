@@ -409,29 +409,95 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 	return overlay, sheet, body, extras
 end
 
--- The web's SheetTabs: a row of tabs that stretch to fill it; the picked one is yellow with a navy
--- outline, the rest white. items: { id, label }. Returns the row and a function to pick a tab
--- (which recolours them; onChange runs on taps). dark: the Cars page's dark strip.
-function Ui.tabs(parent: Instance, items: { { id: string, label: string } }, value: string, onChange: (string) -> (), opts: { [string]: any }?): (Frame, (string) -> ())
+-- How wide a line of text in the display face (Fredoka One) is, in pixels.
+local TextService = game:GetService("TextService")
+function Ui.textWidth(text: string, size: number): number
+	return TextService:GetTextSize(text, size, Enum.Font.FredokaOne, Vector2.new(10000, 1000)).X
+end
+
+-- The web's SheetTabs: a row of tabs, each as wide as its label (flex: 1 0 auto), sharing out the
+-- room left so they reach the row's ends; when they don't fit, the row scrolls sideways and a ›
+-- button at its edge shows there are more. The picked one is yellow with a navy outline, the rest
+-- white. items: { id, label }. Returns the row and a function to pick a tab (which recolours them;
+-- onChange runs on taps). dark: the Cars page's dark strip.
+local TAB_GAP = 6
+local TAB_PAD = 12
+function Ui.tabs(parent: Instance, items: { { id: string, label: string } }, value: string, onChange: (string) -> (), opts: { [string]: any }?): (ScrollingFrame, (string) -> ())
 	local o: { [string]: any } = opts or {}
-	local row = Ui.new("Frame", {
+	local textSize = o.textSize or 14
+	local bg = if o.dark then Color3.fromHex("#0f141d") else Ui.SHEET
+	local holder = Ui.new("Frame", {
 		Name = "Tabs",
 		Size = o.size or UDim2.new(1, 0, 0, 52),
 		Position = o.position or UDim2.new(),
-		BackgroundColor3 = if o.dark then Color3.fromHex("#0f141d") else Ui.SHEET,
+		BackgroundColor3 = bg,
 		BackgroundTransparency = if o.dark then 0.28 else 0,
 		BorderSizePixel = 0,
+		ClipsDescendants = true,
 		Parent = parent,
+	})
+	-- Widths are worked out from the labels, not left to AutomaticSize: an automatic width inside
+	-- a flex row is laid out at one size and drawn at another, so the tabs overlapped.
+	local widths: { number } = {}
+	local natural = 0
+	for i, it in items do
+		widths[i] = math.ceil(Ui.textWidth(it.label, textSize)) + TAB_PAD * 2
+		natural += widths[i] + (if i > 1 then TAB_GAP else 0)
+	end
+	local row = Ui.new("ScrollingFrame", {
+		Name = "Row",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 0,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		ElasticBehavior = Enum.ElasticBehavior.Never,
+		CanvasSize = UDim2.fromOffset(natural + 28, 0),
+		Parent = holder,
 	}, {
 		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 10) }),
-		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalFlex = Enum.UIFlexAlignment.Fill, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center }),
+		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalFlex = Enum.UIFlexAlignment.Fill, Padding = UDim.new(0, TAB_GAP), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center }),
 	})
-	-- The line under the tabs sits beside the row, not in it, so the row's list doesn't lay it out.
+	-- The line under the tabs sits beside the row, not in it.
 	if not o.dark then
-		local size: UDim2 = row.Size
-		local pos: UDim2 = row.Position
-		Ui.new("Frame", { Name = "TabsEdge", Size = UDim2.new(size.X.Scale, size.X.Offset, 0, 2), Position = pos + UDim2.new(0, 0, size.Y.Scale, size.Y.Offset - 2), BorderSizePixel = 0, BackgroundColor3 = Ui.EDGE, Parent = parent })
+		Ui.new("Frame", { Name = "TabsEdge", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 2), BorderSizePixel = 0, BackgroundColor3 = Ui.EDGE, ZIndex = 2, Parent = holder })
 	end
+	-- The › button, on a strip of the row's colour that the next tab fades out behind.
+	local more = Ui.new("Frame", { Name = "More", AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.new(0, 64, 1, -2), BackgroundColor3 = bg, BorderSizePixel = 0, Visible = false, ZIndex = 4, Parent = holder }, {
+		Ui.new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4, 0), NumberSequenceKeypoint.new(1, 0) }) }),
+	})
+	local arrow = Ui.new("TextButton", {
+		Name = "Arrow",
+		Text = "›",
+		FontFace = Ui.DISPLAY,
+		TextSize = 26,
+		TextColor3 = Ui.WHITE,
+		AutoButtonColor = false,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -8, 0.5, -1),
+		Size = UDim2.fromOffset(36, 36),
+		BackgroundColor3 = Ui.WHITE,
+		ZIndex = 5,
+		Parent = holder,
+	}, { Ui.round(), Ui.stroke(2.5, Ui.LINE), Ui.gradient("#4f9bff", "#2263d6") })
+	arrow.Visible = false
+	local function check()
+		local w = row.AbsoluteSize.X
+		-- The canvas is never narrower than the row, so the tabs can stretch across it.
+		if w > 0 and row.CanvasSize.X.Offset ~= math.max(natural + 28, w) then
+			row.CanvasSize = UDim2.fromOffset(math.max(natural + 28, w), 0)
+		end
+		local over = w > 0 and row.CanvasPosition.X + w < natural + 28 - 4
+		more.Visible = over
+		arrow.Visible = over
+	end
+	arrow.Activated:Connect(function()
+		local w = row.AbsoluteSize.X
+		row.CanvasPosition = Vector2.new(math.min(row.CanvasPosition.X + w * 0.7, math.max(0, natural + 28 - w)), 0)
+		check()
+	end)
+	row:GetPropertyChangedSignal("CanvasPosition"):Connect(check)
+	row:GetPropertyChangedSignal("AbsoluteSize"):Connect(check)
 	local faces: { [string]: TextButton } = {}
 	local function pick(id: string)
 		for tid, face in faces do
@@ -467,24 +533,38 @@ function Ui.tabs(parent: Instance, items: { { id: string, label: string } }, val
 				gloss.Visible = on
 			end
 		end
+		-- Bring the picked tab into view, clear of the › strip.
+		local w = row.AbsoluteSize.X
+		if w > 0 then
+			local left = 14
+			for i, it in items do
+				if it.id == id then
+					local right = left + widths[i]
+					if left < row.CanvasPosition.X then
+						row.CanvasPosition = Vector2.new(left - 14, 0)
+					elseif right > row.CanvasPosition.X + w - 56 then
+						row.CanvasPosition = Vector2.new(math.min(right - w + 56, math.max(0, natural + 28 - w)), 0)
+					end
+					break
+				end
+				left += widths[i] + TAB_GAP
+			end
+		end
+		check()
 	end
 	for i, it in items do
-		local shadow, face = Ui.shadowed({ Name = it.id, Size = UDim2.fromOffset(0, 34), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = i, Parent = row }, {
+		local shadow, face = Ui.shadowed({ Name = it.id, Size = UDim2.fromOffset(widths[i], 34), LayoutOrder = i, Parent = row }, {
 			radius = 12,
 			stroke = 2,
 			drop = 2,
 			class = "TextButton",
 			colors = "white",
 		})
+		-- Tabs grow into spare room but never shrink below their label.
+		Ui.new("UIFlexItem", { FlexMode = Enum.UIFlexMode.Grow, Parent = shadow })
 		local gloss = Ui.new("Frame", { Name = "Gloss", ZIndex = 0, BorderSizePixel = 0, BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.5, Position = UDim2.fromOffset(8, 1), Size = UDim2.new(1, -16, 0, 2), Parent = face }, { Ui.round() })
 		gloss.Visible = false
-		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), Parent = shadow })
-		Ui.text({ Name = "Label", Text = it.label, TextSize = o.textSize or 14, Size = UDim2.new(1, 0, 1, 0), TextColor3 = Ui.MUTED, Parent = face })
-		-- The label sets the tab's width; the face fills the tab, padding and all.
-		local measure = Ui.text({ Name = "Measure", Text = it.label, TextSize = o.textSize or 14, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, TextTransparency = 1, Parent = shadow })
-		measure.ZIndex = 0
-		face.Size = UDim2.new(1, 24, 1, 0)
-		face.Position = UDim2.fromOffset(-12, -2)
+		Ui.text({ Name = "Label", Text = it.label, TextSize = textSize, Size = UDim2.fromScale(1, 1), TextColor3 = Ui.MUTED, Parent = face })
 		faces[it.id] = face
 		face.Activated:Connect(function()
 			pick(it.id)
