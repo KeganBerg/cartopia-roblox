@@ -231,7 +231,6 @@ Meshes.MESHES = {
 	["1d951ec5fac1b425"] = { asset = 133144051392103, size = Vector3.new(1.142, 9.5, 1.2) },
 	["39ebad424246497c"] = { asset = 133144051392103, size = Vector3.new(2.06, 2.96, 10.73) },
 	["f5325d933710fcc1"] = { asset = 133144051392103, size = Vector3.new(0.434, 16, 0.5) },
-	["f115b4f4920723f6"] = { asset = 98671840665970, size = Vector3.new(0.952, 0.5, 1) },
 	["0126f3b60070241c"] = { asset = 70702047389371, size = Vector3.new(0.28, 0.28, 0.242) },
 	["0ac7df39c7922508"] = { asset = 70702047389371, size = Vector3.new(0.856, 0.1, 0.9) },
 	["0b39f121362a8b6d"] = { asset = 70702047389371, size = Vector3.new(1.18, 1.18, 0.172) },
