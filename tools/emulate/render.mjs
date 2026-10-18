@@ -1,0 +1,226 @@
+// Pictures what the game built in the emulator (tools/emulate/*.luau): every part, drawn with
+// three.js the way Roblox shapes it (blocks, cylinders along X, balls, meshes stretched to their
+// part), plus the screens (ScreenGui) laid over it as HTML when given.
+//
+//   node tools/emulate/render.mjs <web repo> <scene.json> <out.png> [gui.json]
+//
+// Uses the web repo's three.js and Playwright. CHROMIUM=<path> picks the browser.
+
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { dirname, join, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const ROOT = resolve(HERE, '../..')
+
+export async function render({ web, scene, out, gui, width = 1280, height = 800, camera }) {
+  const dir = join(resolve(web), '.rbx-preview')
+  mkdirSync(dir, { recursive: true })
+  const req = createRequire(join(resolve(web), 'package.json'))
+  const threeDir = dirname(req.resolve('three'))
+  for (const f of ['three.module.js', 'three.core.js']) copyFileSync(join(threeDir, f), join(dir, f))
+  const meshes = JSON.parse(readFileSync(join(ROOT, 'build/meshes.json'), 'utf8'))
+  const used = {}
+  for (const p of scene.parts) if (p.mesh && meshes[p.mesh]) used[p.mesh] = meshes[p.mesh]
+  // Meshes the screens' 3D pictures (ViewportFrames) show.
+  const visit = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (n.viewport?.parts) for (const p of n.viewport.parts) if (p.mesh && meshes[p.mesh]) used[p.mesh] = meshes[p.mesh]
+    for (const v of Object.values(n)) if (v && typeof v === 'object') visit(v)
+  }
+  visit(gui)
+  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, gui: gui ?? null, camera: camera ?? null })}`)
+  writeFileSync(join(dir, 'scene.html'), PAGE)
+  const server = createServer((q, r) => {
+    const f = join(dir, decodeURIComponent(new URL(q.url, 'http://x').pathname))
+    try {
+      const body = readFileSync(f)
+      r.writeHead(200, { 'content-type': f.endsWith('.js') ? 'text/javascript' : 'text/html' })
+      r.end(body)
+    } catch {
+      r.writeHead(404).end()
+    }
+  })
+  await new Promise((res) => server.listen(0, '127.0.0.1', res))
+  const { chromium } = req('playwright')
+  const browser = await chromium.launch({ ...(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
+  const page = await browser.newPage({ viewport: { width, height } })
+  page.on('pageerror', (e) => console.error(e))
+  page.on('console', (m) => m.type() === 'error' && console.error(m.text()))
+  await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`)
+  await page.waitForFunction('window.DONE === true', null, { timeout: 180000 })
+  await page.screenshot({ path: out, timeout: 180000 })
+  await browser.close()
+  server.close()
+}
+
+const PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{margin:0;overflow:hidden;background:#87b7e0}#ui{position:fixed;inset:0;pointer-events:none;font-family:'Fredoka One','Arial Rounded MT Bold',system-ui,sans-serif}
+#ui div{position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center;white-space:nowrap}</style>
+<script type="importmap">{"imports":{"three":"./three.module.js"}}</script>
+<script src="scene.js"></script></head><body><div id="ui"></div>
+<script type="module">
+import * as T from 'three'
+const S = window.SCENE
+const W = innerWidth, H = innerHeight
+const renderer = new T.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+renderer.setSize(W, H)
+renderer.toneMapping = T.ACESFilmicToneMapping
+renderer.outputColorSpace = T.SRGBColorSpace
+renderer.shadowMap.enabled = true
+document.body.prepend(renderer.domElement)
+const scene = new T.Scene()
+scene.background = new T.Color('#8ec5f0')
+scene.fog = new T.Fog('#bcd9f2', 600, 1600)
+scene.add(new T.HemisphereLight(0xdfefff, 0x5a6a40, 1.5))
+const sun = new T.DirectionalLight(0xfff4e0, 2.4)
+sun.position.set(300, 500, 200); sun.castShadow = true
+sun.shadow.mapSize.set(4096, 4096)
+Object.assign(sun.shadow.camera, { left: -400, right: 400, top: 400, bottom: -400, near: 10, far: 1500 })
+scene.add(sun)
+const unit = { Block: new T.BoxGeometry(1, 1, 1), Cylinder: new T.CylinderGeometry(0.5, 0.5, 1, 28).rotateZ(-Math.PI / 2), Ball: new T.SphereGeometry(0.5, 24, 16), ellipsoid: new T.SphereGeometry(0.5, 24, 16) }
+const MAT = { Neon: { emissive: 0.9 }, Metal: { metalness: 0.55, roughness: 0.35 }, Glass: { roughness: 0.1 }, Grass: { roughness: 1 }, Asphalt: { roughness: 1 }, Concrete: { roughness: 0.95 } }
+const geoCache = {}
+// Every part as Roblox shapes it: blocks, cylinders along X, balls, meshes stretched to their part.
+function addParts(scene, parts) {
+for (const p of parts) {
+  let geo = unit[p.shape] || unit.Block
+  let scale = p.size
+  if (p.mesh && S.meshes[p.mesh]) {
+    const m = S.meshes[p.mesh]
+    geo = geoCache[p.mesh] ??= (() => { const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(m.pos, 3)); g.setIndex(m.idx); g.computeVertexNormals(); return g })()
+    scale = p.size.map((v, i) => (m.size[i] < 1e-4 ? 1 : v / m.size[i]))
+  }
+  const look = MAT[p.material] || {}
+  const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
+  const mesh = new T.Mesh(geo, mat)
+  const [x, y, z, a, b, c, d, e, f, g, h, i] = p.cf
+  const m4 = new T.Matrix4().set(a, b, c, x, d, e, f, y, g, h, i, z, 0, 0, 0, 1)
+  mesh.matrixAutoUpdate = false
+  mesh.matrix.copy(m4).multiply(new T.Matrix4().makeScale(...scale))
+  mesh.castShadow = p.transparency < 0.5 && Math.max(...p.size) < 500
+  mesh.receiveShadow = true
+  scene.add(mesh)
+  if (p.text) {
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = Math.max(64, Math.round(512 * p.size[1] / Math.max(p.size[0], 0.01)))
+    const x2 = cv.getContext('2d'); x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height); x2.fillStyle = '#' + p.text.fg
+    let fs = cv.height * 0.7; x2.font = '900 ' + fs + 'px Arial Black, sans-serif'; x2.textAlign = 'center'; x2.textBaseline = 'middle'
+    while (x2.measureText(p.text.text).width > cv.width * 0.88 && fs > 10) { fs -= 2; x2.font = '900 ' + fs + 'px Arial Black, sans-serif' }
+    x2.fillText(p.text.text, cv.width / 2, cv.height / 2 + 2)
+    const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace
+    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex }))
+    face.matrixAutoUpdate = false
+    face.matrix.copy(m4).multiply(new T.Matrix4().makeTranslation(0, 0, p.size[2] / 2 + 0.02)).multiply(new T.Matrix4().makeScale(p.size[0], p.size[1], 1))
+    scene.add(face)
+  }
+}
+}
+addParts(scene, S.parts)
+const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 1, 5000)
+const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
+cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
+renderer.render(scene, cam)
+
+// Screens: ScreenGui frames as absolutely placed boxes, drawn as Roblox would: children over
+// parents, siblings by ZIndex, UIStroke outlines outside the box (text strokes around the
+// letters), UIGradient colour stops and rotation, and Roblox's Fredoka One and Nunito fonts.
+const fonts = document.createElement('link')
+fonts.rel = 'stylesheet'
+fonts.href = 'https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;800;900&display=block'
+document.head.append(fonts)
+const ui = document.getElementById('ui')
+const FAMILY = { FredokaOne: "'Fredoka One','Arial Rounded MT Bold',system-ui,sans-serif", Nunito: "Nunito,system-ui,sans-serif" }
+const rgba = (h, t = 0) => { const n = parseInt(h, 16); return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + (1 - t).toFixed(3) + ')' }
+function fill(node) {
+  if (node.bg == null || node.bgT >= 1) return null
+  if (!node.grad) return rgba(node.bg, node.bgT)
+  const g = node.grad, n = g.stops.length
+  const stops = g.stops.map(([t, c], i) => rgba(c, 1 - (1 - node.bgT) * (1 - (g.t0 + (g.t1 - g.t0) * t))) + ' ' + (t * 100).toFixed(1) + '%')
+  return 'linear-gradient(' + (g.rot + 90) + 'deg,' + stops.join(',') + ')'
+}
+// A ViewportFrame's picture: its own little scene, drawn from its camera with the frame's lighting.
+let vr = null
+function picture(v, w, h) {
+  vr ??= new T.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
+  vr.outputColorSpace = T.SRGBColorSpace
+  vr.toneMapping = T.ACESFilmicToneMapping
+  vr.setPixelRatio(2)
+  vr.setSize(w, h)
+  const sc = new T.Scene()
+  sc.add(new T.HemisphereLight(0xffffff, '#' + (v.ambient || 'aaafb9'), 1.6))
+  const light = new T.DirectionalLight(0xffffff, 2)
+  light.position.set(1, 2, 1.2)
+  sc.add(light)
+  addParts(sc, v.parts)
+  const [x, y, z, a, b, c, d, e, f, g, hh, i] = v.cam.cf
+  const cam = new T.PerspectiveCamera(v.cam.fov, w / h, 0.1, 5000)
+  new T.Matrix4().set(a, b, c, x, d, e, f, y, g, hh, i, z, 0, 0, 0, 1).decompose(cam.position, cam.quaternion, cam.scale)
+  vr.render(sc, cam)
+  return vr.domElement.toDataURL()
+}
+
+function draw(node, into = ui, ox = 0, oy = 0) {
+  if (node.visible === false) return
+  const el = document.createElement('div')
+  const [px, py, pw, ph] = node.abs
+  Object.assign(el.style, { left: px - ox + 'px', top: py - oy + 'px', width: pw + 'px', height: ph + 'px' })
+  const bg = fill(node)
+  if (bg) el.style.background = bg
+  if (node.corner != null) el.style.borderRadius = Math.min(node.corner, pw / 2, ph / 2) + 'px'
+  // UIStroke borders sit outside the box, so a shadow ring rather than a CSS border.
+  if (node.stroke && node.stroke[2] < 1) el.style.boxShadow = '0 0 0 ' + node.stroke[0] + 'px ' + rgba(node.stroke[1], node.stroke[2])
+  if (node.rot) el.style.transform = 'rotate(' + node.rot + 'deg)'
+  if (node.text) {
+    const t = document.createElement('span')
+    t.textContent = node.text
+    Object.assign(t.style, { color: rgba(node.textColor, node.textT || 0), fontSize: node.textSize + 'px', fontFamily: FAMILY[node.font] || FAMILY.FredokaOne, fontWeight: node.font === 'Nunito' ? node.weight : 400, lineHeight: '1.15', textAlign: node.xAlign === 'Left' ? 'left' : node.xAlign === 'Right' ? 'right' : 'center', whiteSpace: node.wrapped ? 'normal' : 'pre', position: 'static', width: node.wrapped ? '100%' : 'auto' })
+    el.style.justifyContent = node.xAlign === 'Left' ? 'flex-start' : node.xAlign === 'Right' ? 'flex-end' : 'center'
+    el.style.alignItems = node.yAlign === 'Top' ? 'flex-start' : node.yAlign === 'Bottom' ? 'flex-end' : 'center'
+    // Roblox's text stroke is an outline of that thickness around each letter.
+    if (node.textStroke && node.textStroke[2] < 1) Object.assign(t.style, { webkitTextStroke: node.textStroke[0] * 2 + 'px ' + rgba(node.textStroke[1], node.textStroke[2]), paintOrder: 'stroke fill' })
+    el.append(t)
+  }
+  if (node.viewport && node.viewport.cam && node.viewport.parts.length && pw > 4 && ph > 4) {
+    const img = document.createElement('img')
+    img.src = picture(node.viewport, pw, ph)
+    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' })
+    el.append(img)
+  }
+  if (node.clip) el.style.overflow = 'hidden'
+  into.append(el)
+  // Children nest inside so a clipping frame (a scrolling list) hides what runs past it.
+  const kids = (Array.isArray(node.children) ? node.children : []).map((k, i) => [k, i]).sort((a, b) => (a[0].z ?? 1) - (b[0].z ?? 1) || a[1] - b[1])
+  for (const [k] of kids) draw(k, el, px, py)
+}
+if (S.gui) {
+  const nodes = [].concat(S.gui.nodes || S.gui)
+  const boards = nodes.filter((n) => n.billboard)
+  // Older dumps only had the bubble text; newer ones lay out each BillboardGui like a screen.
+  if (!boards.length) for (const b of Array.isArray(S.gui.bubbles) ? S.gui.bubbles : []) {
+    const v = new T.Vector3(...b.at).project(cam)
+    if (v.z > 1) continue
+    const x = (v.x + 1) / 2 * W - b.size[0] / 2, y = (1 - v.y) / 2 * H - b.size[1] / 2
+    draw({ abs: [x, y, b.size[0], b.size[1]], bg: 'ffffff', bgT: 0, corner: 14, stroke: [3, '14213d', 0], text: b.text, textColor: '1b2a4a', textSize: 18 })
+  }
+  for (const b of boards) {
+    const v = new T.Vector3(...b.at).project(cam)
+    if (v.z > 1) continue
+    const dx = (v.x + 1) / 2 * W - b.abs[2] / 2, dy = (1 - v.y) / 2 * H - b.abs[3] / 2
+    const move = (n) => { if (n.abs) n.abs = [n.abs[0] + dx, n.abs[1] + dy, n.abs[2], n.abs[3]]; for (const c of Array.isArray(n.children) ? n.children : []) move(c) }
+    move(b)
+    draw(b)
+  }
+  for (const n of nodes) if (!n.billboard) draw(n)
+}
+await document.fonts.ready
+await new Promise((r) => setTimeout(r, 300))
+window.DONE = true
+</script></body></html>`
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const [web, sceneFile, out, guiFile, cam] = process.argv.slice(2)
+  await render({ web, scene: JSON.parse(readFileSync(sceneFile, 'utf8')), out, gui: guiFile && guiFile !== '-' ? JSON.parse(readFileSync(guiFile, 'utf8')) : null, camera: cam ? JSON.parse(cam) : undefined })
+  console.log(`wrote ${out}`)
+}

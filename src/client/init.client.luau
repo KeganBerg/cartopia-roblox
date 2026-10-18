@@ -1,5 +1,5 @@
--- Client entry point: camera, input, HUD and effects will hang off this. For now it sets the clock
--- and connects to the server (Remote).
+-- Client entry point: sets the clock, starts the town's day and night (DayNight), connects to the server (Remote) and starts the HUD, which
+-- owns the screens, job bubbles and building placement.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -8,4 +8,7 @@ Js.setClock(function()
 	return DateTime.now().UnixTimestampMillis
 end)
 
+require(script.DayNight).start()
+require(script.TownCamera).start()
 require(script.Remote)
+require(script.Hud).start()

@@ -5,7 +5,10 @@
     "Workspace": {
       "$className": "Workspace",
       "$properties": {
-        "FilteringEnabled": true
+        "FilteringEnabled": true,
+        "StreamingEnabled": true,
+        "StreamingTargetRadius": 1024,
+        "StreamingMinRadius": 256
       },
       "Ground": {
         "$className": "Part",
@@ -13,7 +16,7 @@
           "Anchored": true,
           "Locked": true,
           "Size": [2048, 16, 2048],
-          "Position": [0, -8, 0],
+          "Position": [0, -8.1, 0],
           "Color": [0.42, 0.66, 0.29],
           "Material": "Grass",
           "TopSurface": "Smooth",
@@ -25,11 +28,13 @@
         "$properties": {
           "Anchored": true,
           "Size": [12, 1, 12],
-          "Position": [0, 0.5, 0],
+          "Position": [0, 0.5, -10],
           "Color": [0.85, 0.85, 0.85],
           "Material": "SmoothPlastic",
           "TopSurface": "Smooth",
-          "Duration": 0
+          "Duration": 0,
+          "Transparency": 1,
+          "CanCollide": false
         }
       }
     },
@@ -38,7 +43,10 @@
       "$properties": {
         "ClockTime": 14,
         "Brightness": 2,
-        "GlobalShadows": true
+        "GlobalShadows": true,
+        "Technology": "ShadowMap",
+        "EnvironmentDiffuseScale": 0.4,
+        "EnvironmentSpecularScale": 0.4
       }
     },
     "ReplicatedStorage": {

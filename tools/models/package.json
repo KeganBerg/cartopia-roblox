@@ -1,0 +1,9 @@
+{
+  "name": "cartopia-roblox-models",
+  "private": true,
+  "type": "module",
+  "description": "Turns the web game's 3D models into Roblox parts (see build.mjs)",
+  "dependencies": {
+    "meshoptimizer": "0.22.0"
+  }
+}

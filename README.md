@@ -2,8 +2,9 @@
 
 The Roblox version of [Cartopia](https://github.com/KeganBerg/Cartopia). The web game's rules and
 economy (`src/game` in the web repo) are converted to Luau automatically, so the Roblox game runs
-the same code as the web game and stays in step when it changes. The town, cars and UI are rebuilt
-in Studio.
+the same code as the web game and stays in step when it changes. The 3D models (every building,
+car and street piece) are converted from the web game's own scene code too, so the town looks like
+the web game's.
 
 ## What's here
 
@@ -14,15 +15,20 @@ in Studio.
 | `src/server/Towns.luau` | Runs every player's town on the server with the web game's own store, and checks which actions clients may ask for. |
 | `src/server/Saves.luau` | Player saves in a DataStore (`Towns_v1`), with session locking. |
 | `src/server/init.server.luau` | Wires it up: loads and saves towns, ticks the town clock every second, autosaves every 5 minutes, and serves the remotes. |
+| `src/shared/Models/` | `Catalog.luau` and `Meshes.luau` are **generated** by `tools/models`: every building (`id@level`), car and street piece as Roblox parts. `Builder.luau` builds them. |
+| `src/server/TownView.luau` | Draws each player's town in `Workspace.Towns` from their save: land, lawn, roads (put together like the web's `RoadTile`), buildings and cars. |
 | `src/client/Remote.luau` | The client's side: `Remote.act("buyCar", "pip", "#c62828")`, and a copy of the town in the client's store. |
+| `src/client/` (rest) | The screens (HUD, shop, showroom, build mode, job bubbles), the web-style town camera (`TownCamera`) and the shared day and night (`DayNight`). |
 | `tools/transpile/` | The TypeScript-to-Luau converter (see below). |
+| `tools/models/` | The model converter: renders the web game's models in Node, turns them into parts and meshes, and uploads the meshes to Roblox (`upload.mjs`). |
+| `tools/emulate/` | Runs the real Luau outside Roblox (with Lune) and draws what it built, for previews without Studio. |
 
 Layout (Rojo):
 
 ```
 ReplicatedStorage.Shared       <- src/shared   rules shared by server and client
 ServerScriptService.Server     <- src/server   towns, saves, remotes
-StarterPlayer.StarterPlayerScripts.Client <- src/client   remotes now; camera, input, HUD later
+StarterPlayer.StarterPlayerScripts.Client <- src/client   remotes, screens, camera, lighting
 ```
 
 ## How the economy works
@@ -107,11 +113,27 @@ and only publishes if they pass. Setup (Open Cloud key, ids) is in the workflow 
 A publish replaces the whole place with what Rojo builds, so anything made in Studio has to be
 saved into this repo (as `.rbxm` models) or the next publish overwrites it.
 
+## The 3D models
+
+`node tools/models/build.mjs <web repo>` renders every building, car, street piece and lawn piece
+with the web game's own components (`@react-three/test-renderer`, run by the web repo's vitest),
+and converts what it drew: boxes, cylinders and balls become plain parts, everything else becomes a
+mesh. Meshes are packed into one `.glb` per model (`build/meshes/`) and uploaded as Model assets by
+`tools/models/upload.mjs`, which records their ids in `tools/models/assets.json`; the game loads
+them with `InsertService` when the server starts. Until a mesh is uploaded the game draws a box in
+its place. The publish workflow does all of this on every run (the Open Cloud key needs Assets read
+and write for the upload).
+
+Previews without Studio:
+
+```
+rojo build -o build/place.rbxl
+lune run tools/emulate/town.luau build/place.rbxl build/town.json build/gui.json [shop|showroom]
+node tools/emulate/render.mjs <web repo> build/town.json out.png build/gui.json
+```
+
 ## Next steps
 
 1. Check in Studio that the shared modules load (they use Roblox's string requires,
    `require("./data")`) and that a town loads, saves and reloads.
-2. The town: grid placement, roads, and building and car models in Studio, drawn from the client's
-   copy of the town.
-3. UI: HUD, shop, showroom, garage and race screens, calling `Remote.act`.
-4. Races on the server, so race results can go on the allowed list.
+2. Races on the server, so race results can go on the allowed list; live racing; crews.
