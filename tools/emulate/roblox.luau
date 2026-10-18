@@ -69,6 +69,9 @@ local function pivotOf(model)
 	local ok, wp = pcall(function()
 		return model.WorldPivot
 	end)
+	if ok and wp and model:GetAttribute("EmuPivoted") then
+		return wp
+	end
 	if model.PrimaryPart then
 		return model.PrimaryPart.CFrame
 	end
@@ -88,6 +91,33 @@ roblox.implementMethod("Model", "PivotTo", function(model, cf)
 		end
 	end
 	pivots[model] = cf
+	-- Lune hands out a new object for the same instance, so the table above misses it later on:
+	-- keep the pivot on the model itself too.
+	pcall(function()
+		model.WorldPivot = cf
+		model:SetAttribute("EmuPivoted", true)
+	end)
+end)
+-- Model scale, as Roblox keeps it: ScaleTo resizes every part about the pivot.
+roblox.implementMethod("Model", "GetScale", function(model)
+	return model:GetAttribute("EmuScale") or 1
+end)
+roblox.implementMethod("Model", "ScaleTo", function(model, k)
+	local by = k / (model:GetAttribute("EmuScale") or 1)
+	local pivot = pivots[model] or pivotOf(model)
+	for _, d in model:GetDescendants() do
+		if d:IsA("BasePart") then
+			local rel = pivot:Inverse() * d.CFrame
+			d.Size = d.Size * by
+			d.CFrame = pivot * (CFrame.new(rel.Position * by) * rel.Rotation)
+		end
+	end
+	model:SetAttribute("EmuScale", k)
+end)
+roblox.implementMethod("Workspace", "BulkMoveTo", function(_, parts, cfs)
+	for i, p in parts do
+		p.CFrame = cfs[i]
+	end
 end)
 roblox.implementMethod("Model", "GetBoundingBox", function(model)
 	local lo, hi = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)

@@ -96,10 +96,10 @@ function ____exports.tidyTrim(t)
     local out = {}
     for ____, k in ipairs(____exports.TRIM_KINDS) do
         local id = t and t[k.id]
-        if (if __truthy(id) then id ~= "stock" else id) and __TS__ArraySome(
+        if __truthy((if __truthy(id) then id ~= "stock" else id) and __TS__ArraySome(
             k.list,
             function(____, d) return d.id == id end
-        ) then
+        )) then
             out[k.id] = id
         end
     end
@@ -120,7 +120,7 @@ function ____exports.trimLocked(level, was, next)
     for ____, k in ipairs(____exports.TRIM_KINDS) do
         local id = next and next[k.id]
         local d = ____exports.trimDef(k.id, id)
-        if (function(v_1) return if __truthy(v_1) then level < d.level else v_1 end)((if __truthy(id) then id ~= (was and was[k.id]) else id) and d.level) then
+        if __truthy((function(v_1) return if __truthy(v_1) then level < d.level else v_1 end)((if __truthy(id) then id ~= (was and was[k.id]) else id) and d.level)) then
             return d
         end
     end

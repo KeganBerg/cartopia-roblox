@@ -170,12 +170,6 @@ class DateTimeFormat {
 }
 export const JsIntl = { DateTimeFormat }
 
-// Math.hypot(...xs)
-export function __hypot(...xs: number[]): number {
-  let sum = 0
-  for (const x of xs) sum += x * x
-  return Math.sqrt(sum)
-}
 // new Float32Array(n): n zeros, each value kept to single precision when stored (as JavaScript
 // does), so kart tracks come out exactly as on the web. Reads go straight to the backing list.
 declare const string: { pack(this: void, f: string, v: number): string; unpack(this: void, f: string, s: string): number }
@@ -201,6 +195,13 @@ export function imul(a: number, b: number) {
   const bh = (b >>> 16) & 0xffff
   const bl = b & 0xffff
   return (al * bl + ((((ah * bl + al * bh) & 0xffff) * 65536) >>> 0)) | 0
+}
+
+// Math.hypot: the length of a vector of any size.
+export function hypot(...xs: number[]) {
+  let sum = 0
+  for (const x of xs) sum += x * x
+  return Math.sqrt(sum)
 }
 
 // Number formatting with thousands separators, like toLocaleString('en-US') on whole numbers.
