@@ -60,6 +60,7 @@ local ALLOWED: { [string]: { any } } = {
 	toggleShowcase = { S },
 	equipCallCard = { "string?" },
 	pickFlair = { { "trail", "cheer" }, S },
+	seeFlair = {},
 	-- Rewards and shop
 	claimGoal = { S },
 	claimTask = { { "daily", "weekly" }, S },
@@ -193,23 +194,38 @@ end
 -- Popups, notes and toasts are taken off the town once sent: the server never runs the timers or
 -- close buttons that clear them on the web, and each should show once. search: Rusty's search in
 -- progress, which isn't part of the save (leaving mid-search forfeits it, as on the web).
-function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string }, search: any }
+-- The web store's one-off news the game shows as pop-ups (level-up splash, prize cards). Each goes
+-- out once, with the snapshot after it happened.
+Towns.POPUPS = { "levelUp", "gpPrize", "campaignPrize", "tourPrize", "eventPrize", "paintPrize", "tunerPrize", "masteryPrize", "cupPrize" }
+
+function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string }, search: any, popups: { [string]: any } }
 	local state = assert(self.states[userId], "town not open")
 	local toasts = {}
 	for _, t in state.toasts or {} do
 		table.insert(toasts, t.text)
 	end
 	local need, panel, upgrading = state.need, state.panel, state.upgrading
-	if #toasts > 0 or need ~= nil or panel ~= nil then
+	local popups = {}
+	local news = false
+	for _, k in Towns.POPUPS do
+		if state[k] ~= nil then
+			popups[k] = state[k]
+			news = true
+		end
+	end
+	if #toasts > 0 or need ~= nil or panel ~= nil or news then
 		-- A copy without them (setState can't clear a field: nil keys don't exist in Luau tables).
 		local next = table.clone(state)
 		next.toasts = {}
 		next.need = nil
 		next.panel = nil
 		next.panelBack = {}
+		for k in popups do
+			next[k] = nil
+		end
 		self.states[userId] = next
 	end
-	return { save = self.saveOf(self.states[userId]), need = need, panel = panel, upgrading = upgrading, toasts = toasts, search = state.search }
+	return { save = self.saveOf(self.states[userId]), need = need, panel = panel, upgrading = upgrading, toasts = toasts, search = state.search, popups = popups }
 end
 
 -- The save to write to the DataStore.
