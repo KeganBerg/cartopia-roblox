@@ -62,6 +62,20 @@ local races = Races.new(towns, {
 	DragRace = require(ReplicatedStorage.Shared.DragRace),
 	random = Random.new(),
 	clock = os.clock,
+	-- The other race modes, by name (server/Modes: each module's `id`).
+	modes = (function()
+		local out = {}
+		for _, m in script.Modes:GetChildren() do
+			if m:IsA("ModuleScript") then
+				local mode = (require :: any)(m)
+				out[mode.id] = mode
+			end
+		end
+		return out
+	end)(),
+	game = function(name: string): any
+		return require(Game:FindFirstChild(name) :: ModuleScript)
+	end,
 })
 local crates = Crates.new(towns, require(Game.store), require(Game.crates))
 
@@ -338,6 +352,8 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return races:campaign(player.UserId), nil
 		elseif op == "rows" then
 			return races:rows(player.UserId), nil
+		elseif op == "list" and type(arg) == "table" then
+			return races:list(player.UserId, arg.mode, arg.which), nil
 		elseif op == "keep" then
 			races:keep(player.UserId)
 			return true, nil

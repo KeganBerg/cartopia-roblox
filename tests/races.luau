@@ -55,6 +55,12 @@ local function setup()
 		clock = function()
 			return t
 		end,
+		modes = {
+			world = require("../src/server/Modes/World"),
+		},
+		game = function(name)
+			return require(G .. name)
+		end,
 	})
 	return races, towns, function(dt)
 		t += dt
@@ -191,5 +197,34 @@ return function(test)
 		races:close(1)
 		assert(towns:snapshot(1).save.coins == coins - result.bet, "stake lost")
 		assert(races:start(1, "bet") == nil, "only once")
+	end)
+
+	test("races: the World Tour opens at Street Racer and pays through worldTourResult", function()
+		local races, towns, wait = setup()
+		local store = require(G .. "store")
+		local wt = require(G .. "worldTour")
+		local started, why = races:start(1, "world", 0)
+		assert(started == nil and why:find("World Tour"), tostring(why))
+		towns:_with(1, function()
+			store.useGame.setState({ trophies = 400 })
+		end)
+		assert(races:start(1, "world", 1) == nil, "only the next country")
+		started, why = races:start(1, "world", 0)
+		assert(started, `start: {why}`)
+		assert(started.venue.id == "giza" and started.rival.id == "world-0", started.venue.id)
+		assert(started.rival.prize == wt.worldPrize(0, true), "first-win prize")
+		local run = drive(started.spec)
+		local mine, theirs = DragRace.times(run)
+		wait(60)
+		local result = assert(races:finish(1, run.events))
+		assert(result.won == (mine < theirs), "same winner")
+		assert((towns:snapshot(1).save.worldTour or 0) == (if result.won then 1 else 0), "progress")
+	end)
+
+	test("races: a ghost run finishes at the ghost's time", function()
+		local spec = { myPi = 40, rival = { pi = 0, shift = 1 }, seed = 3, track = 400, ghost = 13.5 }
+		local run = drive(spec)
+		local _, theirs = DragRace.times(run)
+		assert(theirs == 13.5, tostring(theirs))
 	end)
 end

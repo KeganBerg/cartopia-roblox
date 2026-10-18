@@ -227,8 +227,11 @@ end
 export type Button = { text: string, kind: string?, go: (() -> ())? }
 -- What a mode adds to the race screen: its title, and the result card's heading, the rival's
 -- words and buttons for a result (each left out for the usual ones).
+-- view: draws extra lines on the result card from height y down (a time trial's best, the Daily
+-- Run's par) and returns the height it reached.
 export type Extras = {
 	title: string?,
+	view: ((card: Frame, res: any, y: number) -> number)?,
 	heading: ((res: any) -> string?)?,
 	quote: ((res: any) -> string?)?,
 	buttons: ((res: any) -> { Button }?)?,
@@ -250,6 +253,15 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	carsFolder.Parent = world
 	local meModel, meFlame, meSmoke = placeCar(car.model, Paint.jobOf(car), car.hat, car.mods, car.panels, car.trim, car.skin, car.modSkin, LANE, carsFolder)
 	local themModel, themFlame, themSmoke = placeCar(rival.model, { color = rival.color }, nil, rival.mods, rival.panels, rival.trim, rival.skin, rival.modSkin, -LANE, carsFolder)
+	if spec.ghost then
+		-- A solo run's ghost: see-through, as the web's trial ghost.
+		for _, d in themModel:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.Transparency = math.max(d.Transparency, 0.6)
+				d.CastShadow = false
+			end
+		end
+	end
 	local bar = world:FindFirstChild("StartLights") :: Model
 	local lamps = {}
 	for i = 1, 3 do
@@ -490,6 +502,9 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		end
 		if (res.xp or 0) > 0 then
 			loot ..= `   ⭐ +{res.xp} XP`
+		end
+		if ex.view then
+			y = ex.view(card, res, y)
 		end
 		line(loot, y, 22, Ui.INK)
 		y += 40

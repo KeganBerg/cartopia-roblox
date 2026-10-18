@@ -28,6 +28,26 @@ local paintRivals = require(Game.paintRivals) :: any
 
 local RaceMenu = {}
 
+-- The other race modes' pages (client/RacePages/*.luau), by tab id. Each page module has:
+--   id, title          the tab id (also its Race remote mode) and the menu's title on it
+--   mini               { icon, label }: the small button on the front page that opens it
+--   draw(page, ctx, api)  draws the page; api has start(mode, which), show(tab), money(n),
+--                      myCar(), raceButton(parent, props, prize, onClick, kind?) and tile(...)
+--   extras(ctx, which, started, again)  what the mode adds to the race screen (DragStrip.Extras);
+--                      again(mode, which) races again
+local PAGES: { [string]: any } = {}
+do
+	local folder = script.Parent:FindFirstChild("RacePages")
+	if folder then
+		for _, m in folder:GetChildren() do
+			if m:IsA("ModuleScript") then
+				local page = (require :: any)(m)
+				PAGES[page.id] = page
+			end
+		end
+	end
+end
+
 local TITLES = { hub = "Race", quick = "Quick Race", campaign = "Campaign", rivals = "Paint Rivals" }
 local DARK = Color3.fromHex("#14213d")
 local lastTab = "hub"
@@ -78,6 +98,9 @@ local function extrasFor(ctx: any, mode: string, which: any, started: any, back:
 				ctx.open("race", back)
 			end
 		end
+	end
+	if PAGES[mode] and PAGES[mode].extras then
+		return PAGES[mode].extras(ctx, which, started, again)
 	end
 	if mode == "row" then
 		local def = paintRivals.paintRival(which)
@@ -160,7 +183,8 @@ race = function(ctx: any, mode: string, which: any, back: string): boolean
 		return false
 	end
 	ctx.close()
-	DragStrip.run(ctx, res, car, function()
+	-- A loaner (the Daily Run) races instead of the player's own car.
+	DragStrip.run(ctx, res, res.car or car, function()
 		ctx.open("race", back)
 	end, extrasFor(ctx, mode, which, res, back))
 	return true
@@ -188,7 +212,7 @@ end
 
 function RaceMenu.open(ctx: any, startTab: string?): Instance
 	local tab = startTab or lastTab
-	local overlay, _sheet, body = Ui.panel(ctx.gui, TITLES[tab] or "Race", { wide = true, height = 640, onClose = ctx.close, bodyTop = 6 })
+	local overlay, _sheet, body = Ui.panel(ctx.gui, TITLES[tab] or (PAGES[tab] and PAGES[tab].title) or "Race", { wide = true, height = 640, onClose = ctx.close, bodyTop = 6 })
 	local title = (overlay:FindFirstChild("Title", true) :: TextLabel?)
 	local content = Ui.new("Frame", { Name = "Content", Size = UDim2.new(1, 0, 1, -86), BackgroundTransparency = 1, Parent = body })
 	local barHolder = Ui.new("Frame", { Name = "Bar", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 76), BackgroundTransparency = 1, Parent = body })
@@ -203,6 +227,20 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		lastTab = tab
 		race(ctx, mode, which, tab)
 	end
+	-- What a page from client/RacePages gets to draw with.
+	local api = {
+		start = start,
+		show = function(which: string)
+			show(which)
+		end,
+		money = money,
+		myCar = myCar,
+		raceButton = raceButton,
+		tile = tile,
+		tag = tag,
+		stars = stars,
+		DARK = DARK,
+	}
 
 	-- ── The bar: the car you race with ────────────────────────────────────────────────────────
 	local function drawBar()
@@ -642,6 +680,16 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			{ "👻", "Ghosts", soon("Ghost races") },
 			{ "🏅", "Top racers", soon("Top racers") },
 		}
+		-- A mode with its own page opens it.
+		for _, m in MINIS do
+			for id, p in PAGES do
+				if p.mini and p.mini.label == m[2] then
+					m[3] = function()
+						show(id)
+					end
+				end
+			end
+		end
 		for i, m in MINIS do
 			local shadow, face = Ui.button({ LayoutOrder = i }, "garage", m[3], { radius = 16, stroke = 2.5, drop = 3 })
 			shadow.Parent = minis
@@ -878,7 +926,7 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		tab = which
 		lastTab = which
 		if title then
-			Ui.setText(title, TITLES[which] or "Race")
+			Ui.setText(title, TITLES[which] or (PAGES[which] and PAGES[which].title) or "Race")
 		end
 		content:ClearAllChildren()
 		local page = Ui.new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = content })
@@ -897,6 +945,8 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			campaignPage(page)
 		elseif which == "rivals" then
 			rowsPage(page)
+		elseif PAGES[which] then
+			PAGES[which].draw(page, ctx, api)
 		else
 			hub(page)
 		end

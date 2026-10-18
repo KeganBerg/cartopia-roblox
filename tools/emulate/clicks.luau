@@ -161,6 +161,17 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 	clock = function()
 		return raceClock
 	end,
+	modes = (function()
+		local out = {}
+		for _, m in SSS.Server.Modes:GetChildren() do
+			local mode = emu.require(m)
+			out[mode.id] = mode
+		end
+		return out
+	end)(),
+	game = function(name)
+		return emu.require(G[name])
+	end,
 })
 -- Render steps, run by hand.
 local renderSteps = {}
@@ -256,6 +267,8 @@ local function raceDesk(op, arg)
 			return races:campaign(1), nil
 		elseif op == "rows" then
 			return races:rows(1), nil
+		elseif op == "list" and type(arg) == "table" then
+			return races:list(1, arg.mode, arg.which), nil
 		elseif op == "keep" then
 			races:keep(1)
 			return true, nil
@@ -1100,3 +1113,37 @@ else
 	print("town rival: no double or nothing offered")
 end
 print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+
+-- A race from one of the other modes' pages (client/RacePages): opens the page from the front
+-- page's small button, presses the first button whose words match `go`, and races.
+local function modeRace(tag, mini, go, shotAt)
+	topUp()
+	hud.ctx.close()
+	local f, _, res = runRace(tag, shotAt or { [60] = true }, function()
+		hud.openPanel("race", "hub")
+		local m = find(hud.gui, function(d)
+			return d:IsA("TextButton") and string.find(label(d), mini, 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+		end)
+		assert(m, `no {mini} button on the front page`)
+		signalFor(m, "Activated"):Fire()
+		if SHOTS then
+			shot(`page-{tag}`, nil)
+		end
+		local b = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Visible and string.find(label(d), go) ~= nil
+		end)
+		assert(b, `no race button on the {mini} page`)
+		signalFor(b, "Activated"):Fire()
+	end)
+	print(`{tag}: {f} frames; card: {cardText(res)}`)
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	closeRace()
+	return res
+end
+
+-- The World Tour: Street Racer reputation opens it; race Egypt.
+towns:_with(1, function()
+	store.useGame.setState({ trophies = math.max(store.useGame.getState().trophies, 400) })
+end)
+modeRace("world", "World Tour", "🏁 %$")
+print(`world tour beaten: {towns:snapshot(1).save.worldTour or 0}`)

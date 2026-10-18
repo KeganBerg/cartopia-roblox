@@ -34,7 +34,14 @@ export type Grip = { lo: number, hi: number, spin: number, dust: number }
 -- What both sides agree on before the race: the cars, the strip's grip for each and the rival's
 -- driving. Grip left out is a clean dry strip. build: the player's car's build (distance.ts), set
 -- for races over a set distance (a half mile or a mile), where it costs some pull.
-export type Spec = { myPi: number, mySkill: string?, rival: Rival, seed: number, track: number, grip: Grip?, theirGrip: Grip?, build: number? }
+-- ghost: a solo run (time trials, the Daily Run): no rival, just a ghost that finishes in that
+-- many seconds (trial.ts ghostDist), pulling away from the line and then holding its pace.
+export type Spec = { myPi: number, mySkill: string?, rival: Rival, seed: number, track: number, grip: Grip?, theirGrip: Grip?, build: number?, ghost: number? }
+
+-- Where a ghost that finishes in `time` is after t seconds (trial.ts ghostDist, GHOST_CURVE 1.6).
+function DragRace.ghostDist(t: number, time: number, track: number): number
+	return track * math.clamp(t / time, 0, 1) ^ 1.6
+end
 
 local function gripOf(g: Grip?): Grip
 	return g or grip.CLEAR
@@ -193,6 +200,18 @@ function DragRace.step(r: Race)
 	race.stepRacer(me, spec.myPi, dt, t, mine, spec.track)
 	r.top = math.max(r.top, me.speed)
 	r.spin = me.launched and me.finished == nil and (grip.spinning(myGrip, me.gear, me.rpm, t) or (me.gear == 0 and me.quality < 0.84))
+	if spec.ghost then
+		local was = th.dist
+		th.dist = DragRace.ghostDist(t, spec.ghost, spec.track)
+		th.speed = (th.dist - was) / dt
+		if th.finished == nil and t >= spec.ghost then
+			th.finished = spec.ghost
+		end
+		if (me.finished ~= nil and th.finished ~= nil) or r.tick >= DragRace.MAX_TICKS then
+			r.done = true
+		end
+		return
+	end
 	-- The rival: off the line after its reaction, shifting at its shift points, boost in fourth.
 	if not th.launched and t >= r.aiReaction then
 		race.launchRacer(th, r.aiReaction)
