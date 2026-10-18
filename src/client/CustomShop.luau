@@ -7,6 +7,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
+local Pictures = require(ReplicatedStorage.Shared.Pictures)
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
 local mastery = require(Game.mastery) :: any
@@ -56,7 +57,7 @@ local function swatch(parent: Instance, pattern: string?, color: string)
 	})
 	local t = pattern and TEXTURES[`pattern_{pattern}`]
 	if t and t.image ~= 0 then
-		Ui.new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = `rbxassetid://{t.image}`, ScaleType = Enum.ScaleType.Tile, TileSize = UDim2.fromOffset(56, 56), ZIndex = 3, Parent = back })
+		Ui.new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = Pictures.content(t.image), ScaleType = Enum.ScaleType.Tile, TileSize = UDim2.fromOffset(56, 56), ZIndex = 3, Parent = back })
 	end
 end
 

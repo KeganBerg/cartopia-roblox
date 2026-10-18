@@ -9,6 +9,7 @@ local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
 local Skins = require(ReplicatedStorage.Shared.Models.Skins)
+local Pictures = require(ReplicatedStorage.Shared.Pictures)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 
@@ -48,7 +49,7 @@ local function chip(parent: Instance, n: number, color: string, tier: Color3?)
 	local base, glow = Skins.tiles(n)
 	for i, t in { base, glow } do
 		if t and t.image ~= 0 then
-			Ui.new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = `rbxassetid://{t.image}`, ImageColor3 = if i == 1 then Color3.fromHex(color) else Color3.new(1, 1, 1), ScaleType = Enum.ScaleType.Crop, ZIndex = 3, Parent = c }, { Ui.round() })
+			Ui.new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = Pictures.content(t.image), ImageColor3 = if i == 1 then Color3.fromHex(color) else Color3.new(1, 1, 1), ScaleType = Enum.ScaleType.Crop, ZIndex = 3, Parent = c }, { Ui.round() })
 		end
 	end
 	return c

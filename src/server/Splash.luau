@@ -1,50 +1,47 @@
 --!strict
--- The loading screen's pictures (ReplicatedFirst.Loading.SplashImages) as the clients should ask
--- for them. Open Cloud may hand back a decal's id for an uploaded picture rather than its image's;
--- a decal loads with InsertService, and its Texture names the image. Each id found that way is
--- shared as a Workspace attribute Splash<id> = "rbxassetid://<image>", which the loading screen
--- uses in place of the raw id.
+-- Has the server look up the images inside the loading screen's pictures
+-- (ReplicatedFirst.Loading.SplashImages) first, then every texture's (see Shared.Pictures).
 --
 -- Also names each player's race car and paint (SplashCar, SplashPaint on the player) as soon as
 -- their save is open, so their own car parks on the loading screen.
 
-local InsertService = game:GetService("InsertService")
 local ReplicatedFirst = game:GetService("ReplicatedFirst")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Images = require(ReplicatedFirst:WaitForChild("Loading"):WaitForChild("SplashImages")) :: any
+local Catalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Catalog")) :: any
+local Pictures = require(script.Parent.Pictures)
 
 local Splash = {}
 
-local tried: { [number]: boolean } = {}
-
 local function resolve(id: number)
-	if id == 0 or tried[id] then
-		return
-	end
-	tried[id] = true
-	task.spawn(function()
-		local ok, model = pcall(InsertService.LoadAsset, InsertService, id)
-		if not ok or not model then
-			return -- already an image's own id
-		end
-		local decal = model:FindFirstChildWhichIsA("Decal", true)
-		local texture = decal and decal.Texture
-		if texture and texture ~= "" then
-			workspace:SetAttribute(`Splash{id}`, texture)
-		end
-		model:Destroy()
-	end)
+	Pictures.resolve(id, true)
 end
 
 -- The pictures every player sees, looked up once when the server starts.
+-- In the order they're needed: the screen as it looks now (the time of day worked out as the
+-- loading screen does), then the other times of day.
 function Splash.start()
-	resolve(Images.wordmark)
-	resolve(Images.vignette)
-	for _, kind in { Images.sun, Images.town } do
-		for _, shapes in kind do
-			resolve(shapes.wide)
-			resolve(shapes.tall)
+	local m = (DateTime.now().UnixTimestampMillis % 1200000) / 1200000
+	local d = math.abs(m + 0.05 * math.sin(2 * math.pi * m) - 0.5)
+	local x = math.clamp((0.3 - d) / 0.2, 0, 1)
+	local n = x * x * (3 - 2 * x)
+	local now = if n > 0.7 then "night" elseif n > 0.08 then "dusk" else "day"
+	Pictures.resolve(Images.wordmark)
+	for _, time in { now, "day", "dusk", "night" } do
+		for _, kind in { Images.town, Images.sun } do
+			Pictures.resolve(kind[time].wide)
+			Pictures.resolve(kind[time].tall)
 		end
+	end
+	Pictures.resolve(Images.vignette)
+	-- Then every texture: the ground's first, as each town is drawn on it.
+	local textures = Catalog.TEXTURES or {}
+	for _, key in { "grass", "meadow" } do
+		Pictures.resolve(textures[key] and textures[key].image)
+	end
+	for _, t in textures do
+		Pictures.resolve(t.image)
 	end
 end
 

@@ -19,6 +19,7 @@ local lualib = require(Game.lualib_bundle) :: any
 local roadLayout = require(Game.scene_traffic_layout) :: any
 local streetFurniture = require(Game.streetFurniture) :: any
 local Builder = require(Shared.Models.Builder)
+local Pictures = require(Shared.Pictures)
 local Catalog = require(Shared.Models.Catalog)
 local Paint = require(Shared.Models.Paint)
 local Mods = require(Shared.Models.Mods)
@@ -55,7 +56,7 @@ local function groundTexture(p: BasePart, key: string, from: Vector3)
 	local tex = Instance.new("Texture")
 	tex.Name = "Ground"
 	tex.Face = Enum.NormalId.Top
-	tex.Texture = `rbxassetid://{t.image}`
+	Pictures.set(tex, "Texture", t.image)
 	tex.StudsPerTileU = t.span
 	tex.StudsPerTileV = t.span
 	local corner = p.CFrame.Position - p.Size / 2
