@@ -246,6 +246,86 @@ if (S.sky?.Up) {
     scene.add(q)
   }
 }
+// Weather shots (tools/emulate/weatherShot.luau): the light the game set, relative to DayNight's
+// noon (lightingBase), and the particles and beams it set up, scattered as Roblox would have them.
+if (S.lighting && S.lightingBase) {
+  const L = S.lighting, B = S.lightingBase
+  const col = (h) => new T.Color('#' + h)
+  const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+  const sunNow = col(L.sun), sunBase = col(B.sun)
+  sun.intensity *= L.brightness / Math.max(B.brightness, 0.01)
+  sun.color.multiply(new T.Color(sunNow.r / Math.max(sunBase.r, 0.01), sunNow.g / Math.max(sunBase.g, 0.01), sunNow.b / Math.max(sunBase.b, 0.01)))
+  const amb = col(L.ambient), ambBase = col(B.ambient)
+  for (const o of scene.children) if (o.isHemisphereLight) {
+    o.intensity *= Math.min(3, lum(amb) / Math.max(lum(ambBase), 0.01))
+    o.color.lerp(amb, 0.5)
+  }
+  renderer.toneMappingExposure = 2 ** (L.exposure - B.exposure)
+  renderer.domElement.style.filter = 'saturate(' + (1 + L.saturation - B.saturation).toFixed(3) + ') contrast(' + (1 + L.contrast - B.contrast).toFixed(3) + ')'
+  if (L.air) {
+    const k = L.air.density
+    const near = reach * (1.1 - Math.min(1, Math.max(0, (k - 0.08) * 2.4)))
+    scene.fog = new T.Fog('#' + L.air.color, near, near + Math.max(200, 3000 * (0.08 / k)))
+    scene.background = new T.Color('#8ec5f0').lerp(col(L.air.color), Math.min(1, (k - 0.08) * 3)).multiplyScalar(Math.min(1, lum(amb) / Math.max(lum(ambBase), 0.01)))
+  }
+}
+if (S.effects) {
+  const interp = (list, f) => { const n = list.length - 1; const x = Math.min(n, Math.max(0, f * n)); const i = Math.floor(x); return i >= n ? list[n] : list[i] + (list[i + 1] - list[i]) * (x - i) }
+  const disc = (ring) => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); if (ring) { gr.addColorStop(0.55, 'rgba(255,255,255,0)'); gr.addColorStop(0.75, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)') } else { gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)') } g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new T.CanvasTexture(cv) }
+  const view = new T.Vector3().subVectors(cam.position, new T.Vector3(...c.at)).normalize()
+  for (const e of Array.isArray(S.effects.emitters) ? S.effects.emitters : []) {
+    const [x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22] = e.cf
+    const X = new T.Vector3(r00, r10, r20), Y = new T.Vector3(r01, r11, r21), Z = new T.Vector3(r02, r12, r22), P = new T.Vector3(x, y, z)
+    const dir = e.dir === 'Top' ? Y.clone() : Y.clone().negate()
+    const life = (e.life[0] + e.life[1]) / 2, speed = (e.speed[0] + e.speed[1]) / 2
+    const count = Math.min(6000, Math.round(e.rate * life))
+    const color = new T.Color('#' + e.color)
+    if (e.orientation === 'VelocityParallel') {
+      const pos = [], cols = []
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * life, f = a / life
+        const p = P.clone().addScaledVector(X, (Math.random() - 0.5) * e.size[0]).addScaledVector(Z, (Math.random() - 0.5) * e.size[2]).addScaledVector(dir, speed * a)
+        const len = interp(e.psize, f) * (1 + e.squash)
+        const q = p.clone().addScaledVector(dir, -len)
+        const op = 1 - interp(e.transparency, f)
+        pos.push(p.x, p.y, p.z, q.x, q.y, q.z)
+        cols.push(color.r * op, color.g * op, color.b * op, color.r * op, color.g * op, color.b * op)
+      }
+      const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(cols, 3))
+      scene.add(new T.LineSegments(g, new T.LineBasicMaterial({ vertexColors: true, transparent: true, blending: T.AdditiveBlending, depthWrite: false, fog: false })))
+    } else {
+      const ring = e.orientation === 'VelocityPerpendicular'
+      const tex = disc(ring)
+      for (const f of [0.15, 0.5, 0.85]) {
+        const pos = []
+        for (let i = 0; i < count / 3; i++) {
+          const a = (f + (Math.random() - 0.5) * 0.3) * life
+          const p = P.clone().addScaledVector(X, (Math.random() - 0.5) * e.size[0]).addScaledVector(Z, (Math.random() - 0.5) * e.size[2]).addScaledVector(dir, speed * a)
+          pos.push(p.x, p.y, p.z)
+        }
+        const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3))
+        scene.add(new T.Points(g, new T.PointsMaterial({ map: tex, color, size: interp(e.psize, f) * (ring ? 1 : 1.2), sizeAttenuation: true, transparent: true, opacity: 1 - interp(e.transparency, f), depthWrite: false, fog: false })))
+      }
+    }
+  }
+  for (const b of Array.isArray(S.effects.beams) ? S.effects.beams : []) {
+    const pts = b.points.map((p) => new T.Vector3(...p))
+    const pos = [], cols = [], idx = []
+    const color = new T.Color('#' + b.color)
+    pts.forEach((p, i) => {
+      const a = pts[Math.max(0, i - 1)], d = pts[Math.min(pts.length - 1, i + 1)]
+      const side = new T.Vector3().subVectors(d, a).cross(view).normalize()
+      const w = (b.width[0] + (b.width[1] - b.width[0]) * (i / Math.max(1, pts.length - 1))) / 2
+      const op = 1 - b.transparency[Math.min(i, b.transparency.length - 1)]
+      for (const s of [-1, 1]) { const v = p.clone().addScaledVector(side, s * w); pos.push(v.x, v.y, v.z); cols.push(color.r * op, color.g * op, color.b * op) }
+      if (i > 0) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k) }
+    })
+    const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(cols, 3)); g.setIndex(idx)
+    const m = new T.Mesh(g, new T.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: T.AdditiveBlending, depthWrite: false, depthTest: !b.name.startsWith('Bow'), side: T.DoubleSide, fog: false, toneMapped: false }))
+    m.renderOrder = 7
+    scene.add(m)
+  }
+}
 renderer.render(scene, cam)
 
 // Screens: ScreenGui frames as absolutely placed boxes, drawn as Roblox would: children over

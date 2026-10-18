@@ -2256,3 +2256,164 @@ do
 	hud.ctx.close()
 	print(`pop-ups: {bad} problems`)
 end
+
+-- The town's weather and Rave Mode (client/TownWeather, client/Rave): every kind of weather over
+-- a drawn town at noon (lightning mid-flash in the storm, the rainbow after a shower), then a rave
+-- through its build-up and drop, with the HUD tag and the club's lights. SHOTS=1 writes
+-- build/shot-weather-<kind>.json and shot-rave-*.json with the light, emitters and beams.
+do
+	hud.ctx.close()
+	local TownView = emu.require(SSS.Server.TownView)
+	local DayNight = emu.require(client.DayNight)
+	local TownWeather = emu.require(client.TownWeather)
+	local Rave = emu.require(client.Rave)
+	local W = require("./weatherShot")
+	local clock = emu.require(G.clock)
+	local techno = emu.require(G.techno)
+	towns:_with(1, function()
+		store.useGame.setState({ tutorial = 99 })
+	end)
+	local snap = towns:snapshot(1)
+	signalFor(townEvent, "OnClientEvent"):Fire(snap)
+	local old = game.Workspace:FindFirstChild("Towns")
+	if old then
+		old:Destroy()
+	end
+	local townsFolder = Instance.new("Folder")
+	townsFolder.Name = "Towns"
+	townsFolder.Parent = game.Workspace
+	local view = TownView.new(townsFolder, "Player1", roblox.Vector3.new(0, 0, 0), 1, function() end)
+	for _, c in snap.save.cars do
+		c.mods, c.panels = nil, nil
+	end
+	view:render(snap.save)
+	-- The town view's camera (TownCamera at zoom 30 on a 1280x800 screen).
+	local cam = game.Workspace.CurrentCamera
+	cam.FieldOfView = 30
+	local dist = 800 / 30 * 10 / 2 / math.tan(math.rad(15))
+	cam.CFrame = roblox.CFrame.lookAt(roblox.Vector3.new(75, 80, 75).Unit * dist, roblox.Vector3.new(0, 0, 0))
+	local noon = clock.nextPhaseAt(0, NOW)
+	local function parts()
+		local n = 0
+		for _, d in game.Workspace:GetDescendants() do
+			if d:IsA("BasePart") then
+				n += 1
+			end
+		end
+		return n
+	end
+	local before = parts()
+	local function weatherShot(name, extraGuis)
+		if not SHOTS then
+			return
+		end
+		shot(name, view.folder)
+		local scene = serde.decode("json", fs.readFile(`build/shot-{name}.json`))
+		scene.lighting = W.lighting(game)
+		scene.effects = W.effects(game.Workspace:FindFirstChild("TownWeather"))
+		fs.writeFile(`build/shot-{name}.json`, serde.encode("json", scene))
+		if extraGuis then
+			local nodes = {}
+			for _, g in extraGuis do
+				for _, n in Gui.dump(g, 1280, 800) do
+					table.insert(nodes, n)
+				end
+			end
+			fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = nodes, bubbles = {} }))
+		end
+	end
+	local problems = 0
+	for _, kind in { "clear", "rain", "storm", "drizzle", "fog", "wind", "snow", "blizzard", "mist", "clearing", "heat" } do
+		DayNight.apply(noon)
+		TownWeather.pin(kind)
+		-- The storm's first strike lands 3 to 8 seconds in; 20 s finds it mid-flash.
+		local ok, err = pcall(TownWeather.step, noon, if kind == "storm" then 20 else 1)
+		if not ok then
+			problems += 1
+			print(`weather {kind}: ERROR {err}`)
+			continue
+		end
+		local L = game:GetService("Lighting")
+		local fx = W.effects(game.Workspace:FindFirstChild("TownWeather"))
+		local rates = {}
+		for _, e in fx.emitters do
+			local k = e.name:gsub("%d", "")
+			rates[k] = (rates[k] or 0) + e.rate
+		end
+		local list = {}
+		for k, v in rates do
+			table.insert(list, `{k} {math.floor(v)}/s`)
+		end
+		table.sort(list)
+		print(`weather {kind}: brightness {string.format("%.2f", L.Brightness)}, exposure {string.format("%.2f", L.ExposureCompensation)}, air {string.format("%.2f", L.Air.Density)}; {table.concat(list, ", ")}; {#fx.beams} beams`)
+		if kind == "storm" then
+			assert(#fx.beams >= 16, "no lightning in the storm")
+		elseif kind == "clearing" then
+			assert(#fx.beams == 12, "no rainbow after the shower")
+		elseif kind == "rain" then
+			assert((rates.Rain or 0) > 100 and (rates.Splash or 0) > 50, "no rain")
+		elseif kind == "snow" then
+			assert((rates.Snow or 0) > 50, "no snow")
+		elseif kind == "clear" then
+			assert(#fx.emitters == 0 and #fx.beams == 0, "something falls on a clear day")
+		end
+		weatherShot(`weather-{kind}`)
+	end
+	-- The town's light goes back to DayNight's when the weather clears.
+	DayNight.apply(noon)
+	local bright = game:GetService("Lighting").Brightness
+	TownWeather.pin("clear")
+	TownWeather.step(noon, 2)
+	assert(math.abs(game:GetService("Lighting").Brightness - bright) < 1e-6, "clear weather changed the light")
+	print(`weather: {parts() - before} parts added, {problems} problems`)
+
+	-- Rave Mode: the build-up (heads-up, countdown), then the drop (title, tag, lights).
+	local changes = {}
+	Rave.onChange(function(on)
+		table.insert(changes, on)
+	end)
+	local from = NOW
+	Rave.startTest(from, from + 68200)
+	local hudGui = player.PlayerGui:FindFirstChild("Cartopia")
+	local neon
+	for _, d in townsFolder:GetDescendants() do
+		if d:IsA("BasePart") and d.Material == roblox.Enum.Material.Neon then
+			neon = d
+			break
+		end
+	end
+	local neonWas = neon and neon.Color
+	for _, step in { { "build", 7000, 7 }, { "drop", 10050, 10.05 }, { "groove", 14000, 14 } } do
+		local now = from + step[2]
+		DayNight.apply(now)
+		TownWeather.pin(nil)
+		TownWeather.step(now, step[3])
+		Rave.step(now, step[3])
+		local rg = player.PlayerGui:FindFirstChild("RaveMode")
+		local tagFrame = hudGui and hudGui:FindFirstChild("RaveTag", true)
+		print(`rave {step[1]}: on {Rave.isOn(now)}, night {string.format("%.2f", clock.nightAmount(clock.dayPhase(now)))}, to drop {techno.technoToDrop(now)} ms, layer {rg ~= nil}, tag {tagFrame and tagFrame.Left.Text or "none"}, heads-up {player.PlayerGui:FindFirstChild("RaveHeadsUp") ~= nil}`)
+		assert(Rave.isOn(now) and rg and tagFrame, "Rave Mode didn't show")
+		local guis = { rg, hudGui }
+		local hu = player.PlayerGui:FindFirstChild("RaveHeadsUp")
+		if hu then
+			table.insert(guis, hu)
+		end
+		weatherShot(`rave-{step[1]}`, guis)
+	end
+	assert(player:GetAttribute("RaveOn") == true, "the music hook didn't hear the rave start")
+	if neon then
+		assert(neon.Color ~= neonWas, "the town's neon didn't take the club's colour")
+	end
+	-- And off again at its end: lights back, tag gone, the hook told.
+	local after = from + 68200 + 500
+	Rave.step(after, 70)
+	assert(not Rave.isOn(after), "the rave didn't end")
+	assert(player:GetAttribute("RaveOn") == false, "the music hook didn't hear the rave stop")
+	if neon then
+		assert(neon.Color == neonWas, "the town's neon didn't go back")
+	end
+	assert(not (hudGui and hudGui:FindFirstChild("RaveTag", true)), "the rave tag stayed")
+	print(`rave: hook heard {#changes} changes, neon {neon and "back" or "none in town"}`)
+	townsFolder:Destroy()
+	print("weather and rave: 0 problems")
+end

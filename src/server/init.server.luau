@@ -219,6 +219,8 @@ bankRemote.Parent = remotes
 local meshRemote = Instance.new("RemoteFunction")
 meshRemote.Name = "Meshes"
 meshRemote.Parent = remotes
+-- Rave Mode's button (the DJ only), shared with every server.
+require(script.Rave).start(remotes)
 remotes.Parent = ReplicatedStorage
 
 Splash.start()
