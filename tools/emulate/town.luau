@@ -30,6 +30,27 @@ local towns = Towns.new(store, function()
 	return NOW
 end)
 towns:open(1, nil)
+-- RUSTY=ready|working|find: Rusty's Rescue in the town, its bay in that state, for its badge.
+local rusty = process.env.RUSTY
+if rusty then
+	towns:_with(1, function()
+		store.useGame.setState({ coins = 1000000, level = 30 })
+	end)
+	local placed = false
+	for _, at in { { 12, 12 }, { 16, 4 }, { 4, 16 }, { 20, 12 }, { 12, 20 }, { -8, 12 }, { 12, -8 } } do
+		local before = #towns:snapshot(1).save.buildings
+		towns:run(1, "placeBuilding", "rescue", at[1], at[2])
+		if #towns:snapshot(1).save.buildings > before then
+			placed = true
+			break
+		end
+	end
+	assert(placed, "no room for Rusty's")
+	towns:_with(1, function()
+		local r = if rusty == "find" then nil else { uid = "r1", model = "bug", rarity = "common", minutes = 5, endsAt = if rusty == "ready" then NOW - 1 else NOW + 200000 }
+		store.useGame.setState({ restoring = r })
+	end)
+end
 -- A busy town: a job running, one done, some new buildings and a bought car.
 local save = towns:snapshot(1).save
 local folder = Instance.new("Folder")
@@ -148,6 +169,8 @@ end
 make("RemoteFunction", "Act", remotes)
 make("RemoteEvent", "Town", remotes)
 make("RemoteFunction", "Race", remotes)
+make("RemoteFunction", "Crate", remotes)
+make("RemoteFunction", "Meshes", remotes)
 remotes.Parent = RS
 -- The model library the server makes for shop pictures.
 local Builder = emu.require(RS.Shared.Models.Builder)
@@ -180,6 +203,7 @@ local snap = towns:snapshot(1)
 store.useGame.getState().loadSave(snap.save)
 Remote.last = snap
 local hud = emu.require(client.Hud).start()
+emu.require(client.RescueBadge).start(playerGui)
 if process.args[4] then
 	hud.openPanel(process.args[4])
 end

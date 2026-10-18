@@ -18,8 +18,11 @@ local placement = require(Game.placement) :: any
 local lualib = require(Game.lualib_bundle) :: any
 local roadLayout = require(Game.scene_traffic_layout) :: any
 local streetFurniture = require(Game.streetFurniture) :: any
+local merge = require(Game.merge) :: any
+local cityLook = require(Game.cityLook) :: any
 local Builder = require(Shared.Models.Builder)
 local Pictures = require(Shared.Pictures)
+local CityTint = require(Shared.CityTint)
 local Catalog = require(Shared.Models.Catalog)
 local Paint = require(Shared.Models.Paint)
 local Mods = require(Shared.Models.Mods)
@@ -522,19 +525,95 @@ function TownView._renderRoads(self: TownView, roads: { string })
 	end
 end
 
-function TownView._buildingModel(self: TownView, b: any, turn: number): Model?
+-- Grows a model built at the origin by s along its own axes (World.tsx groupScale): evenly for a
+-- 2x2 or 4x4 block, along one side for a pair. A stretched part grows by how much the stretch
+-- lengthens each of its own axes, so turned pieces stay close to the web's shape.
+local function stretch(model: Model, s: Vector3)
+	if s.X == s.Y and s.Y == s.Z then
+		if s.X ~= 1 then
+			model:ScaleTo(s.X)
+		end
+		return
+	end
+	for _, p in model:GetDescendants() do
+		if p:IsA("BasePart") then
+			local cf = p.CFrame
+			local r = cf.Rotation
+			p.Size = p.Size * Vector3.new((r.XVector * s).Magnitude, (r.YVector * s).Magnitude, (r.ZVector * s).Magnitude)
+			p.CFrame = CFrame.new(cf.Position * s) * r
+		end
+	end
+end
+
+-- The model a building (or a merged block, `g`) draws, built at the origin and turned to face its
+-- road. A merged block is the top-left building's model grown to fill it (a 2x4 is two 2x2s side
+-- by side); four level 10 houses are the Vanguard Tower, eight the Globe Tower (World.tsx
+-- BuildingLot), when the model build has them.
+local function blockModel(b: any, g: any, turn: number, level: number): Model?
+	local name = Builder.buildingName(b.def, level) or Builder.buildingName("parked", 1)
+	local facing = CFrame.Angles(0, turn * math.pi / 2, 0)
+	if g and merge.isGlobe(g) and Builder.has("landmark:globe") then
+		local m = Builder.build("landmark:globe") :: Model
+		m:PivotTo(facing)
+		return m
+	end
+	if g and merge.isLandmark(g) and Builder.has("landmark:vanguard") then
+		local m = Builder.build("landmark:vanguard") :: Model
+		stretch(m, Vector3.one * (math.min(g.cols, g.rows) / 2))
+		m:PivotTo(facing)
+		return m
+	end
+	if not name then
+		return nil
+	end
+	if not g then
+		local m = Builder.build(name)
+		if m then
+			m:PivotTo(facing)
+		end
+		return m
+	end
+	local model: Model? = nil
+	for _, part in merge.groupParts(g, turn) do
+		local m = Builder.build(name)
+		if not m then
+			return nil
+		end
+		stretch(m, Vector3.new(part.scale[1], part.scale[2], part.scale[3]))
+		m:PivotTo(CFrame.new(part.at[1] * TILE, 0, part.at[2] * TILE) * facing)
+		if model then
+			for _, d in m:GetChildren() do
+				d.Parent = model
+			end
+			m:Destroy()
+		else
+			model = m
+		end
+	end
+	return model
+end
+
+function TownView._buildingModel(self: TownView, b: any, turn: number, g: any, cityTheme: string?): Model?
 	local def = data.buildingDef(b.def)
 	local level = data.buildingLevel(b)
-	local name = Builder.buildingName(b.def, level) or Builder.buildingName("parked", 1)
-	local model = if name then Builder.build(name) else nil
+	local model = blockModel(b, g, turn, level)
 	if not model then
 		return nil
 	end
-	local w, h = lotSize(def, b.rot)
-	local c = self:tileToWorld(b.x + (w - 1) / 2, b.z + (h - 1) / 2)
-	model:PivotTo(CFrame.new(c) * CFrame.Angles(0, turn * math.pi / 2, 0))
+	-- In its colour theme, or the city's (CityTint.tsx); the paved lot keeps its own.
+	CityTint.apply(model, cityLook.themeFor(b.tint, cityTheme, def.kind == "decor"))
+	local w, h, c
+	if g then
+		w, h = g.w, g.h
+		c = self:tileToWorld(g.x + (w - 1) / 2, g.z + (h - 1) / 2)
+	else
+		w, h = lotSize(def, b.rot)
+		c = self:tileToWorld(b.x + (w - 1) / 2, b.z + (h - 1) / 2)
+	end
+	model:PivotTo(CFrame.new(c) * model:GetPivot())
 	if def.kind ~= "decor" and def.kind ~= "obstacle" then
-		-- The paved lot under a business or home (World.tsx BuildingLot), level with the asphalt.
+		-- The paved lot under a business or home (World.tsx BuildingLot), level with the asphalt:
+		-- one under the whole of a merged block.
 		part({
 			Name = "Lot",
 			Size = Vector3.new(w * TILE - 0.1 * SCALE, 0.4, h * TILE - 0.1 * SCALE),
@@ -556,7 +635,9 @@ function TownView._buildingModel(self: TownView, b: any, turn: number): Model?
 		Parent = model,
 	})
 	model.PrimaryPart = hit
-	if def.kind ~= "decor" and def.kind ~= "house" then
+	-- A tap works a business, and opens a house's or a decoration's upgrades and colours (store
+	-- tapBuilding), as on the web; a decoration with neither takes no taps.
+	if (def.kind ~= "decor" and def.kind ~= "house") or data.themable(def) then
 		local click = Instance.new("ClickDetector")
 		click.MaxActivationDistance = 400
 		click.MouseClick:Connect(function(player)
@@ -571,23 +652,43 @@ function TownView._buildingModel(self: TownView, b: any, turn: number): Model?
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	model:SetAttribute("Uid", b.uid)
 	model:SetAttribute("Def", b.def)
-	model:SetAttribute("Name", def.name)
+	model:SetAttribute("Name", if g and merge.isLandmark(g) then merge.landmarkName(g) else def.name)
 	model:SetAttribute("Level", level)
 	-- Quarter turns about its middle (client/SpeedwayLife puts the race and crowd inside it).
 	model:SetAttribute("Turn", turn)
 	model:SetAttribute("Owner", self.userId)
 	model:SetAttribute("Height", size.Y)
+	if g then
+		model:SetAttribute("Merged", #g.members)
+	end
 	return model
 end
 
-function TownView._renderBuildings(self: TownView, buildings: { any }, roadSet: any)
-	local seen = {}
+-- The buildings on the map (stored ones wait in the Inventory) and their merged blocks.
+local function placed(buildings: { any }): ({ any }, any)
+	local list = {}
 	for _, b in buildings do
-		if b.stored then
+		if not b.stored then
+			table.insert(list, b)
+		end
+	end
+	return list, merge.mergeGroups(list)
+end
+
+function TownView._renderBuildings(self: TownView, buildings: { any }, roadSet: any, cityTheme: string?)
+	local seen = {}
+	local list, merges = placed(buildings)
+	for _, b in list do
+		-- A merged block draws once, from its top-left building; the rest draw nothing.
+		local owner = merges.owner:get(b.uid)
+		if owner and owner ~= b.uid then
 			continue
 		end
-		local turn = placement.turnOf(b, roadSet)
-		local key = `{b.def}|{b.x}|{b.z}|{b.rot}|{turn}|{data.buildingLevel(b)}`
+		local g = merges.groups:get(b.uid)
+		local turn = if g then merge.groupTurn(g, roadSet) else placement.turnOf(b, roadSet)
+		local look = `{b.tint or ""}|{if data.buildingDef(b.def).kind == "decor" then "" else cityTheme or ""}`
+		local block = if g then `{g.code}|{g.x}|{g.z}|{#g.members}` else ""
+		local key = `{b.def}|{b.x}|{b.z}|{b.rot}|{turn}|{data.buildingLevel(b)}|{block}|{look}`
 		seen[b.uid] = true
 		local have: { model: Model, key: string }? = self.buildings[b.uid]
 		if have and have.key ~= key then
@@ -595,7 +696,7 @@ function TownView._renderBuildings(self: TownView, buildings: { any }, roadSet: 
 			have = nil
 		end
 		if not have then
-			local m = self:_buildingModel(b, turn)
+			local m = self:_buildingModel(b, turn, g, cityTheme)
 			if m then
 				m.Parent = (self.folder :: any).Buildings
 				have = { model = m, key = key }
@@ -616,12 +717,24 @@ function TownView._renderBuildings(self: TownView, buildings: { any }, roadSet: 
 end
 
 -- Cars: each driver parks in front of the business it works at; the rest line up by the garage.
+-- A merged block's drivers park side by side along its front, a row further out when the front is full.
+local CAR_GAP = 13
+
 function TownView._renderCars(self: TownView, cars: { any }, buildings: { any }, roadSet: any)
 	local workAt: { [string]: any } = {}
 	local garage
-	for _, b in buildings do
+	local list, merges = placed(buildings)
+	-- Each merged block's drivers, in order, for their places along its front.
+	local slot: { [string]: number } = {}
+	local drivers: { [string]: number } = {}
+	for _, b in list do
 		if b.car then
 			workAt[b.car] = b
+			local owner = merges.owner:get(b.uid)
+			if owner then
+				drivers[owner] = (drivers[owner] or 0) + 1
+				slot[b.car] = drivers[owner]
+			end
 		end
 		if b.def == "garage" then
 			garage = b
@@ -633,7 +746,19 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 		seen[car.uid] = true
 		local at = workAt[car.uid]
 		local cf: CFrame
-		if at then
+		local g = at and merges.groups:get(merges.owner:get(at.uid) or "")
+		if g then
+			local turn = merge.groupTurn(g, roadSet)
+			local c = self:tileToWorld(g.x + (g.w - 1) / 2, g.z + (g.h - 1) / 2)
+			local facing = CFrame.Angles(0, turn * math.pi / 2, 0)
+			local across = (if turn % 2 == 1 then g.h else g.w) * TILE
+			local depth = (if turn % 2 == 1 then g.w else g.h) * TILE / 2
+			local per = math.max(1, math.floor(across / CAR_GAP))
+			local n = math.min(per, drivers[g.anchor.uid])
+			local i = slot[car.uid] - 1
+			local row, k = i // per, i % per
+			cf = CFrame.new(c) * facing * CFrame.new((k - (n - 1) / 2) * CAR_GAP, 0, depth + TILE * 0.3 + row * 7) * CFrame.Angles(0, math.pi / 2, 0)
+		elseif at then
 			local def = data.buildingDef(at.def)
 			local turn = placement.turnOf(at, roadSet)
 			local w, h = lotSize(def, at.rot)
@@ -711,7 +836,7 @@ function TownView.render(self: TownView, save: any)
 	local list = save.roads or {}
 	self:_renderRoads(list)
 	local roadSet = lualib.__TS__New(lualib.Set, list)
-	self:_renderBuildings(save.buildings or {}, roadSet)
+	self:_renderBuildings(save.buildings or {}, roadSet, save.cityTheme)
 	self:_renderLawn(save.land or {}, list, save.buildings or {})
 	self:_renderCars(save.cars or {}, save.buildings or {}, roadSet)
 end

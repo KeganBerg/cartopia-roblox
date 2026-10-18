@@ -1,0 +1,30 @@
+# Makes the Bank's Robux products (one Developer Product per gem pack and car pack) at the prices
+# in tools/products/prices.json, whenever those prices change on main. Run it by hand with
+# "check only" to see what it would change.
+name: Bank products
+
+on:
+  push:
+    branches: [main]
+    paths: ['tools/products/**', '.github/workflows/products.yml']
+  workflow_dispatch:
+    inputs:
+      check:
+        description: Only check what would change
+        type: boolean
+        default: false
+
+concurrency: products
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node tools/products/sync.mjs ${{ inputs.check && '--check' || '' }}
+        env:
+          API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}

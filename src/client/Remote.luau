@@ -113,6 +113,22 @@ function Remote.spin(): any?
 	return result
 end
 
+-- The Bank's gem and car packs (server/Purchases): "shop" -> { open, packs = { [id] = { robux,
+-- owned } } }, or "buy" with a pack id, which opens Roblox's purchase prompt. Returns ok and the
+-- answer or why not ("soon", "crew", "owned").
+function Remote.bank(op: string, id: string?): (boolean, any)
+	local bankRemote = remotes:FindFirstChild("Bank") :: RemoteFunction?
+	if not bankRemote then
+		return false, "soon"
+	end
+	local sent, ok, result = pcall(bankRemote.InvokeServer, bankRemote, op, id)
+	if not sent then
+		warn(`[Cartopia] bank {op}: {ok}`)
+		return false, "no answer"
+	end
+	return ok, result
+end
+
 townEvent.OnClientEvent:Connect(function(snap)
 	store.useGame.getState().loadSave(snap.save)
 	store.useGame.setState({ need = snap.need, panel = snap.panel })

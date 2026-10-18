@@ -1,0 +1,5 @@
+{
+  "_": "How each pack's Robux price is set. \"match-dollars\" (Kegan's pick, 2026-10-18): the web game's dollar price (src/game/bucksPacks.ts) turned into Robux at Roblox's own Robux store rates (400 = $4.99, 800 = $9.99, 1,700 = $19.99, 4,500 = $49.99, 10,000 = $99.99), so prices follow the web. overrides: a fixed Robux price for a pack id, or null to stop selling it. Prices are Kegan's call: ask before changing one.",
+  "rule": "match-dollars",
+  "overrides": {}
+}

@@ -9,6 +9,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
+local merge = require(Game.merge) :: any
+local cityLook = require(Game.cityLook) :: any
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
 local Placement = require(script.Parent.Placement)
@@ -72,9 +74,9 @@ local function card(parent: Instance, order: number, dim: boolean): (Frame, Text
 	return shadow, face
 end
 
-local function thumbBox(face: Instance, def: string, bg: string, height: number)
+local function thumbBox(face: Instance, def: string, bg: string, height: number, theme: any?)
 	local box = Ui.new("Frame", { Name = "Thumb", Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, height), BackgroundColor3 = Color3.fromHex(bg), Parent = face }, { Ui.corner(12) })
-	local pic = Thumb.new("Buildings", def, UDim2.fromScale(1, 1), nil)
+	local pic = Thumb.new("Buildings", def, UDim2.fromScale(1, 1), nil, theme)
 	pic.Parent = box
 	return box, pic
 end
@@ -137,7 +139,9 @@ function Shop.open(ctx: any, focus: string?): Instance
 
 	local grid = Ui.scroller({ Name = "Grid", Position = UDim2.new(0, -6, 0, 116), Size = UDim2.new(1, 12, 1, -116), Parent = body })
 	Ui.new("UIPadding", { PaddingTop = UDim.new(0, 18), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingBottom = UDim.new(0, 12), Parent = grid })
-	Ui.new("UIGridLayout", { CellSize = UDim2.new(0.25, -8, 0, 280), CellPadding = UDim2.fromOffset(10, 16), SortOrder = Enum.SortOrder.LayoutOrder, Parent = grid })
+	local gridLayout = Ui.new("UIGridLayout", { CellSize = UDim2.new(0.25, -8, 0, 280), CellPadding = UDim2.fromOffset(10, 16), SortOrder = Enum.SortOrder.LayoutOrder, Parent = grid })
+	-- The Upgrades tab stacks sections (its cards, then the maxed ones under a heading).
+	local listLayout = Ui.new("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder })
 
 	local gate = store.gateLevel(s)
 	local current = lastTab
@@ -267,18 +271,39 @@ function Shop.open(ctx: any, focus: string?): Instance
 		end
 	end
 
-	-- Upgrades: the town's buildings with their next upgrade, cheapest first, maxed ones last.
+	-- Upgrades: a card per building or merged block (🧩×k, its price ×k) with its next upgrade,
+	-- cheapest first; identical ones stack on one card (×n), and maxed ones sit together at the
+	-- bottom under "⭐ Max · n" (ShopUpgrades in ui/Upgrade.tsx).
+	local function section(order: number, count: number, cols: number, cellH: number): Frame
+		local rows = math.ceil(count / cols)
+		local f = Ui.new("Frame", { LayoutOrder = order, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, rows * cellH + (rows - 1) * 16), Parent = grid })
+		Ui.new("UIGridLayout", { CellSize = UDim2.new(1 / cols, -8, 0, cellH), CellPadding = UDim2.fromOffset(10, 16), SortOrder = Enum.SortOrder.LayoutOrder, Parent = f })
+		return f
+	end
+
 	local function showUpgrades(term: string)
+		local merges = merge.mergeGroups(s.buildings)
+		local function size(b: any): number
+			local g = merges.groups:get(b.uid)
+			return if g then #g.members else 1
+		end
+		local rank: { [string]: number } = {}
+		for i, d in data.BUILDINGS do
+			rank[d.id] = i
+		end
 		local list = {}
 		for _, b in s.buildings do
 			local d = data.buildingDef(b.def)
-			if data.upgradable(d) then
+			-- A merged block is one card, on its top-left building.
+			if data.upgradable(d) and (not merges.owner:has(b.uid) or merges.groups:has(b.uid)) then
 				local lvl = data.buildingLevel(b)
 				local name = data.levelName(d, lvl)
 				if term == "" or string.find(name:lower(), term, 1, true) then
+					local k = size(b)
 					local max = lvl >= data.maxLevel(d)
-					local cost = if max then nil else data.buildingUpgradeCost(d, lvl)
-					table.insert(list, { b = b, d = d, lvl = lvl, name = name, max = max, cost = cost })
+					local one = if max then nil else data.buildingUpgradeCost(d, lvl)
+					local cost = if one then { coins = one.coins * k, parts = one.parts * k } else nil
+					table.insert(list, { b = b, d = d, lvl = lvl, name = name, max = max, cost = cost, k = k, n = 1 })
 				end
 			end
 		end
@@ -288,28 +313,101 @@ function Shop.open(ctx: any, focus: string?): Instance
 			if cx ~= cy then
 				return cx < cy
 			end
-			return x.name < y.name
+			return (rank[x.d.id] or 0) < (rank[y.d.id] or 0)
 		end)
-		for i, u in list do
-			local afford = u.cost and s.coins >= u.cost.coins and s.parts >= u.cost.parts
-			local _, face = card(grid, i, false)
-			if afford then
-				face.BackgroundColor3 = Color3.fromHex("#eaffe4")
-				local st = face:FindFirstChildOfClass("UIStroke")
-				if st then
-					st.Color = Color3.fromHex("#1d6b22")
-				end
+		-- Identical buildings (same kind, level, colours and block size) share a card; a tap opens
+		-- the first.
+		local open, maxed = {}, {}
+		local seen: { [string]: any } = {}
+		local maxCount = 0
+		for _, u in list do
+			local key = `{u.b.def}|{u.lvl}|{u.b.tint or ""}|{u.k}`
+			local hit = seen[key]
+			if hit then
+				hit.n += 1
+			else
+				seen[key] = u
+				table.insert(if u.max then maxed else open, u)
 			end
-			thumbBox(face, u.d.id, "#dcecfb", 112)
-			local lv = Ui.new("Frame", { Position = UDim2.fromOffset(12, 12), Size = UDim2.fromOffset(28, 28), BackgroundColor3 = Ui.WHITE, ZIndex = 3, Parent = face }, { Ui.round(), Ui.stroke(2), Ui.gradient(Ui.COLORS.navy[1], Ui.COLORS.navy[2]) })
-			Ui.text({ Text = if u.max then "⭐" else tostring(u.lvl), TextSize = 15, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = lv })
-			Ui.text({ Text = u.name, TextSize = 17, TextColor3 = LINE, TextWrapped = true, Position = UDim2.fromOffset(6, 125), Size = UDim2.new(1, -12, 0, 38), Parent = face })
-			local label = if u.max then "⭐ Max" else `⬆ ${Ui.compact(u.cost.coins)}` .. (if u.cost.parts > 0 then ` ⚙{Ui.compact(u.cost.parts)}` else "")
-			local function pick()
+			if u.max then
+				maxCount += 1
+			end
+		end
+		if #list == 0 then
+			Ui.text({ Text = "🔍 No match", TextSize = 16, TextColor3 = LINE, Size = UDim2.new(1, 0, 0, 30), Parent = grid })
+			return
+		end
+		local function badges(face: Instance, u: any, top: number)
+			if u.k > 1 then
+				local k = Ui.new("Frame", { Name = "Merged", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#7e57c2"), ZIndex = 3, Parent = face }, {
+					Ui.round(),
+					Ui.stroke(2),
+					Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
+				})
+				Ui.text({ Text = `🧩×{u.k}`, Body = true, Weight = "heavy", TextSize = 14, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 3, Parent = k })
+			end
+			if u.n > 1 then
+				local n = Ui.new("Frame", { Name = "Count", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, top), Size = UDim2.fromOffset(0, 26), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = LINE, ZIndex = 3, Parent = face }, {
+					Ui.round(),
+					Ui.stroke(2, Ui.WHITE),
+					Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 9) }),
+				})
+				Ui.text({ Text = `×{u.n}`, TextSize = 16, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 3, Parent = n })
+			end
+		end
+		-- A stack of identical cards shows two more peeking out behind it.
+		local function cell(parent: Instance, order: number, u: any): (Frame, TextButton)
+			if u.n == 1 then
+				return card(parent, order, false)
+			end
+			local holder = Ui.new("Frame", { LayoutOrder = order, BackgroundTransparency = 1, Parent = parent })
+			for i = 2, 1, -1 do
+				Ui.new("Frame", { Position = UDim2.fromOffset(i * 5, i * 6), Size = UDim2.new(1, -10, 1, -12), BackgroundColor3 = Ui.WHITE, Parent = holder }, { Ui.corner(18), Ui.stroke(3) })
+			end
+			local shadow, face = card(holder, 0, false)
+			shadow.Size = UDim2.new(1, -10, 1, -12)
+			return shadow, face
+		end
+		local function pick(u: any)
+			return function()
 				ctx.open("upgrade", u.b.uid)
 			end
-			Ui.buy({ AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 8, 1, -8), Size = UDim2.new(1, -16, 0, 32), Parent = face }, label, if u.max then "grey" elseif afford then "green" else "broke", pick, 17)
-			face.Activated:Connect(pick)
+		end
+		if #open > 0 then
+			local sec = section(1, #open, 4, 280)
+			for i, u in open do
+				local afford = s.coins >= u.cost.coins and s.parts >= u.cost.parts
+				local _, face = cell(sec, i, u)
+				if afford then
+					face.BackgroundColor3 = Color3.fromHex("#eaffe4")
+					local st = face:FindFirstChildOfClass("UIStroke")
+					if st then
+						st.Color = Color3.fromHex("#1d6b22")
+					end
+				end
+				thumbBox(face, u.d.id, "#dcecfb", 112, cityLook.themeFor(u.b.tint, s.cityTheme, u.d.kind == "decor"))
+				local lv = Ui.new("Frame", { Position = UDim2.fromOffset(12, 12), Size = UDim2.fromOffset(28, 28), BackgroundColor3 = Ui.WHITE, ZIndex = 3, Parent = face }, { Ui.round(), Ui.stroke(2), Ui.gradient(Ui.COLORS.navy[1], Ui.COLORS.navy[2]) })
+				Ui.text({ Text = tostring(u.lvl), TextSize = 15, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = lv })
+				badges(face, u, 78)
+				Ui.text({ Text = u.name, TextSize = 17, TextColor3 = LINE, TextWrapped = true, Position = UDim2.fromOffset(6, 125), Size = UDim2.new(1, -12, 0, 38), Parent = face })
+				local label = `⬆ ${Ui.compact(u.cost.coins)}` .. (if u.cost.parts > 0 then ` ⚙{Ui.compact(u.cost.parts)}` else "")
+				Ui.buy({ AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 8, 1, -8), Size = UDim2.new(1, -16, 0, 32), Parent = face }, label, if afford then "green" else "broke", pick(u), 17)
+				face.Activated:Connect(pick(u))
+			end
+		end
+		if #maxed > 0 then
+			Ui.text({ Text = `⭐ Max · {maxCount}`, TextSize = 18, TextColor3 = LINE, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 2, Position = UDim2.fromOffset(2, 0), Size = UDim2.new(1, -4, 0, 24), Parent = grid })
+			local sec = section(3, #maxed, 5, 156)
+			for i, u in maxed do
+				local _, face = cell(sec, i, u)
+				face.BackgroundColor3 = Color3.fromHex("#fff8e1")
+				thumbBox(face, u.d.id, "#ffecb3", 72, cityLook.themeFor(u.b.tint, s.cityTheme, u.d.kind == "decor"))
+				local lv = Ui.new("Frame", { Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(28, 28), BackgroundColor3 = Color3.fromHex("#ffc533"), ZIndex = 3, Parent = face }, { Ui.round(), Ui.stroke(2) })
+				Ui.text({ Text = "⭐", TextSize = 14, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = lv })
+				badges(face, u, 50)
+				Ui.text({ Text = u.name, TextSize = 14, TextColor3 = LINE, TextWrapped = true, Position = UDim2.fromOffset(6, 86), Size = UDim2.new(1, -12, 0, 40), Parent = face })
+				face.Activated:Connect(pick(u))
+			end
 		end
 	end
 
@@ -317,7 +415,10 @@ function Shop.open(ctx: any, focus: string?): Instance
 		clear()
 		grid.CanvasPosition = Vector2.zero
 		local term = box.Text:lower():gsub("^%s+", ""):gsub("%s+$", "")
-		if current == "upgrades" then
+		local upgrades = current == "upgrades"
+		gridLayout.Parent = if upgrades then nil else grid
+		listLayout.Parent = if upgrades then grid else nil
+		if upgrades then
 			showUpgrades(term)
 			return
 		end

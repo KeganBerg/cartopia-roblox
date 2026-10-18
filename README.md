@@ -53,6 +53,21 @@ a lock in the same `UpdateAsync` that reads the save; a lock not refreshed for 3
 abandoned. If another server still holds a player's lock after 5 tries, the player is kicked with a
 "try again" message instead of getting a blank town that would overwrite theirs.
 
+### Gem packs and car packs (Robux)
+
+The Bank sells the web game's gem packs and car packs (`bucksPacks.ts`) as Roblox Developer
+Products, one per pack, named exactly like the pack. `tools/products/sync.mjs` (run by
+`.github/workflows/products.yml` when `tools/products/` changes) makes them, pricing each pack from
+the web game's dollar price at Roblox's own Robux store rates (`prices.json`: "match-dollars", with
+per-pack overrides; `null` stops selling a pack). The Open Cloud key needs the
+`developer-product:read` and `developer-product:write` permissions for it.
+
+The server (`src/server/Purchases.luau`) finds the products by name, opens Roblox's purchase prompt
+from the `Bank` remote, and in `ProcessReceipt` pays the pack through the web store's own
+`applyPurchases` (gems, plus coins and parts for the buyer's level, plus the car). Each PurchaseId
+is written with the save in the same DataStore update, so a receipt Roblox sends twice pays once.
+Car packs are one per account, and buying waits for the town's Crew House, as on the web.
+
 ## The converter
 
 `node tools/transpile/transpile.mjs <web repo>` converts the web game with

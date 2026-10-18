@@ -148,6 +148,9 @@ const REWRITES = [
   ...REGEX,
   // Lua lists can't hold nil: STRIPES' "no stripe" entry becomes false.
   [/export const STRIPES = \[null,/, 'export const STRIPES: (string | null)[] = [false as unknown as null,'],
+  // Likewise merge.ts's missing quarters of a 4x4: a nil would shorten the list, and every() then
+  // passed a single merged square as a whole 4x4 block on offer.
+  [/alike\(g\.anchor, q\.anchor\) \? q : null/, 'alike(g.anchor, q.anchor) ? q : (false as unknown as null)'],
   [/Math\.imul\(/g, '__imul('],
   [/Math\.hypot\(/g, '__hypot('],
   // Float32Arrays (kart tracks) keep their 0-based indexes and single precision (js.ts __zeros).
