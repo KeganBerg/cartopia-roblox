@@ -1229,6 +1229,10 @@ function Rescue.open(ctx: any): Instance?
 		if lotTab then
 			lotTab:SetAttribute("Tut", "lot-tab")
 		end
+		local findTabB = tabRow:FindFirstChild("find")
+		if findTabB then
+			findTabB:SetAttribute("Tut", "find-tab")
+		end
 		if lotLabel and junk >= data.STORAGE_MAX then
 			lotLabel.RichText = true
 			lotLabel.Text = `🚗 My lot <mark color="#e53935"><font color="#ffffff"> {junk}/{data.STORAGE_MAX} </font></mark>`

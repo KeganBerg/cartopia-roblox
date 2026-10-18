@@ -2243,10 +2243,14 @@ do
 	local collect = find(panel, function(d)
 		return d:IsA("TextButton") and label(d) == "Collect all"
 	end)
+	local closing = signalFor(panel, "Destroying")
 	signalFor(collect, "Activated"):Fire()
 	-- The "+N" label shows at once; the coins pop out a moment later.
 	Emu.resumeWaits()
 	local fly = hud.root:FindFirstChild("Fly")
+	-- Lune won't let the Destroy hook above replace the built-in one, so the menu closing never
+	-- fired Destroying: fire it as Roblox would, or the pop-up queue waits on the welcome forever.
+	closing:Fire()
 	print(`welcome collect: {table.concat(calls, ", ")}; coins {before} -> {towns:snapshot(1).save.coins}; flying {fly and #fly:GetChildren() or 0} {table.concat(handlerErrors, "; ")}`)
 	assert(towns:snapshot(1).save.coins > before, "Collect all paid nothing")
 	assert(fly and #fly:GetChildren() > 0, "no coins flew to the counter")
@@ -2601,6 +2605,14 @@ do
 			if waited > 200 then
 				bad += 1
 				print(`[tutorial] stuck at step {s.tutorial}: nothing to press for 1000s ({cardLine()}, menu {tostring(hud.ctx.panel())})`)
+				local tagged = {}
+				for _, d in player.PlayerGui:GetDescendants() do
+					if d:GetAttribute("Tut") then
+						local n = rects[idOf(d)]
+						table.insert(tagged, `{d:GetAttribute("Tut")}@{if n then `{math.floor(n.abs[1])},{math.floor(n.abs[2])}` else "?"}`)
+					end
+				end
+				print(`  marked buttons: {table.concat(tagged, " ")}; the hand wants {tostring(Tut.target(s))}`)
 				break
 			end
 		end
@@ -2627,6 +2639,15 @@ do
 	end
 	Emu.resumeWaits()
 	local goal = hud.root:FindFirstChild("Popup")
+	if not goal then
+		local Kit = emu.require(client.Popups.Kit)
+		local kids = {}
+		for _, c in hud.root:GetChildren() do
+			table.insert(kids, c.Name)
+		end
+		local st = store.useGame.getState()
+		print(`  [diag] showing {tostring(Kit.showing())} hudUp {Kit.hudUp()} gui {hud.gui.Enabled} levelUp {tostring(st.levelUp)} mode {tostring(st.mode)} visiting {tostring(st.visiting)} root [{table.concat(kids, " ")}]`)
+	end
 	assert(goal, "no goal screen after the last step")
 	print(`tutorial step 9: the goal screen; the hand {if Tut.box(s, hud.root) then "points" else "rests"}`)
 	picture("goal", false)

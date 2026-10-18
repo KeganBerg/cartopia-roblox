@@ -9,10 +9,8 @@
 -- with setTutorial, which the server only accepts once the step is done. Buttons the hand can
 -- point at carry a `Tut` attribute naming them (set where each button is made).
 --
--- Voiceover hook: Tutorial.onLine(fn) calls fn(key, step) whenever the line to say changes (key is
--- the clip name, e.g. "02-pizza-job", the web's lib/tutorialVoice.ts; nil means stop talking).
--- The same goes out on Tutorial.lineChanged (a BindableEvent's Event) for anyone who'd rather
--- connect to a signal. Nothing here plays audio.
+-- Each step's spoken line plays through Sounds/Voice (Voice.forStep picks it, as the web's
+-- voiceLine does), and a step that moves on by itself gives the little step sound (Sfx.step).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,6 +29,8 @@ local Ui = require(Client.Ui)
 local Placement = require(Client.Placement)
 local TownCamera = require(Client.TownCamera)
 local Kit = require(script.Parent.Kit)
+local Voice = require(Client.Sounds.Voice)
+local Sfx = require(Client.Sounds.Sfx)
 
 local Tutorial = {}
 
@@ -40,26 +40,7 @@ local PAD = 6 -- the ring's gap round its target
 
 local TOUCH = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 
--- ── The voiceover hook ─────────────────────────────────────────────────────────────────────────
-local lineEvent = Instance.new("BindableEvent")
-Tutorial.lineChanged = lineEvent.Event
-local lineNow: string? = nil
-local listeners: { (string?, number) -> () } = {}
-
--- fn(key, step) on every change of the line to say; returns a function that stops listening.
-function Tutorial.onLine(fn: (string?, number) -> ()): () -> ()
-	table.insert(listeners, fn)
-	return function()
-		local i = table.find(listeners, fn)
-		if i then
-			table.remove(listeners, i)
-		end
-	end
-end
-
-function Tutorial.line(): string?
-	return lineNow
-end
+local lineNow: string? = nil -- the spoken line playing now (Sounds/Voice)
 
 -- ── Where things are on screen (the emulator swaps these for its own layout) ───────────────────
 
@@ -169,7 +150,8 @@ function Tutorial.target(s: any): { string } | string | nil
 			return { "rs-auto", "rs-home-ready" }
 		end
 		if step == 4 then
-			return { "rsc-spot" }
+			-- (Rusty's remembers its last tab: from My lot, the Find cars tab first.)
+			return { "rsc-spot", "find-tab" }
 		end
 		-- Fix up the find: the lot's Restore, a car on the lot, the haul's button, the lot's tab.
 		return { "junk-go", "lot-spot", "haul-fix", "lot-tab" }
@@ -297,7 +279,8 @@ local function voiceLine(s: any): string?
 	if panel and not Rules.inStepPanel(panel, s.tutorial) then
 		return nil
 	end
-	return st.voice(s, editing(), TOUCH)
+	local mode = Placement.mode()
+	return Voice.forStep(s.tutorial + 1, { placing = mode == "place", touch = TOUCH, editing = editing() })
 end
 
 -- ── The card ───────────────────────────────────────────────────────────────────────────────────
@@ -498,6 +481,9 @@ function Tutorial.start(ctx: any)
 				local ok = Remote.act("setTutorial", s.tutorial + 1)
 				if not ok then
 					lastSent = -1
+				else
+					-- A little nod once the action's own sound has played.
+					task.delay(0.25, Sfx.step)
 				end
 			end)
 		end
@@ -529,9 +515,10 @@ function Tutorial.start(ctx: any)
 		local l = voiceLine(s)
 		if l ~= lineNow then
 			lineNow = l
-			lineEvent:Fire(l, s.tutorial)
-			for _, fn in table.clone(listeners) do
-				task.spawn(fn, l, s.tutorial)
+			if l then
+				Voice.say(l)
+			else
+				Voice.stop()
 			end
 		end
 		advance()
