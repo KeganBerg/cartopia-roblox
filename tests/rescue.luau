@@ -70,4 +70,64 @@ return function(test)
 		assert(#done.cars == cars + 1, `{cars} -> {#done.cars} cars`)
 		assert(done.restoring == nil, "bay free again")
 	end)
+
+	test("rescue: scrapping a lot car pays its rarity's parts and frees the spot", function()
+		local towns, store = setup()
+		local data = require(G .. "data")
+		towns:_with(1, function()
+			store.useGame.setState({ junkyard = { { uid = "j1", model = "pip", rarity = "scarce" } } })
+		end)
+		local parts = towns:snapshot(1).save.parts
+		towns:run(1, "scrapCar", "j1")
+		local after = towns:snapshot(1).save
+		assert(#after.junkyard == 0, "still on the lot")
+		assert(after.parts == parts + data.RARITY.scarce.scrapParts, `parts {parts} -> {after.parts}`)
+	end)
+
+	test("rescue: finishing a restore now costs gems and readies the car", function()
+		local towns, store = setup()
+		local data = require(G .. "data")
+		towns:_with(1, function()
+			store.useGame.setState({ restoring = { uid = "r1", model = "pip", rarity = "common", minutes = 5, endsAt = NOW + 120000 } })
+		end)
+		local gems = towns:snapshot(1).save.bucks
+		towns:run(1, "rushRestore", 0)
+		local after = towns:snapshot(1).save
+		assert(after.bucks == gems - data.rushBucks(120000), `gems {gems} -> {after.bucks}`)
+		assert(after.restoring.endsAt <= NOW, "not finished")
+	end)
+
+	test("rescue: the tow truck upgrade takes its parts once the level allows", function()
+		local towns, store = setup()
+		local data = require(G .. "data")
+		local next = data.TRUCK[2]
+		towns:_with(1, function()
+			store.useGame.setState({ truck = 0, parts = next.parts + 5, level = math.max(next.level, 1) })
+		end)
+		towns:run(1, "upgradeTruck")
+		local after = towns:snapshot(1).save
+		assert(after.truck == 1, `truck {after.truck}`)
+		assert(after.parts == 5, `parts {after.parts}`)
+	end)
+
+	test("rescue: a lot's set pays once, only when all its cars are in the garage", function()
+		local towns, store = setup()
+		local data = require(G .. "data")
+		local set = data.RUSTY_SETS[1]
+		local gems = towns:snapshot(1).save.bucks
+		towns:run(1, "claimSet", set.id)
+		assert(towns:snapshot(1).save.bucks == gems, "paid for an unfinished set")
+		towns:_with(1, function(s)
+			local cars = table.clone(s.cars)
+			for i, m in set.cars do
+				table.insert(cars, { uid = `set{i}`, model = m, color = "#ffffff", upgrades = { engine = 0, turbo = 0, tires = 0, weight = 0 } })
+			end
+			store.useGame.setState({ cars = cars })
+		end)
+		towns:run(1, "claimSet", set.id)
+		towns:run(1, "claimSet", set.id)
+		local after = towns:snapshot(1).save
+		assert(after.bucks == gems + set.bucks, `gems {gems} -> {after.bucks}`)
+		assert(table.find(after.claimedSets, set.id), "not marked claimed")
+	end)
 end
