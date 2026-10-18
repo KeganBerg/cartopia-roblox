@@ -9,13 +9,27 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { createHash } from 'crypto'
 import { dirname, join } from 'path'
 import { deflateSync } from 'zlib'
-import { it } from 'vitest'
+import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
   Color, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
   type BufferGeometry, type Material, type MeshStandardMaterial, type Object3D,
 } from 'three'
 import { BUILDINGS, CARS } from './game/data'
+
+// Batch (scene/Batch.tsx) merges a scene's meshes into a few big ones, baking their colours into
+// vertices. The race venues are exported with it switched off, so every piece keeps its own shape
+// and look (the countryside is still exported merged, as it always was).
+const batching = vi.hoisted(() => ({ off: false }))
+vi.mock('./scene/Batch', async (load) => {
+  const real = (await load()) as Record<string, unknown>
+  const React = await import('react')
+  const Plain = (p: { children?: React.ReactNode }) => React.createElement('group', null, p.children)
+  return { ...real, Batch: (p: Record<string, unknown>) => React.createElement((batching.off ? Plain : real.Batch) as React.FC, p) }
+})
+// Screen effects and the sky's reflections need a real renderer and draw no shapes.
+vi.mock('./scene/PostFx', async (load) => ({ ...((await load()) as object), PostFx: () => null }))
+vi.mock('./scene/SkyEnv', async (load) => ({ ...((await load()) as object), SkyEnv: () => null }))
 
 // --- A canvas that remembers what was painted on it ---------------------------------------
 // Signs and other painted textures are drawn on 2D canvases. jsdom has none, so this records
@@ -223,6 +237,19 @@ function lookOf(m: Material, tint?: Color): Look | null {
   const look: Look = { c: hex(color), o: r4(o) }
   const img = sm.map?.image as HTMLCanvasElement | undefined
   const paint = img && paints.get(img)
+  const raster = img && !paint && batching.off ? pixels.get(img) : undefined
+  if (raster) {
+    // An image painted for real (the ground textures): its average colour. Race venues only; the
+    // countryside was always exported with the material's own colour, and its meshes are uploaded.
+    const sum = [0, 0, 0]
+    let n = 0
+    for (let k = 0; k < raster.px.length; k += 4) {
+      const a = raster.px[k + 3]
+      for (let c = 0; c < 3; c++) sum[c] += raster.px[k + c] * a
+      n += a
+    }
+    if (n > 0) look.c = hex(new Color(sum[0] / n / 255, sum[1] / n / 255, sum[2] / n / 255).convertSRGBToLinear().multiply(color))
+  }
   if (paint) {
     // The largest fill is the board's colour; lettering keeps its own.
     const bg = paint.fills.reduce<{ color: string; area: number } | null>((a, f) => (!a || f.area > a.area ? f : a), null)
@@ -443,8 +470,87 @@ it('exports every building and car', async () => {
     }
     await r.unmount()
   }
-  await outskirts('outskirts:forest', plots, true)
-  for (const key of plots) await outskirts(`wilds:${key}`, plots.filter((k) => k !== key), false)
+  if (!only || only === 'outskirts') {
+    await outskirts('outskirts:forest', plots, true)
+    for (const key of plots) await outskirts(`wilds:${key}`, plots.filter((k) => k !== key), false)
+  }
+  // The drag strip at each venue (RaceScene.tsx), everything but the cars: the road and its
+  // markings, the sidewalks or shoulders, lamps, banners, barriers, bunting, the crowd, and the
+  // venue's own scenery out to the horizon (RaceVenues.tsx, or Skyline.tsx on Main Street). The
+  // shops along Main Street aren't in it: the race screen lines the street with them itself.
+  // Far-off pieces ride along with the camera in the web game (too distant to show parallax):
+  // the scene is drawn twice with the camera in two places, and whatever moved with it becomes
+  // "race:<venue>:far", drawn round the camera; the rest is "race:<venue>".
+  if (!only || only === 'race') await races()
+  async function races() {
+    const { RaceScene } = await import('./scene/RaceScene')
+    const { VENUES } = await import('./scene/venues')
+    const { TRACK } = await import('./game/race')
+    const { useThree } = await import('@react-three/fiber')
+    const car = CARS[0]
+    const cam: { now?: Object3D; state?: { internal: { subscribers: { ref: { current: (s: unknown, dt: number) => void } }[] } } } = {}
+    const Grab = () => {
+      cam.now = useThree((s) => s.camera)
+      cam.state = useThree() as never
+      return null
+    }
+    // A frame as the game draws one: every useFrame callback once, in order (the test renderer's
+    // advanceFrames runs each callback many times before the next, and drops their errors).
+    const frame = (n: number) => {
+      for (let i = 0; i < n; i++) for (const sub of cam.state!.internal.subscribers) sub.ref.current(cam.state, 1 / 60)
+    }
+    const { raceWeather } = await import('./game/weather')
+    batching.off = true
+    for (const v of VENUES) {
+      const me = { current: { dist: 0 } }, them = { current: { dist: 0 } }
+      const r = await ReactThreeTestRenderer.create(
+        <>
+          <Grab />
+          <RaceScene track={TRACK} me={me} them={them} mine={{ body: car.body, model: car.id, color: '#ff0000' }} theirs={{ body: car.body, model: car.id, color: '#00ff00' }} venue={v} weather={raceWeather(v.id, 'export', 'clear')} night={false} />
+        </>,
+        { width: 1280, height: 800 },
+      )
+      frame(300)
+      const root = r.scene.instance as Object3D
+      // The racers (each a group drawn 1.4x) stay out, and so does the countdown bar under the START
+      // banner (StartLights, at 0, 2.5, -0.85), which the race screen lights itself.
+      const racers = new Set<Object3D>()
+      root.traverse((o) => {
+        if (!(o as { isGroup?: boolean }).isGroup) return
+        if (Math.abs(o.scale.x - 1.4) < 1e-6 || o.position.distanceTo(new Vector3(0, 2.5, -0.85)) < 1e-6) racers.add(o)
+      })
+      for (const o of racers) o.visible = false
+      const z0 = cam.now!.position.z
+      const first = walk(root, geos, geoList)
+      // Down the road a way, and drawn again.
+      me.current.dist = them.current.dist = TRACK * 0.6
+      for (const o of racers) o.visible = true
+      frame(300)
+      for (const o of racers) o.visible = false
+      const dz = cam.now!.position.z - z0
+      const second = walk(root, geos, geoList)
+      if (first.length !== second.length) throw new Error(`race:${v.id}: ${first.length} pieces, then ${second.length}`)
+      if (Math.abs(dz) < 1) throw new Error(`race:${v.id}: the camera didn't move`)
+      const near: Piece[] = [], far: Piece[] = []
+      first.forEach((p, i) => {
+        const q = second[i]
+        // The sky dome: Roblox draws its own sky.
+        const g = geoList[p.g]
+        if (p.look.basic && g.type === 'SphereGeometry' && (g.params.radius as number) > 50) return
+        // Pools of lamplight on the ground (LightPool): see-through glows that brighten at night.
+        if (p.look.o < 1 && (g.type === 'PlaneGeometry' || g.type === 'CircleGeometry')) return
+        const moved = q.m[14] - p.m[14]
+        const rides = q.g === p.g && Math.abs(moved - dz) < 0.05 && [12, 13].every((k) => Math.abs(q.m[k] - p.m[k]) < 1e-3)
+        if (rides) far.push({ ...p, m: p.m.map((x, k) => (k === 14 ? r4(x - z0) : x)) })
+        else near.push(p)
+      })
+      models.push({ id: `race:${v.id}`, kind: 'race', pieces: near })
+      models.push({ id: `race:${v.id}:far`, kind: 'race', pieces: far })
+      console.log(`race:${v.id}: ${near.length} pieces, ${far.length} far`)
+      await r.unmount()
+    }
+    batching.off = false
+  }
   writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 

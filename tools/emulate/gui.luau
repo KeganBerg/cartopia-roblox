@@ -117,7 +117,13 @@ function Gui.partOf(d)
 		color = d.Color:ToHex(),
 		transparency = d.Transparency,
 		material = enumName(d.Material),
-		text = label and { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() } or nil,
+		text = if label then { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() }
+			elseif surface and surface:GetAttribute("Checker") then (function()
+				local back = surface:FindFirstChildOfClass("Frame")
+				local cell = back and back:FindFirstChildOfClass("Frame")
+				return { checker = surface:GetAttribute("Checker"), fg = cell and cell.BackgroundColor3:ToHex() or "111111", bg = back and back.BackgroundColor3:ToHex() or "ffffff" }
+			end)()
+			else nil,
 	}
 end
 

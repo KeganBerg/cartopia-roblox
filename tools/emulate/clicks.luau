@@ -487,7 +487,12 @@ local function shot(name, world)
 			end
 		end
 	end
-	fs.writeFile(`build/shot-{name}.json`, serde.encode("json", { parts = parts }))
+	-- Lighting's fog, when a race has set it (Roblox draws it only with no Atmosphere in Lighting).
+	local lighting = game:GetService("Lighting")
+	local fog = if lighting.FogEnd < 10000 and not lighting:FindFirstChildOfClass("Atmosphere")
+		then { color = lighting.FogColor:ToHex(), start = lighting.FogStart, ["end"] = lighting.FogEnd }
+		else nil
+	fs.writeFile(`build/shot-{name}.json`, serde.encode("json", { parts = parts, fog = fog }))
 	local toasts = hud.gui:FindFirstChild("Toasts", true)
 	if toasts then
 		for _, t in toasts:GetChildren() do
@@ -693,58 +698,89 @@ local function label(b)
 	local l = b:FindFirstChildWhichIsA("TextLabel", true)
 	return l and l.Text or ""
 end
-renderSteps = {}
-hud.ctx.close()
-local coinsBefore = towns:snapshot(1).save.coins
-calls = {}
-handlerErrors = {}
-hud.openPanel("race", "quick")
-local go = find(hud.gui, function(d)
-	return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil
-end)
-assert(go, "no race button on the Quick Race page")
-signalFor(go, "Activated"):Fire()
-local screen = raceScreen()
-assert(screen, `no race screen ({table.concat(calls, ", ")}) {table.concat(handlerErrors, "; ")}`)
-local shift = find(screen, function(d) return d.Name == "Face" and d.Parent.Name == "Shift" end)
-local boost = find(screen, function(d) return d.Name == "Boost" end)
-local needle = find(screen, function(d) return d.Name == "Needle" end)
-local touch = { UserInputType = roblox.Enum.UserInputType.Touch, KeyCode = roblox.Enum.KeyCode.Unknown }
-local holding, frames, shifts = false, 0, 0
-local result
-while frames < 60 * 90 do
-	frames += 1
-	raceClock += 1 / 60
-	local step = renderSteps.DragStrip
-	if not step then
-		break
-	end
-	step(1 / 60)
-	Emu.resumeWaits()
-	local word = label(shift)
-	if word == "HOLD ▶" and not holding and frames > 100 then
-		holding = true
-		signalFor(shift, "InputBegan"):Fire(touch)
-	elseif word == "SHIFT ▲" and holding then
-		holding = false
-		signalFor(game:GetService("UserInputService"), "InputEnded"):Fire(touch)
-	elseif word == "SHIFT ▲" and needle.Rotation >= 6 then
-		shifts += 1
-		signalFor(shift, "InputBegan"):Fire(touch)
-		signalFor(game:GetService("UserInputService"), "InputEnded"):Fire(touch)
-		if shifts == 3 then
-			signalFor(boost, "InputBegan"):Fire(touch)
+-- Drives one Quick Race through the race screen's buttons, taking pictures at the frames listed
+-- (tag names them). Returns the frames it ran, the shifts made and the result card, if it came up.
+local function runRace(tag, shotAt)
+	renderSteps = {}
+	hud.ctx.close()
+	calls = {}
+	handlerErrors = {}
+	hud.openPanel("race", "quick")
+	local go = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil
+	end)
+	assert(go, "no race button on the Quick Race page")
+	signalFor(go, "Activated"):Fire()
+	local screen = raceScreen()
+	assert(screen, `no race screen ({table.concat(calls, ", ")}) {table.concat(handlerErrors, "; ")}`)
+	local shift = find(screen, function(d) return d.Name == "Face" and d.Parent.Name == "Shift" end)
+	local boost = find(screen, function(d) return d.Name == "Boost" end)
+	local needle = find(screen, function(d) return d.Name == "Needle" end)
+	local touch = { UserInputType = roblox.Enum.UserInputType.Touch, KeyCode = roblox.Enum.KeyCode.Unknown }
+	local holding, frames, shifts = false, 0, 0
+	local result
+	while frames < 60 * 90 do
+		frames += 1
+		raceClock += 1 / 60
+		local step = renderSteps.DragStrip
+		if not step then
+			break
+		end
+		step(1 / 60)
+		Emu.resumeWaits()
+		local word = label(shift)
+		if word == "HOLD ▶" and not holding and frames > 100 then
+			holding = true
+			signalFor(shift, "InputBegan"):Fire(touch)
+		elseif word == "SHIFT ▲" and holding then
+			holding = false
+			signalFor(game:GetService("UserInputService"), "InputEnded"):Fire(touch)
+		elseif word == "SHIFT ▲" and needle.Rotation >= 6 then
+			shifts += 1
+			signalFor(shift, "InputBegan"):Fire(touch)
+			signalFor(game:GetService("UserInputService"), "InputEnded"):Fire(touch)
+			if shifts == 3 then
+				signalFor(boost, "InputBegan"):Fire(touch)
+			end
+		end
+		if shotAt[frames] then
+			shot(`{tag}-{frames}`, game.Workspace:FindFirstChild("DragStrip"))
+		end
+		result = find(screen, function(d) return d.Name == "Result" end)
+		if result then
+			shot(`{tag}-result`, game.Workspace:FindFirstChild("DragStrip"))
+			break
 		end
 	end
-	if frames == 60 or frames == 150 or frames == 330 or frames == 480 then
-		shot(`race-{frames}`, game.Workspace:FindFirstChild("DragStrip"))
-	end
-	result = find(screen, function(d) return d.Name == "Result" end)
-	if result then
-		shot("race-result", game.Workspace:FindFirstChild("DragStrip"))
-		break
-	end
+	return frames, shifts, result
 end
+
+-- SHOTS=1 also races once at every venue, from the line and from halfway down the strip.
+if SHOTS then
+	local venues = races.mods.venues
+	local pick = venues.pickVenue
+	for _, v in venues.VENUES do
+		venues.pickVenue = function()
+			return v
+		end
+		towns:_with(1, function(s)
+			s.fuel = math.max(s.fuel, 50)
+		end)
+		runRace(`venue-{v.id}`, { [60] = true, [400] = true })
+		local screen = raceScreen()
+		local collect = screen and find(screen, function(d)
+			return d:IsA("TextButton") and (label(d) == "Collect" or label(d) == "Back")
+		end)
+		assert(collect, `the race at {v.id} has no Collect or Back button`)
+		signalFor(collect, "Activated"):Fire()
+		Emu.resumeWaits()
+		assert(not raceScreen(), `the race at {v.id} didn't close`)
+	end
+	venues.pickVenue = pick
+end
+
+local coinsBefore = towns:snapshot(1).save.coins
+local frames, shifts, result = runRace("race", { [60] = true, [150] = true, [330] = true, [480] = true })
 local texts = {}
 if result then
 	for _, d in result:GetDescendants() do

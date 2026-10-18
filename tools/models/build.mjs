@@ -37,6 +37,13 @@ const MERGE_CHUNK = 700
 const MERGE_TRIS = 10000
 // Countryside colours are rounded to steps of this much (of 255) so near shades merge.
 const MERGE_SHADE = 14
+// Race venue pieces smaller than this (studs, longest side) are merged like the countryside, plain
+// blocks included: a farm strip is 30,000 pieces. Bigger ones (the road, the ground) stay parts,
+// cut into lengths of at most LONGEST, the most a Roblox part can measure.
+const RACE_SMALL = 60
+const LONGEST = 2000
+// Flat race pieces lower than this (web units) are ground layers (see the layer spread in convert).
+const RACE_LAYERS = 0.06
 // A mesh pack (one uploaded model) holds up to this many triangles.
 const PACK_TRIS = 60000
 // Meshes denser than this many triangles are simplified, keeping the shape within ERROR of its size.
@@ -330,15 +337,24 @@ export function convert(data) {
   const out = {}
   const loose = new Map()
   const scenery = new Set()
+  const races = new Set()
   for (const model of models) {
-    if (model.kind === 'scenery') scenery.add(model.id)
+    const merged = model.kind === 'scenery' || model.kind === 'race'
+    if (merged) scenery.add(model.id)
+    if (model.kind === 'race') races.add(model.id)
     // Countryside meshes are only uploaded merged (mergeScenery), so their pieces aren't kept.
-    const keep = model.kind === 'scenery' ? (m) => ((m.key ??= meshKey(m)), loose.set(m.key, m), m.key) : remember
+    const keep = merged ? (m) => ((m.key ??= meshKey(m)), loose.set(m.key, m), m.key) : remember
     const name = model.kind === 'building' ? `${model.id}@${model.level ?? 1}` : model.id
     const paint = new Set(model.paint ?? [])
     const parts = []
     model.pieces.forEach((piece, i) => {
       const geo = geos[piece.g]
+      // The web game stacks the strip's flat layers (ground, asphalt, paint) a hundredth of a unit
+      // apart (layers.ts LAYER) and nudges paint forward in depth (decal). Roblox has no such nudge, and a
+      // tenth of a stud flickers at a distance, so race venues spread those layers four times wider.
+      if (model.kind === 'race' && (geo.type === 'PlaneGeometry' || geo.type === 'CircleGeometry') && Math.abs(piece.m[13]) < RACE_LAYERS) {
+        piece = { ...piece, m: piece.m.map((x, k) => (k === 13 ? x * 4 : x)) }
+      }
       const T = decompose(piece.m)
       const P = geo.params
       const look = lookId(piece.look, paint.has(i))
@@ -347,7 +363,9 @@ export function convert(data) {
         parts.push([kind, ...p.map((x) => x * SCALE), ...q, ...size.map((x) => Math.max(THIN, x * SCALE)), look, ...(extra ? [extra] : [])])
         stats.parts++
       }
-      if (T && !T.mirrored && piece.group === undefined && pristine(geo)) {
+      // Small race pieces (anything but signs) go to the mesh merge whatever their shape.
+      const small = model.kind === 'race' && !piece.look.text && T && Math.max(...bounds(geo.pos).s.map((x, k) => x * T.s[k])) * SCALE < RACE_SMALL
+      if (T && !T.mirrored && piece.group === undefined && pristine(geo) && !small) {
         const [X, Y, Z] = T.axes
         const [sx, sy, sz] = T.s
         const full = (start, length) => (start ?? 0) === 0 && near(length ?? Math.PI * 2, Math.PI * 2, 1e-3)
@@ -399,7 +417,34 @@ export function convert(data) {
         if (sub.color) parts[parts.length - 1][11] = subLook
       }
     })
-    out[name] = scenery.has(model.id) ? mergeScenery(parts, model.id) : parts
+    out[name] = scenery.has(model.id) ? mergeScenery(model.kind === 'race' ? cutLong(parts) : parts, model.id) : parts
+  }
+
+  // Blocks longer than a Roblox part can be, cut into equal lengths along their long sides.
+  function cutLong(parts) {
+    const out = []
+    for (const p of parts) {
+      const size = p.slice(8, 11)
+      const n = size.map((x) => Math.ceil(x / LONGEST))
+      if (p[0] !== 'b' || n.every((k) => k === 1)) {
+        out.push(p)
+        continue
+      }
+      const [qx, qy, qz, qw] = p.slice(4, 8)
+      // The block's own axes, from its rotation.
+      const axes = [
+        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qz * qw), 2 * (qx * qz - qy * qw)],
+        [2 * (qx * qy - qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qx * qw)],
+        [2 * (qx * qz + qy * qw), 2 * (qy * qz - qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+      ]
+      const piece = size.map((x, k) => x / n[k])
+      for (let i = 0; i < n[0]; i++) for (let j = 0; j < n[1]; j++) for (let k = 0; k < n[2]; k++) {
+        const off = [i, j, k].map((t, a) => (t + 0.5) * piece[a] - size[a] / 2)
+        const at = [0, 1, 2].map((c) => p[1 + c] + axes[0][c] * off[0] + axes[1][c] * off[1] + axes[2][c] * off[2])
+        out.push([p[0], ...at, qx, qy, qz, qw, ...piece, ...p.slice(11)])
+      }
+    }
+    return out
   }
 
   // The countryside is thousands of small meshes (trees, tufts, crops). Drawn one part each it
@@ -476,7 +521,7 @@ export function convert(data) {
     const T = decompose(m)
     if (T && !T.mirrored) hatSpots[id] = [...T.p.map((x) => x * SCALE), ...quat(T.axes), T.s[1]]
   }
-  return { models: out, scenery, looks, meshes, stats, ground, hatSpots, textures: data.textures ?? [] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, textures: data.textures ?? [] }
 }
 
 function mul(a, b) {
@@ -525,7 +570,7 @@ export function packs(meshes) {
 }
 
 function write(result) {
-  const { models, scenery, looks, meshes } = result
+  const { models, scenery, races, looks, meshes } = result
   mkdirSync(OUT_DIR, { recursive: true })
   rmSync(GLB_DIR, { recursive: true, force: true })
   mkdirSync(GLB_DIR, { recursive: true })
@@ -559,10 +604,11 @@ Catalog.LOOKS = {
     if (l.text) cat += `, text = { text = ${str(l.text.text)}, fg = ${str(l.text.fg)}, bg = ${str(l.text.bg)} }`
     cat += ' },\n'
   }
-  const modelList = (only) => {
+  // which: 'town' (Catalog), 'scenery' (the countryside) or 'race' (the race venues).
+  const modelList = (which) => {
     let s = ''
     for (const [name, parts] of Object.entries(models)) {
-      if (scenery.has(name) !== only) continue
+      if ((races.has(name) ? 'race' : scenery.has(name) ? 'scenery' : 'town') !== which) continue
       s += `\t[${str(name)}] = {\n`
       for (const p of parts) s += `\t\t{ ${str(p[0])}, ${p.slice(1, 11).map(num).join(', ')}, ${p[11]}${p[12] ? `, ${str(p[12])}` : ''} },\n`
       s += '\t},\n'
@@ -571,15 +617,22 @@ Catalog.LOOKS = {
   }
   cat += '}\n\n-- Where each car wears a hat ("hat:<id>" models): { x, y, z, qx, qy, qz, qw, scale } from the car\'s\n-- middle on the ground, in studs.\nCatalog.HAT_SPOTS = {\n'
   for (const [id, s] of Object.entries(result.hatSpots ?? {})) cat += `\t[${str(id)}] = { ${s.map(num).join(', ')} },\n`
-  cat += '}\n\nCatalog.MODELS = {\n' + modelList(false) + '}\n\nreturn Catalog\n'
+  cat += '}\n\nCatalog.MODELS = {\n' + modelList('town') + '}\n\nreturn Catalog\n'
   writeFileSync(join(OUT_DIR, 'Catalog.luau'), cat)
   // The countryside, apart so the town's own models stay quick to load. Parts are in studs from
   // the middle of the town (not of the model), in the same form as Catalog's, with its LOOKS.
   const sc = header('The countryside round the town (Outskirts.tsx): the forest ring with its farm and lake, and each plot\'s wild meadow ("wilds:x,z").') + `local Scenery = {}
 
 Scenery.MODELS = {
-` + modelList(true) + '}\n\nreturn Scenery\n'
+` + modelList('scenery') + '}\n\nreturn Scenery\n'
   writeFileSync(join(OUT_DIR, 'Scenery.luau'), sc)
+  // The drag strip at each race venue, in studs from the start line's middle: "race:<venue>", and
+  // "race:<venue>:far", the horizon, drawn round the camera (it rides along with it).
+  const rs = header('The drag strip and its scenery at each race venue (RaceScene.tsx, RaceVenues.tsx, Skyline.tsx).') + `local RaceScenery = {}
+
+RaceScenery.MODELS = {
+` + modelList('race') + '}\n\nreturn RaceScenery\n'
+  writeFileSync(join(OUT_DIR, 'RaceScenery.luau'), rs)
 
   const list = packs(meshes)
   let mesh = header('Each mesh: the Roblox asset (a model of MeshParts named by key) it was uploaded in, and its size in studs.') + `-- asset = 0 until tools/models/upload.mjs uploads its pack; the game draws a box in its place until then.
