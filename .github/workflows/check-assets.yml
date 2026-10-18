@@ -20,3 +20,9 @@ jobs:
       - run: node tools/check/assets.mjs "${{ inputs.filter }}"
         env:
           API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+      - name: Look up the images inside the uploaded decals
+        run: node tools/models/resolve-images.mjs && cat tools/models/images.json | head -40
+        env:
+          API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}
+          PLACE: ${{ vars.ROBLOX_PLACE_ID || '82604390904451' }}
