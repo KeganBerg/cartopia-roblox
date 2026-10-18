@@ -57,6 +57,7 @@ local function setup()
 		end,
 		modes = {
 			world = require("../src/server/Modes/World"),
+			tuner = require("../src/server/Modes/Tuner"),
 		},
 		game = function(name)
 			return require(G .. name)
@@ -226,5 +227,45 @@ return function(test)
 		local run = drive(spec)
 		local _, theirs = DragRace.times(run)
 		assert(theirs == 13.5, tostring(theirs))
+	end)
+	test("races: a Tuner Trial needs its build, races the built host and pays through tunerResult", function()
+		local races, towns, wait = setup()
+		local store = require(G .. "store")
+		local data = require(G .. "data")
+		local tuner = require(G .. "tuner")
+		local t = tuner.tunerTrial("downforce")
+		local started, why = races:start(1, "tuner", "downforce")
+		assert(started == nil and why:find("Fit"), tostring(why))
+		assert(races:start(1, "tuner", "nope") == nil, "not a trial")
+		-- Build the race car for it: a spoiler, snow studs and the tuning it asks for (and more).
+		towns:_with(1, function()
+			local s = store.useGame.getState()
+			local cars = table.clone(s.cars)
+			local car = table.clone(cars[1])
+			local body = data.carDef(car.model).body
+			local spoiler
+			for _, m in data.MODS do
+				if m.slot == "spoiler" and data.modFits(m, body) and not spoiler then
+					spoiler = m.id
+				end
+			end
+			car.mods = { spoiler, "snowstuds" }
+			car.upgrades = { engine = 5, turbo = 5, tires = 5, weight = 5 }
+			cars[1] = car
+			store.useGame.setState({ cars = cars, raceCar = car.uid })
+		end)
+		started, why = races:start(1, "tuner", "downforce")
+		assert(started, `start: {why}`)
+		assert(started.rival.id == "tuner-downforce" and started.venue.id == "snow", started.rival.id)
+		assert(started.rival.prize == tuner.tunerPrize(t, true), "first-win prize")
+		assert(#started.rival.mods == #tuner.hostMods(t) and #started.rival.mods == 2, "the host's build")
+		local run = drive(started.spec)
+		local mine, theirs = DragRace.times(run)
+		wait(60)
+		local result = assert(races:finish(1, run.events))
+		assert(result.won == (mine < theirs), "same winner")
+		local tw = (towns:snapshot(1).save.tuner or {}).downforce or 0
+		assert(tw == (if result.won then 1 else 0), "progress")
+		assert(result.pattern == (if result.won then "hex" else nil), "the pattern on a first win")
 	end)
 end
