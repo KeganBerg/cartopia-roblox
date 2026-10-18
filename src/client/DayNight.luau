@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local clock = require(Shared:WaitForChild("Game"):WaitForChild("clock")) :: any
 local Catalog = require(Shared:WaitForChild("Models"):WaitForChild("Catalog")) :: any
+local Horizon = require(script.Parent.Horizon)
 
 local DayNight = {}
 
@@ -146,6 +147,9 @@ local function apply(now: number)
 	bloom.Threshold = look.threshold + 0.25
 	bloom.Size = 24
 
+	-- The web game's sky for this time of day, and the colour the far land fades into.
+	local haze = Horizon.sky(phase)
+
 	-- A race brings its venue's haze (RaceScene's linear fog). Roblox ignores Lighting's fog while an
 	-- Atmosphere is in Lighting, so the town's air steps out for the race.
 	local race = DayNight.raceFog
@@ -170,8 +174,8 @@ local function apply(now: number)
 	-- wash the whole town out.
 	air.Density = 0.08
 	air.Offset = 0
-	air.Color = look.sky
-	air.Decay = look.ground
+	air.Color = haze or look.sky
+	air.Decay = haze or look.ground
 	air.Glare = dusk * 0.6
 	air.Haze = 0.5 + dusk
 end
