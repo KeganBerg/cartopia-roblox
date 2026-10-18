@@ -299,6 +299,7 @@ function Emu.load(placeFile: string)
 				local inst = roblox.Instance.new(class)
 				if inst:IsA("GuiObject") then
 					inst.AbsoluteSize = roblox.Vector2.new(0, 0)
+					inst.AbsolutePosition = roblox.Vector2.new(0, 0)
 				end
 				if parent then
 					inst.Parent = parent

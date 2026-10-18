@@ -985,7 +985,43 @@ if SHOTS then
 	shot("rescue-lot", nil)
 	tabTo("find")
 	shot("rescue-find", nil)
+	-- A full lot: its count goes red and the lots fade.
+	do
+		local data = emu.require(RS.Shared.Game.data)
+		towns:_with(1, function()
+			local junk = {}
+			for i = 1, data.STORAGE_MAX do
+				table.insert(junk, { uid = `f{i}`, model = if i % 2 == 0 then "woodie" else "pip", rarity = if i == 1 then "rare" else "common" })
+			end
+			store.useGame.setState({ junkyard = junk })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		hud.ctx.close()
+		hud.openPanel("rescue")
+		tabTo("find")
+		local holder = hud.gui:FindFirstChild("Rescue", true)
+		assert(holder and holder:FindFirstChild("Dim", true), "a full lot doesn't fade the lots")
+		shot("rescue-full", nil)
+		rustyTown()
+		hud.ctx.close()
+		hud.openPanel("rescue")
+	end
+	-- An empty bay brings the picked car's Restore button into view.
+	towns:_with(1, function()
+		store.useGame.setState({ restoring = nil })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	tabTo("storage")
+	do
+		local holder = hud.gui:FindFirstChild("Rescue", true)
+		assert(holder and holder:FindFirstChild("LotPick", true), "no picked car on the lot")
+	end
+	shot("rescue-bay-free", nil)
+	rustyTown()
+	tabTo("find")
 	press("suburbs")
+	assert(hud.gui:FindFirstChild("Coach", true), "no coach on a fresh search")
+	shot("rescue-search-start", nil)
 	for i = 1, 3 do
 		local q = towns:snapshot(1).search
 		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
@@ -994,11 +1030,77 @@ if SHOTS then
 		end
 	end
 	shot("rescue-search", nil)
+	-- The next find pops up over the lot (before time moves on and it fades).
+	do
+		local q = towns:snapshot(1).search
+		if q and not q.flat then
+			for i, r in q.revealed do
+				if not r then
+					local t = hud.gui:FindFirstChild(`Tarp{i}`, true)
+					signalFor(t, "Activated"):Fire()
+					break
+				end
+			end
+			if not towns:snapshot(1).search.flat then
+				assert(hud.gui:FindFirstChild("Found", true), "no find pop-up")
+				shot("rescue-found", nil)
+			end
+		end
+	end
+	-- Leave with a haul aboard asks first; Cancel keeps the search going.
+	do
+		local q = towns:snapshot(1).search
+		if q and q.flat then
+			press("FixTruck")
+		end
+		local leave = hud.gui:FindFirstChild("Leave", true)
+		signalFor(leave:FindFirstChild("Face") or leave, "Activated"):Fire()
+		local ask = hud.gui:FindFirstChild("Confirm", true)
+		assert(ask, "Leave with a haul didn't ask")
+		shot("rescue-leave", nil)
+		press("Cancel")
+		assert(towns:snapshot(1).search, "Cancel left the lot")
+		assert(not hud.gui:FindFirstChild("Confirm", true), "Cancel didn't close the question")
+	end
+	-- Search all turns into Stop while it runs.
+	do
+		local all = hud.gui:FindFirstChild("SearchAll", true)
+		if all then
+			signalFor(all, "Activated"):Fire()
+			local again = hud.gui:FindFirstChild("SearchAll", true)
+			local l = again and again:FindFirstChildWhichIsA("TextLabel", true)
+			assert(not again or (l and l.Text:find("Stop")), "Search all didn't turn into Stop")
+			if again then
+				signalFor(again, "Activated"):Fire()
+			end
+		end
+	end
 	if towns:snapshot(1).search and towns:snapshot(1).search.flat then
 		press("FixTruck")
 	end
+	-- A resto-mod piece aboard, so the haul shows its puzzle.
+	do
+		local resto = emu.require(RS.Shared.Game.resto)
+		local car = resto.restoCars()[1]
+		towns:_with(1, function(s)
+			-- And two cars, so the haul has cars to lay out.
+			local q = table.clone(s.search)
+			q.pins, q.revealed = table.clone(q.pins), table.clone(q.revealed)
+			q.pins[1], q.revealed[1] = { kind = "car", model = "woodie", rarity = "scarce" }, true
+			q.pins[2], q.revealed[2] = { kind = "car", model = "miata", rarity = "rare" }, true
+			q.piece = { model = car.id, piece = 2 }
+			store.useGame.setState({ search = q, restoParts = { `{car.id}:0` } })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	end
 	press("TowHome")
+	-- The finds land one at a time and their counts roll up: let them all land.
+	require("@lune/task").wait(0.7)
+	Emu.resumeWaits()
+	Emu.resumeWaits()
+	assert(hud.gui:FindFirstChild("BuildArt", true), "no resto-mod puzzle in the haul")
 	shot("rescue-haul", nil)
+	press("HaulDone")
 	towns:_with(1, function(s)
 		store.useGame.setState({ restoring = { uid = "r1", model = "bug", rarity = "common", minutes = 5, endsAt = 0 } })
 	end)
@@ -1008,6 +1110,18 @@ if SHOTS then
 	tabTo("storage")
 	press("Collect")
 	shot("rescue-plate", nil)
+	-- Adding it opens the garage on the new car.
+	press("AddToGarage")
+	do
+		local name = emu.require(RS.Shared.Game.data).carDef("bug").name
+		local detail = hud.gui:FindFirstChild("Detail", true)
+		local shown = false
+		for _, d in (detail and detail:GetDescendants() or {}) do
+			shown = shown or (d:IsA("TextLabel") and d.Text == name)
+		end
+		assert(shown, "the garage didn't open on the restored car")
+		shot("rescue-garage", nil)
+	end
 end
 
 -- A whole Quick Race, driven through the race screen's own buttons like a player would.
