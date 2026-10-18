@@ -14,6 +14,7 @@
 local race = require("./Game/race") :: any
 local data = require("./Game/data") :: any
 local grip = require("./Game/grip") :: any
+local distance = require("./Game/distance") :: any
 
 local DragRace = {}
 
@@ -31,8 +32,9 @@ export type Rival = { pi: number, shift: number, skill: string? }
 -- What the venue and the weather do to a car's grip (Shared.Game.grip conditions).
 export type Grip = { lo: number, hi: number, spin: number, dust: number }
 -- What both sides agree on before the race: the cars, the strip's grip for each and the rival's
--- driving. Grip left out is a clean dry strip.
-export type Spec = { myPi: number, mySkill: string?, rival: Rival, seed: number, track: number, grip: Grip?, theirGrip: Grip? }
+-- driving. Grip left out is a clean dry strip. build: the player's car's build (distance.ts), set
+-- for races over a set distance (a half mile or a mile), where it costs some pull.
+export type Spec = { myPi: number, mySkill: string?, rival: Rival, seed: number, track: number, grip: Grip?, theirGrip: Grip?, build: number? }
 
 local function gripOf(g: Grip?): Grip
 	return g or grip.CLEAR
@@ -185,6 +187,9 @@ function DragRace.step(r: Race)
 	local t = DragRace.time(r)
 	local myGrip, theirGrip = gripOf(spec.grip), gripOf(spec.theirGrip)
 	local mine = data.skillBoost(spec.mySkill, me, th) * data.skillDrag(spec.rival.skill, me, t) * grip.gripMul(myGrip, me.gear, me.rpm, t)
+	if spec.build then
+		mine *= distance.characterMul(spec.build, me.gear, me.dist)
+	end
 	race.stepRacer(me, spec.myPi, dt, t, mine, spec.track)
 	r.top = math.max(r.top, me.speed)
 	r.spin = me.launched and me.finished == nil and (grip.spinning(myGrip, me.gear, me.rpm, t) or (me.gear == 0 and me.quality < 0.84))

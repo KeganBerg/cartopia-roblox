@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { MeshoptSimplifier } from 'meshoptimizer'
-import { convert, SCALE } from './build.mjs'
+import { convert, loadModels, SCALE } from './build.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -173,6 +173,6 @@ window.DONE = true
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [web, json, out, ...names] = process.argv.slice(2)
-  await preview({ web, data: JSON.parse(readFileSync(json, 'utf8')), out, names })
+  await preview({ web, data: loadModels(json), out, names })
   console.log(`wrote ${out}`)
 }

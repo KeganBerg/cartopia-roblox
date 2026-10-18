@@ -5,9 +5,9 @@
 //
 // Nothing here draws to a screen: @react-three/test-renderer builds the same three.js scene the
 // game would show, and this walks it.
-import { mkdirSync, writeFileSync } from 'fs'
+import { closeSync, mkdirSync, openSync, writeFileSync, writeSync } from 'fs'
 import { createHash } from 'crypto'
-import { dirname, join } from 'path'
+import { basename, dirname, join } from 'path'
 import { deflateSync } from 'zlib'
 import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
@@ -759,13 +759,24 @@ it('exports every building and car', async () => {
       for (let i = 0; i < n; i++) for (const sub of cam.state!.internal.subscribers) sub.ref.current(cam.state, 1 / 60)
     }
     const { raceWeather } = await import('./game/weather')
+    const { DIST } = await import('./game/distance')
+    const { PAINT_RIVALS } = await import('./game/paintRivals')
+    // Every venue over a quarter mile; the longer strips (a half mile, a mile: the street, scenery
+    // and finish line run on further) for the venues that race over them, as "race:<venue>:<dist>".
+    // Their horizon is the quarter mile's.
+    const strips: { v: (typeof VENUES)[number]; dist: keyof typeof DIST }[] = VENUES.map((v) => ({ v, dist: 'quarter' as const }))
+    for (const d of ['half', 'mile'] as const) {
+      for (const v of VENUES) if (PAINT_RIVALS.some((r) => r.venue === v.id && r.dist === d)) strips.push({ v, dist: d })
+    }
     batching.off = true
-    for (const v of VENUES) {
+    for (const { v, dist } of strips) {
+      const track = DIST[dist].m
+      const id = dist === 'quarter' ? `race:${v.id}` : `race:${v.id}:${dist}`
       const me = { current: { dist: 0 } }, them = { current: { dist: 0 } }
       const r = await ReactThreeTestRenderer.create(
         <>
           <Grab />
-          <RaceScene track={TRACK} me={me} them={them} mine={{ body: car.body, model: car.id, color: '#ff0000' }} theirs={{ body: car.body, model: car.id, color: '#00ff00' }} venue={v} weather={raceWeather(v.id, 'export', 'clear')} night={false} />
+          <RaceScene track={track} me={me} them={them} mine={{ body: car.body, model: car.id, color: '#ff0000' }} theirs={{ body: car.body, model: car.id, color: '#00ff00' }} venue={v} weather={raceWeather(v.id, 'export', 'clear')} night={false} />
         </>,
         { width: 1280, height: 800 },
       )
@@ -788,8 +799,8 @@ it('exports every building and car', async () => {
       for (const o of racers) o.visible = false
       const dz = cam.now!.position.z - z0
       const second = walk(root, geos, geoList)
-      if (first.length !== second.length) throw new Error(`race:${v.id}: ${first.length} pieces, then ${second.length}`)
-      if (Math.abs(dz) < 1) throw new Error(`race:${v.id}: the camera didn't move`)
+      if (first.length !== second.length) throw new Error(`${id}: ${first.length} pieces, then ${second.length}`)
+      if (Math.abs(dz) < 1) throw new Error(`${id}: the camera didn't move`)
       const near: Piece[] = [], far: Piece[] = []
       first.forEach((p, i) => {
         const q = second[i]
@@ -803,14 +814,19 @@ it('exports every building and car', async () => {
         if (rides) far.push({ ...p, m: p.m.map((x, k) => (k === 14 ? r4(x - z0) : x)) })
         else near.push(p)
       })
-      models.push({ id: `race:${v.id}`, kind: 'race', pieces: near })
-      models.push({ id: `race:${v.id}:far`, kind: 'race', pieces: far })
-      console.log(`race:${v.id}: ${near.length} pieces, ${far.length} far`)
+      models.push({ id, kind: 'race', pieces: near })
+      if (dist === 'quarter') models.push({ id: `race:${v.id}:far`, kind: 'race', pieces: far })
+      console.log(`${id}: ${near.length} pieces, ${far.length} far`)
       await r.unmount()
     }
     batching.off = false
   }
-  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  // The shapes go in a file of their own, one per line: all of them in one string is more than
+  // JavaScript can hold (build.mjs loadModels reads them back).
+  const fd = openSync(`${OUT}.geos`, 'w')
+  for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
+  closeSync(fd)
+  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

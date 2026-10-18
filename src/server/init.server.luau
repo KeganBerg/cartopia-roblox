@@ -56,6 +56,9 @@ local races = Races.new(towns, {
 	grip = require(Game.grip),
 	weather = require(Game.weather),
 	venues = require(Game.scene_venues),
+	paintRivals = require(Game.paintRivals),
+	rivals = require(Game.rivals),
+	distance = require(Game.distance),
 	DragRace = require(ReplicatedStorage.Shared.DragRace),
 	random = Random.new(),
 	clock = os.clock,
@@ -262,6 +265,8 @@ local function allow(player: Player): boolean
 end
 
 Players.PlayerRemoving:Connect(function(player)
+	-- First, so a double-or-nothing rematch left half way is settled in the save.
+	races:close(player.UserId)
 	save(player, true)
 	towns:close(player.UserId)
 	if views[player] then
@@ -275,7 +280,6 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 	sent[player] = nil
 	budget[player] = nil
-	races:close(player.UserId)
 end)
 
 -- Names players type that others can see (a town's name, a restored car's plate), by action and
@@ -332,6 +336,11 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return races:quickRivals(player.UserId), nil
 		elseif op == "campaign" then
 			return races:campaign(player.UserId), nil
+		elseif op == "rows" then
+			return races:rows(player.UserId), nil
+		elseif op == "keep" then
+			races:keep(player.UserId)
+			return true, nil
 		elseif op == "start" and type(arg) == "table" then
 			return races:start(player.UserId, arg.mode, arg.which)
 		elseif op == "finish" then

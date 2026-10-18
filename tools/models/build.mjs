@@ -723,11 +723,28 @@ Meshes.MESHES = {
 
 // ---------------------------------------------------------------------------------------------
 
+// Reads the export: the models, and their shapes from the file beside it, one per line (too many
+// for one JSON string). Older exports carry the shapes inline.
+export function loadModels(file) {
+  const data = JSON.parse(readFileSync(file, 'utf8'))
+  if (!data.geos && data.geosFile) {
+    const buf = readFileSync(join(dirname(file), data.geosFile))
+    data.geos = []
+    for (let at = 0; at < buf.length; ) {
+      let end = buf.indexOf(10, at)
+      if (end < 0) end = buf.length
+      if (end > at) data.geos.push(JSON.parse(buf.toString('utf8', at, end)))
+      at = end + 1
+    }
+  }
+  return data
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   await MeshoptSimplifier.ready
   const args = process.argv.slice(2)
   const file = args[0] === '--json' ? args[1] : render(resolve(args[0] ?? 'web'))
-  const result = convert(JSON.parse(readFileSync(file, 'utf8')))
+  const result = convert(loadModels(file))
   const list = write(result)
   const s = result.stats
   console.log(`${Object.keys(result.models).length} models, ${s.parts} parts, ${s.meshes} meshes (${s.tris} triangles) in ${list.length} packs`)

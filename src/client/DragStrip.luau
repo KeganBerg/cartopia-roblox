@@ -89,12 +89,13 @@ end
 
 -- Main Street's shops on their paving, facing the road, with a tree or palm in the gap after each
 -- (RaceScene useStreet and StreetShops streetPieces).
-local function mainStreet(into: Model)
+-- len: the strip's length in web units.
+local function mainStreet(into: Model, len: number)
 	local slots = {}
 	for _, side in { -1, 1 } do
 		local z = -10 + (if side > 0 then 1.5 else 0)
 		local i = if side > 0 then 3 else 0
-		while z < (DRESS / S + 100) + 30 do
+		while z < (DRESS / S + len) + 30 do
 			local def = FALLBACK[i % #FALLBACK + 1]
 			i += 1
 			local w = data.buildingDef(def).w * data.TILE
@@ -144,8 +145,13 @@ end
 -- The strip at a venue: the web game's own drag strip and scenery (Shared.Models.RaceScenery,
 -- converted from RaceScene.tsx and RaceVenues.tsx), Main Street's shops, and the far horizon, which
 -- rides along with the camera. Built once per venue, then kept.
-local function buildStrip(venueId: string): (Model, Model?)
-	if strip and stripKey == venueId then
+-- dist: the race's distance ("quarter", "half" or "mile"); the longer strips are their own models,
+-- their street and finish line further on, under the quarter mile's horizon. A build without
+-- the longer one races on the quarter mile's street, the finish line just isn't drawn.
+local function buildStrip(venueId: string, dist: string?): (Model, Model?)
+	local long = if dist and dist ~= "quarter" and Builder.has(`race:{venueId}:{dist}`) then dist else nil
+	local key = `{venueId}:{long or "quarter"}`
+	if strip and stripKey == key then
 		return strip, horizon
 	end
 	if strip then
@@ -153,7 +159,7 @@ local function buildStrip(venueId: string): (Model, Model?)
 	end
 	local m = Instance.new("Model")
 	m.Name = "DragStrip"
-	local scene = Builder.build(`race:{venueId}`) or Builder.build("race:main")
+	local scene = (if long then Builder.build(`race:{venueId}:{long}`) else Builder.build(`race:{venueId}`)) or Builder.build("race:main")
 	if scene then
 		scene.Name = "Scene"
 		scene:PivotTo(CFrame.new(ORIGIN))
@@ -166,11 +172,11 @@ local function buildStrip(venueId: string): (Model, Model?)
 		far.Parent = m
 	end
 	if venueId == "main" then
-		mainStreet(m)
+		mainStreet(m, (if long == "half" then 200 elseif long == "mile" then 400 else 100))
 	end
 	startLights(m)
 	m.Parent = workspace
-	strip, horizon, stripKey = m, far, venueId
+	strip, horizon, stripKey = m, far, key
 	return m, far
 end
 
@@ -216,14 +222,27 @@ local function money(n: number): string
 	return `${Ui.commas(n)}`
 end
 
+-- A button on the result card: its words, its colour, and what it does once the race screen
+-- has closed (instead of going back to the menu).
+export type Button = { text: string, kind: string?, go: (() -> ())? }
+-- What a mode adds to the race screen: its title, and the result card's heading, the rival's
+-- words and buttons for a result (each left out for the usual ones).
+export type Extras = {
+	title: string?,
+	heading: ((res: any) -> string?)?,
+	quote: ((res: any) -> string?)?,
+	buttons: ((res: any) -> { Button }?)?,
+}
+
 -- Opens the race. started: what Remote.race("start") answered ({ spec, rival, mode, venue });
--- car: the race car ({ model, color }); onExit: back to the race menu.
-function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
+-- car: the race car (an owned car); onExit: back to the race menu.
+function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extras: Extras?)
 	local spec, rival, venue = started.spec, started.rival, started.venue or {}
+	local ex: Extras = extras or {}
 	local r = DragRace.new(spec)
 	local len = spec.track * STUDS_PER_M
 	local look = venues.venue(venue.id or "main")
-	local world, far = buildStrip(look.id)
+	local world, far = buildStrip(look.id, venue.dist)
 	-- The venue's haze, as RaceScene's fog: the far end of the road is lost in it.
 	DayNight.setRaceFog({ color = hex(look.fog), near = look.fogNear * S, far = look.fogFar * S })
 	local carsFolder = Instance.new("Folder")
@@ -276,9 +295,16 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 		TownCamera.setPaused(false)
 		onExit()
 	end
+	-- Closes the race screen and does `go` instead of going back to the menu.
+	local function leave(go: () -> ())
+		local back = onExit
+		onExit = go
+		close()
+		onExit = back
+	end
 
 	-- ── Top: the title and the X ─────────────────────────────────────────────────────────────
-	local title = `Drag Race vs {rival.name}`
+	local title = ex.title or `Drag Race vs {rival.name}`
 	Ui.text({ Text = title, TextSize = 26, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), Size = UDim2.new(1, -200, 0, 34), Stroke = 2.5, Shadow = 3, Parent = screen })
 	local quit = Ui.closeButton({ Name = "Leave", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14), Size = UDim2.fromOffset(44, 44), Parent = screen }, function()
 		if r.done then
@@ -422,9 +448,17 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 		end
 		local margin = if res.theirTime < math.huge then math.abs(res.theirTime - res.myTime) else nil
 		line(if won then "🏆" else "🏁", 14, 54)
-		line(if won then "YOU WIN!" elseif margin and margin < 0.3 then "SO CLOSE!" else "OUTRUN!", 76, 40, if won then Color3.fromHex("#2e7d32") else Color3.fromHex("#c62828"), { Stroke = 0 })
+		local heading = (ex.heading and ex.heading(res)) or (if won then "YOU WIN!" elseif margin and margin < 0.3 then "SO CLOSE!" else "OUTRUN!")
+		line(heading, 76, 40, if won then Color3.fromHex("#2e7d32") else Color3.fromHex("#c62828"), { Stroke = 0 })
 		line(`{if won then `You beat {rival.name}` else `{rival.name} took it`}{if margin then string.format(" by %.2fs", margin) else ""}`, 122, 17, Ui.MUTED, { Body = true })
 		local y = 150
+		-- What the rival says about it (Rivals.tsx RivalResult's bubble).
+		local quote = ex.quote and ex.quote(res)
+		if quote then
+			local bubble = Ui.new("Frame", { Position = UDim2.fromOffset(30, y), Size = UDim2.new(1, -60, 0, 34), BackgroundColor3 = Ui.WHITE, Parent = card }, { Ui.corner(12), Ui.stroke(2, Ui.LINE) })
+			Ui.text({ Text = quote, Body = true, TextSize = 14, TextWrapped = true, TextColor3 = Ui.INK, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 1, 0), Parent = bubble })
+			y += 44
+		end
 		if won and type(res.stars) == "number" then
 			line(string.rep("★", res.stars) .. string.rep("☆", 3 - res.stars), y, 30, Color3.fromHex("#ffb300"))
 			y += 38
@@ -446,18 +480,51 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 		local launchWord = if launch:sub(1, 7) == "PERFECT" then "Perfect" elseif launch:sub(1, 4) == "Good" then "Good" elseif launch:sub(1, 5) == "WHEEL" then "Spin" else "Bogged"
 		line(`Launch {launchWord}  ·  Perfect {res.perfect}/{math.max(res.shifts, 1)}  ·  Top {race.kmh(res.top)} km/h`, y, 15, Ui.MUTED, { Body = true })
 		y += 30
-		local loot = `💵 +{money(res.coins or 0)}`
+		local coins = res.coins or 0
+		local loot = if coins < 0 then `💸 -{money(-coins)}` else `💵 +{money(coins)}`
+		if (res.bucks or 0) > 0 then
+			loot ..= `   💎 +{res.bucks}`
+		end
 		if (res.trophies or 0) > 0 then
 			loot ..= `   🏆 +{res.trophies}`
 		end
-		loot ..= `   ⭐ +{res.xp or 0} XP`
+		if (res.xp or 0) > 0 then
+			loot ..= `   ⭐ +{res.xp} XP`
+		end
 		line(loot, y, 22, Ui.INK)
 		y += 40
+		-- A paint rival's colour, won (PaintRivals.tsx PaintPrizePopup).
+		if res.paint then
+			local name = "Paint"
+			for _, p in data.PAINTS do
+				if p.color == res.paint then
+					name = p.name
+				end
+			end
+			local row = Ui.new("Frame", { Name = "PaintPrize", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, y), Size = UDim2.fromOffset(300, 34), BackgroundColor3 = Color3.fromHex("#fff8e1"), Parent = card }, { Ui.corner(12), Ui.stroke(2, Color3.fromHex("#ffb300")) })
+			Ui.new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0), Size = UDim2.fromOffset(22, 22), BackgroundColor3 = Color3.fromHex(res.paint), Parent = row }, { Ui.round(), Ui.stroke(2, Ui.LINE) })
+			Ui.text({ Text = `{name} unlocked`, TextSize = 18, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(42, 0), Size = UDim2.new(1, -50, 1, 0), Parent = row })
+			y += 44
+		end
 		if not won and rival.pi > spec.myPi then
 			line(`Your PI {spec.myPi} < their PI {rival.pi}. Upgrade your car in the Garage.`, y, 14, Color3.fromHex("#c62828"), { Body = true })
 			y += 24
 		end
-		Ui.buy({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -18), Size = UDim2.fromOffset(200, 50), Parent = card }, if won then "Collect" else "Back", "green", close, 22)
+		local buttons: { Button } = (ex.buttons and ex.buttons(res)) or { { text = if won then "Collect" else "Back" } }
+		local row = Ui.new("Frame", { Name = "Buttons", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -18), Size = UDim2.new(1, -40, 0, 50), BackgroundTransparency = 1, Parent = card }, {
+			Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }),
+		})
+		for i, b in buttons do
+			local w = if #buttons == 1 then 200 else math.floor((380 - 10 * (#buttons - 1)) / #buttons)
+			local _s, face = Ui.buy({ LayoutOrder = i, Size = UDim2.fromOffset(w, 50), Parent = row }, b.text, b.kind or "green", function()
+				if b.go then
+					leave(b.go)
+				else
+					close()
+				end
+			end, if #buttons == 1 then 22 else 16)
+			face.Name = `Button{i}`
+		end
 		shadow.Size = UDim2.fromOffset(420, y + 84)
 	end
 

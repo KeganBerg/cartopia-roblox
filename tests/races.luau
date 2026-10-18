@@ -47,6 +47,9 @@ local function setup()
 		grip = require(G .. "grip"),
 		weather = require(G .. "weather"),
 		venues = require(G .. "scene_venues"),
+		paintRivals = require(G .. "paintRivals"),
+		rivals = require(G .. "rivals"),
+		distance = require(G .. "distance"),
 		DragRace = DragRace,
 		random = rng(7),
 		clock = function()
@@ -132,5 +135,61 @@ return function(test)
 		wait(60)
 		local result = assert(races:finish(1, run.events))
 		assert(type(result.stars) == "number", "stars")
+	end)
+
+	test("races: paint rivals race at their venue over their distance, and a first win opens the colour", function()
+		local races, towns, wait = setup()
+		local list = races:rows(1)
+		assert(#list == 16 and list[1].prize > 0 and list[1].wins == 0, "roster")
+		-- Marina races over a half mile at the beach.
+		local started, why = races:start(1, "row", "marina")
+		assert(started, `start: {why}`)
+		assert(started.spec.track == 800 and started.spec.build ~= nil, "half mile with the build")
+		assert(started.venue.id == "beach", started.venue.id)
+		local run = drive(started.spec)
+		local mine, theirs = DragRace.times(run)
+		wait(60)
+		local result = assert(races:finish(1, run.events))
+		assert(result.won == (mine < theirs), "same winner")
+		local row = towns:snapshot(1).save.rivalRow or {}
+		if result.won then
+			assert(result.paint == "#00acc1" and row.marina == 1, "colour won")
+			assert(races:rows(1)[6].wins == 1, "counted")
+		else
+			assert(result.paint == nil and (row.marina or 0) == 0, "no colour")
+		end
+		assert(races:start(1, "row", "nobody") == nil, "unknown rival")
+	end)
+
+	test("races: the rival in town, then double or nothing", function()
+		local races, towns, wait = setup()
+		local rivals = require(G .. "rivals")
+		local store = require(G .. "store")
+		local started, why = races:start(1, "rival")
+		assert(started == nil and why:find("level"), tostring(why))
+		towns:_with(1, function()
+			store.useGame.setState({ level = rivals.RIVAL_LEVEL, xp = 0 })
+		end)
+		started, why = races:start(1, "rival")
+		assert(started, `start: {why}`)
+		assert(started.rival.id == "rival-" .. rivals.RIVALS[1].id and started.rival.visit == 0, started.rival.id)
+		local run = drive(started.spec)
+		local mine, theirs = DragRace.times(run)
+		wait(60)
+		local result = assert(races:finish(1, run.events))
+		assert(result.won == (mine < theirs), "same winner")
+		if not result.won then
+			assert(races:start(1, "bet") == nil, "no bet after a loss")
+			return
+		end
+		assert(result.bet == started.rival.prize, "double or nothing offered")
+		local fuel = towns:snapshot(1).save.fuel
+		local coins = towns:snapshot(1).save.coins
+		local again = assert(races:start(1, "bet"))
+		assert(again.stake == result.bet and towns:snapshot(1).save.fuel == fuel, "no fuel for the rematch")
+		-- Leaving it half way loses the stake.
+		races:close(1)
+		assert(towns:snapshot(1).save.coins == coins - result.bet, "stake lost")
+		assert(races:start(1, "bet") == nil, "only once")
 	end)
 end
