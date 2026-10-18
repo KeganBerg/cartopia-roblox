@@ -54,6 +54,7 @@ jobs:
           node tools/transpile/transpile.mjs web
           node tools/gen-golden.mjs web
           node tools/gen-store-golden.mjs web
+          node tools/gen-speedway-golden.mjs web
 
       - name: Convert the web game's 3D models (buildings, cars, street pieces)
         run: |
@@ -90,7 +91,7 @@ jobs:
       - name: See whether the web game changed
         id: diff
         run: |
-          git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau tests/Golden.luau tests/StoreGolden.luau
+          git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau tests/Golden.luau tests/StoreGolden.luau tests/SpeedwayGolden.luau
           if [ -f tools/models/assets.json ]; then git add tools/models/assets.json; fi
           if [ -f tools/models/images.json ]; then git add tools/models/images.json; fi
           if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi

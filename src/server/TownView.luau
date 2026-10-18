@@ -573,6 +573,8 @@ function TownView._buildingModel(self: TownView, b: any, turn: number): Model?
 	model:SetAttribute("Def", b.def)
 	model:SetAttribute("Name", def.name)
 	model:SetAttribute("Level", level)
+	-- Quarter turns about its middle (client/SpeedwayLife puts the race and crowd inside it).
+	model:SetAttribute("Turn", turn)
 	model:SetAttribute("Owner", self.userId)
 	model:SetAttribute("Height", size.Y)
 	return model
