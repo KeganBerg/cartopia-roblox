@@ -104,18 +104,43 @@ roblox.implementMethod("Instance", "WaitForChild", function(inst, name)
 	return inst:FindFirstChild(name) or error(`emulator: {inst:GetFullName()} has no {name}`)
 end)
 
+roblox.implementMethod("TweenService", "Create", function(_, inst, _info, goal)
+	local tween = {}
+	function tween:Play()
+		for k, v in goal do
+			inst[k] = v
+		end
+	end
+	function tween:Cancel() end
+	function tween:Pause() end
+	tween.Completed = { Connect = function() return { Disconnect = function() end } end, Wait = function() end }
+	return tween
+end)
+
 local waiting = {}
 -- task: spawn runs at once, waits return at once (nothing here runs forever).
 local Task = {
 	spawn = function(fn, ...)
 		local co = coroutine.create(fn)
-		coroutine.resume(co, ...)
+		local ok, err = coroutine.resume(co, ...)
+		if not ok then
+			print("ERROR in a task:", err)
+		end
 		return co
 	end,
 	defer = function(fn, ...)
 		fn(...)
 	end,
-	delay = function(_, fn, ...) end,
+	-- Delayed work runs when a harness moves time on (Emu.resumeWaits), not before.
+	delay = function(_, fn, ...)
+		local co = coroutine.create(function(...)
+			coroutine.yield()
+			fn(...)
+		end)
+		coroutine.resume(co, ...)
+		table.insert(waiting, co)
+		return co
+	end,
 	wait = function()
 		local co = coroutine.running()
 		if coroutine.isyieldable() then
@@ -137,6 +162,27 @@ function Emu.resumeWaits()
 			end
 		end
 	end
+end
+
+-- Stands in for InsertService:LoadAsset with the mesh packs as Roblox imports them: a Model of
+-- MeshParts named by mesh key. Each is marked Imported, so render.mjs turns its geometry half round
+-- about Y the way Roblox's glTF import does, and the game's own correction for that gets checked.
+function Emu.fakeMeshPacks(emu)
+	local Meshes = emu.require(emu.game:GetService("ReplicatedStorage").Shared.Models.Meshes)
+	roblox.implementMethod("InsertService", "LoadAsset", function(_, asset)
+		local model = Instance.new("Model")
+		for key, m in Meshes.MESHES do
+			if m.asset == asset then
+				local part = Instance.new("MeshPart")
+				part.Name = key
+				part.Size = m.size
+				part:SetAttribute("Mesh", key)
+				part:SetAttribute("Imported", true)
+				part.Parent = model
+			end
+		end
+		return model
+	end)
 end
 
 function Emu.load(placeFile: string)
@@ -200,6 +246,8 @@ function Emu.load(placeFile: string)
 				print("WARN", ...)
 			end,
 			DateTime = { now = function() return { UnixTimestampMillis = os.time() * 1000 } end },
+			-- Tweens jump straight to where they end: a still picture has no in-between.
+			TweenInfo = { new = function(...) return { ... } end },
 		}, nil)
 		-- Lune's load doesn't follow __index on the environment, so copy the Roblox types in.
 		for _, k in { "Instance", "Vector3", "Vector2", "Color3", "UDim", "UDim2", "Enum", "ColorSequence", "ColorSequenceKeypoint", "NumberSequence", "NumberSequenceKeypoint", "NumberRange", "BrickColor", "Rect", "Ray", "Font", "Content" } do

@@ -1353,7 +1353,7 @@ do
     end
     local function doNothing(self)
     end
-    local ____pcall = _G.pcall
+    local ____pcall = pcall
     __TS__Promise = __TS__Class()
     __TS__Promise.name = "__TS__Promise"
     function __TS__Promise.prototype.____constructor(self, executor)
@@ -1500,7 +1500,7 @@ end
 
 local __TS__AsyncAwaiter, __TS__Await
 do
-    local ____coroutine = _G.coroutine or ({})
+    local ____coroutine = coroutine
     local cocreate = ____coroutine.create
     local coresume = ____coroutine.resume
     local costatus = ____coroutine.status

@@ -31,7 +31,15 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
     for (const v of Object.values(n)) if (v && typeof v === 'object') visit(v)
   }
   visit(gui)
-  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, gui: gui ?? null, camera: camera ?? null })}`)
+  // The ground textures parts carry (images build.mjs's export painted).
+  const textures = {}
+  for (const p of scene.parts) {
+    const name = p.texture?.image
+    if (name && !textures[name]) {
+      try { textures[name] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/textures', `${name}.png`)).toString('base64') } catch {}
+    }
+  }
+  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, gui: gui ?? null, camera: camera ?? null })}`)
   writeFileSync(join(dir, 'scene.html'), PAGE)
   const server = createServer((q, r) => {
     const f = join(dir, decodeURIComponent(new URL(q.url, 'http://x').pathname))
@@ -83,6 +91,14 @@ scene.add(sun)
 const unit = { Block: new T.BoxGeometry(1, 1, 1), Cylinder: new T.CylinderGeometry(0.5, 0.5, 1, 28).rotateZ(-Math.PI / 2), Ball: new T.SphereGeometry(0.5, 24, 16), ellipsoid: new T.SphereGeometry(0.5, 24, 16) }
 const MAT = { Neon: { emissive: 0.9 }, Metal: { metalness: 0.55, roughness: 0.35 }, Glass: { roughness: 0.1 }, Grass: { roughness: 1 }, Asphalt: { roughness: 1 }, Concrete: { roughness: 0.95 } }
 const geoCache = {}
+// Ground textures, as Roblox's Texture lays them on a part's top face.
+const TEX = {}
+for (const [name, url] of Object.entries(S.textures || {})) {
+  const t = await new T.TextureLoader().loadAsync(url)
+  t.colorSpace = T.SRGBColorSpace
+  t.wrapS = t.wrapT = T.RepeatWrapping
+  TEX[name] = t
+}
 // Every part as Roblox shapes it: blocks, cylinders along X, balls, meshes stretched to their part.
 function addParts(scene, parts) {
 for (const p of parts) {
@@ -95,11 +111,22 @@ for (const p of parts) {
   }
   const look = MAT[p.material] || {}
   const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
-  const mesh = new T.Mesh(geo, mat)
+  let mats = mat
+  if (p.texture && TEX[p.texture.image] && !p.mesh && (p.shape === 'Block' || !p.shape)) {
+    const t = TEX[p.texture.image].clone()
+    t.repeat.set(p.size[0] / p.texture.span[0], p.size[2] / p.texture.span[1])
+    t.offset.set(p.texture.offset[0] / p.texture.span[0], p.texture.offset[1] / p.texture.span[1])
+    const top = mat.clone(); top.map = t; top.color.set('#ffffff')
+    mats = [mat, mat, top, mat, mat, mat]
+  }
+  const mesh = new T.Mesh(geo, mats)
   const [x, y, z, a, b, c, d, e, f, g, h, i] = p.cf
   const m4 = new T.Matrix4().set(a, b, c, x, d, e, f, y, g, h, i, z, 0, 0, 0, 1)
   mesh.matrixAutoUpdate = false
-  mesh.matrix.copy(m4).multiply(new T.Matrix4().makeScale(...scale))
+  mesh.matrix.copy(m4)
+  // A real MeshPart from an uploaded pack: Roblox's glTF import turned its geometry half round.
+  if (p.imported) mesh.matrix.multiply(new T.Matrix4().makeRotationY(Math.PI))
+  mesh.matrix.multiply(new T.Matrix4().makeScale(...scale))
   mesh.castShadow = p.transparency < 0.5 && Math.max(...p.size) < 500
   mesh.receiveShadow = true
   scene.add(mesh)

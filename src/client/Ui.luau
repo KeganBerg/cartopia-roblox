@@ -45,6 +45,9 @@ Ui.COLORS = {
 	white = { "#ffffff", "#e3ecf7" },
 	grey = { "#eceff1", "#eceff1" },
 	gold = { "#ffe066", "#f0a400" },
+	-- The Crate Depot's open buttons (crates.css .crate-open.gem, .crate-open.ten).
+	gem = { "#4fc3f7", "#1565c0" },
+	ten = { "#ab47bc", "#6a1b9a" },
 }
 
 function Ui.new(class: string, props: { [string]: any }, children: { any }?): any

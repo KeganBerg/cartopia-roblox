@@ -39,6 +39,28 @@ local LAND_TOP = -0.4
 local MEADOW_TOP = -0.9
 local MEADOW = Color3.fromHex(Catalog.MEADOW)
 
+-- Lays one of the web game's ground textures (Catalog.TEXTURES: the lawn's or the meadow's) over a
+-- part's top face, once its image is uploaded; until then the part's flat colour shows. Images tile
+-- from `from` (a world point), so neighbouring parts line up.
+local function groundTexture(p: BasePart, key: string, from: Vector3)
+	local t = ((Catalog :: any).TEXTURES or {})[key]
+	if not t or t.image == 0 then
+		return
+	end
+	local tex = Instance.new("Texture")
+	tex.Name = "Ground"
+	tex.Face = Enum.NormalId.Top
+	tex.Texture = `rbxassetid://{t.image}`
+	tex.StudsPerTileU = t.span
+	tex.StudsPerTileV = t.span
+	local corner = p.CFrame.Position - p.Size / 2
+	tex.OffsetStudsU = (corner.X - from.X) % t.span
+	tex.OffsetStudsV = (corner.Z - from.Z) % t.span
+	-- Which image it is, for the preview tools (tools/emulate/render.mjs).
+	tex:SetAttribute("Image", t.name)
+	tex.Parent = p
+end
+
 local TownView = {}
 TownView.__index = TownView
 
@@ -100,6 +122,8 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		meadow.Material = Enum.Material.SmoothPlastic
 		meadow.TopSurface = Enum.SurfaceType.Smooth
 		meadow.CastShadow = false
+		-- The web lines its meadow images up 8 units off the town's middle (World.tsx OUTER).
+		groundTexture(meadow, "meadow", origin + Vector3.new(8, 0, 8) * SCALE)
 		meadow.Parent = meadows
 	end
 	folder.Parent = parent
@@ -159,6 +183,7 @@ function TownView._renderLand(self: TownView, land: { string })
 				Material = Enum.Material.SmoothPlastic,
 				Parent = (self.folder :: any).Land,
 			})
+			groundTexture(p, "grass", p.CFrame.Position - p.Size / 2)
 			self.land[k] = p
 		end
 	end
@@ -190,7 +215,7 @@ local function scatter(parent: Instance, name: string, at: Vector3, ry: number, 
 		return
 	end
 	for _, p in piece:GetDescendants() do
-		if p:GetAttribute("Mesh") and not Builder.previewMeshes then
+		if not p:IsA("MeshPart") and p:GetAttribute("Mesh") and not Builder.previewMeshes then
 			-- Its shape isn't uploaded yet, and a field of grey boxes is worse than bare lawn.
 			piece:Destroy()
 			return
@@ -211,8 +236,7 @@ local function scatter(parent: Instance, name: string, at: Vector3, ry: number, 
 end
 
 -- Lawn detail on the empty tiles of the town's land, as Tufts.tsx: grass clumps in the season's
--- greens, leaf heaps and mushroom rings in the fall, and pebbles. A little sparser than the web
--- (two to three clumps a tile instead of three to five) to keep big towns light.
+-- greens, leaf heaps and mushroom rings in the fall, and pebbles, as many as the web draws.
 local GREENS = 0
 for name in Catalog.MODELS do
 	if string.match(name, "^tuft:%d+$") then
@@ -257,7 +281,7 @@ function TownView._renderLawn(self: TownView, land: { string }, roads: { string 
 				local function spot(k2: number, spread: number): Vector3
 					return c + Vector3.new((hash(x, z, k2) - 0.5) * TILE * spread, 0, (hash(x, z, k2 + 101) - 0.5) * TILE * spread)
 				end
-				local tufts = if winter then math.floor(hash(x, z, 0) * 2) else 2 + math.floor(hash(x, z, 0) * 2)
+				local tufts = if winter then math.floor(hash(x, z, 0) * 2) else 3 + math.floor(hash(x, z, 0) * 3)
 				if GREENS > 0 then
 					for t = 0, tufts - 1 do
 						local tint = ((x + z + t) % GREENS + GREENS) % GREENS + 1

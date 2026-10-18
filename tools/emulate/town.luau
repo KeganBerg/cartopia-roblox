@@ -35,12 +35,20 @@ local save = towns:snapshot(1).save
 local folder = Instance.new("Folder")
 folder.Name = "Towns"
 folder.Parent = game.Workspace
--- Meshes aren't uploaded here; render.mjs draws each from its geometry instead.
-emu.require(RS.Shared.Models.Builder).previewMeshes = process.env.NO_MESHES == nil
+-- The uploaded mesh packs, loaded the way the server does (InsertService stand-in: see
+-- Emu.fakeMeshPacks); render.mjs draws each from its geometry. NO_MESHES=1 previews the boxes the
+-- game shows before a pack is uploaded.
+if process.env.NO_MESHES == nil then
+	Emu.fakeMeshPacks(emu)
+	emu.require(RS.Shared.Models.Builder).loadMeshes(1)
+end
 local view = TownView.new(folder, "Player1", Vector3.new(0, 0, 0), 1, function() end)
 view:render(save)
 -- The countryside the client draws round the town.
 local Countryside = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.Countryside)
+if process.env.NO_MESHES == nil then
+	emu.require(RS.Shared.Models.Builder).useLibrary(1)
+end
 Countryside.draw(Vector3.new(0, 0, 0), folder)(save)
 
 local Gui = require("./gui")

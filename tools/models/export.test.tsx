@@ -5,7 +5,10 @@
 //
 // Nothing here draws to a screen: @react-three/test-renderer builds the same three.js scene the
 // game would show, and this walks it.
-import { writeFileSync } from 'fs'
+import { mkdirSync, writeFileSync } from 'fs'
+import { createHash } from 'crypto'
+import { dirname, join } from 'path'
+import { deflateSync } from 'zlib'
 import { it } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
@@ -22,6 +25,7 @@ const paints = new WeakMap<HTMLCanvasElement, Paint>()
 const noop = () => undefined
 HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement) {
   const canvas = this
+  if (painting) return rasterContext(canvas)
   const rec: Paint = paints.get(canvas) ?? { fills: [], texts: [], w: canvas.width, h: canvas.height }
   paints.set(canvas, rec)
   const state: Record<string | symbol, unknown> = { fillStyle: '#000000', strokeStyle: '#000000', canvas }
@@ -46,6 +50,134 @@ HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement) {
     },
   }) as unknown as CanvasRenderingContext2D
 } as unknown as HTMLCanvasElement['getContext']
+
+// --- A canvas that really paints, for the ground textures ---------------------------------
+// The lawn and meadow are textured images in the web game (textures.ts grassTex, meadowTex), not
+// flat colours. While `painting` is on, canvases get this small software painter instead (the
+// shapes those textures use: rectangles, ellipses, arcs and short strokes), so the images can go to
+// Roblox as they are. No antialiasing; at 256 pixels nobody sees it.
+let painting = false
+const pixels = new WeakMap<HTMLCanvasElement, { w: number; h: number; px: Float32Array }>()
+
+function rgba(style: unknown): [number, number, number, number] {
+  if (typeof style !== 'string') return [0, 0, 0, 1]
+  const c = new Color().setStyle(style).getHexString()
+  const a = /^(?:rgba|hsla)\(.*,\s*([\d.]+)\s*\)$/.exec(style.trim())
+  return [parseInt(c.slice(0, 2), 16), parseInt(c.slice(2, 4), 16), parseInt(c.slice(4, 6), 16), a ? Number(a[1]) : 1]
+}
+
+function rasterContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const w = canvas.width, h = canvas.height
+  const img = { w, h, px: new Float32Array(w * h * 4) }
+  pixels.set(canvas, img)
+  let paths: [number, number][][] = []
+  let cur: [number, number][] | null = null
+  const ctx = {
+    canvas, fillStyle: '#000000' as unknown, strokeStyle: '#000000' as unknown, globalAlpha: 1, lineWidth: 1,
+    beginPath() { paths = []; cur = null },
+    moveTo(x: number, y: number) { cur = [[x, y]]; paths.push(cur) },
+    lineTo(x: number, y: number) { if (!cur) ctx.moveTo(x, y); else cur.push([x, y]) },
+    closePath() { if (cur && cur.length) cur.push(cur[0]) },
+    quadraticCurveTo(cx: number, cy: number, x: number, y: number) {
+      if (!cur) ctx.moveTo(cx, cy)
+      const [x0, y0] = cur![cur!.length - 1]
+      for (let i = 1; i <= 8; i++) {
+        const t = i / 8, u = 1 - t
+        cur!.push([u * u * x0 + 2 * u * t * cx + t * t * x, u * u * y0 + 2 * u * t * cy + t * t * y])
+      }
+    },
+    ellipse(cx: number, cy: number, rx: number, ry: number, rot: number, a0: number, a1: number) {
+      if (!cur) { cur = []; paths.push(cur) }
+      const n = Math.max(12, Math.ceil(Math.max(rx, ry) * Math.abs(a1 - a0) / 3))
+      const cr = Math.cos(rot), sr = Math.sin(rot)
+      for (let i = 0; i <= n; i++) {
+        const a = a0 + ((a1 - a0) * i) / n, ex = Math.cos(a) * rx, ey = Math.sin(a) * ry
+        cur.push([cx + ex * cr - ey * sr, cy + ex * sr + ey * cr])
+      }
+    },
+    arc(cx: number, cy: number, r: number, a0: number, a1: number) { ctx.ellipse(cx, cy, r, r, 0, a0, a1) },
+    rect(x: number, y: number, rw: number, rh: number) { ctx.moveTo(x, y); ctx.lineTo(x + rw, y); ctx.lineTo(x + rw, y + rh); ctx.lineTo(x, y + rh); ctx.closePath() },
+    fillRect(x: number, y: number, rw: number, rh: number) {
+      const x0 = Math.round(x), y0 = Math.round(y)
+      const x1 = Math.max(x0 + 1, Math.round(x + rw)), y1 = Math.max(y0 + 1, Math.round(y + rh))
+      const c = rgba(ctx.fillStyle)
+      for (let py = Math.max(0, y0); py < Math.min(h, y1); py++) for (let px = Math.max(0, x0); px < Math.min(w, x1); px++) blend(px, py, c)
+    },
+    fill() {
+      const c = rgba(ctx.fillStyle)
+      const edges: [number, number, number, number][] = []
+      for (const path of paths) for (let i = 0; i < path.length; i++) {
+        const a = path[i], b = path[(i + 1) % path.length]
+        if (a[1] !== b[1]) edges.push([a[0], a[1], b[0], b[1]])
+      }
+      for (let py = 0; py < h; py++) {
+        const y = py + 0.5
+        const hits: [number, number][] = []
+        for (const [x0, y0, x1, y1] of edges) {
+          if ((y0 <= y && y1 > y) || (y1 <= y && y0 > y)) hits.push([x0 + ((y - y0) / (y1 - y0)) * (x1 - x0), y1 > y0 ? 1 : -1])
+        }
+        if (!hits.length) continue
+        hits.sort((p, q) => p[0] - q[0])
+        let wind = 0
+        for (let i = 0; i < hits.length - 1; i++) {
+          wind += hits[i][1]
+          if (wind === 0) continue
+          for (let px = Math.max(0, Math.ceil(hits[i][0] - 0.5)); px < Math.min(w, Math.ceil(hits[i + 1][0] - 0.5)); px++) blend(px, py, c)
+        }
+      }
+    },
+    stroke() {
+      const c = rgba(ctx.strokeStyle)
+      const r = Math.max(0.5, ctx.lineWidth / 2)
+      const hit = new Set<number>()
+      for (const path of paths) for (let i = 0; i + 1 < path.length; i++) {
+        const [ax, ay] = path[i], [bx, by] = path[i + 1]
+        const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1
+        for (let py = Math.max(0, Math.floor(Math.min(ay, by) - r)); py <= Math.min(h - 1, Math.ceil(Math.max(ay, by) + r)); py++)
+          for (let px = Math.max(0, Math.floor(Math.min(ax, bx) - r)); px <= Math.min(w - 1, Math.ceil(Math.max(ax, bx) + r)); px++) {
+            const t = Math.max(0, Math.min(1, ((px + 0.5 - ax) * dx + (py + 0.5 - ay) * dy) / l2))
+            if (Math.hypot(px + 0.5 - ax - t * dx, py + 0.5 - ay - t * dy) <= r) hit.add(py * w + px)
+          }
+      }
+      for (const i of hit) blend(i % w, Math.floor(i / w), c)
+    },
+    save: noop, restore: noop, translate: noop, rotate: noop, scale: noop, setTransform: noop, clearRect: noop,
+    fillText: noop, strokeText: noop, measureText: (t: string) => ({ width: String(t).length * 10 }),
+  }
+  function blend(px: number, py: number, [r, g, b, a]: number[]) {
+    const k = (py * w + px) * 4, al = a * ctx.globalAlpha, da = img.px[k + 3]
+    const oa = al + da * (1 - al)
+    if (oa <= 0) return
+    img.px[k] = (r * al + img.px[k] * da * (1 - al)) / oa
+    img.px[k + 1] = (g * al + img.px[k + 1] * da * (1 - al)) / oa
+    img.px[k + 2] = (b * al + img.px[k + 2] * da * (1 - al)) / oa
+    img.px[k + 3] = oa
+  }
+  return ctx as unknown as CanvasRenderingContext2D
+}
+
+// An RGBA PNG of a painted canvas.
+function png(canvas: HTMLCanvasElement): Buffer {
+  const img = pixels.get(canvas)
+  if (!img) throw new Error('that canvas was not painted')
+  const { w, h, px } = img
+  const raw = Buffer.alloc((w * 4 + 1) * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const k = (y * w + x) * 4, o = y * (w * 4 + 1) + 1 + x * 4
+    raw[o] = Math.round(px[k]); raw[o + 1] = Math.round(px[k + 1]); raw[o + 2] = Math.round(px[k + 2]); raw[o + 3] = Math.round(px[k + 3] * 255)
+  }
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
+  const crc = (b: Buffer) => { let c = 0xffffffff; for (const v of b) c = crcTable[(c ^ v) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const sum = Buffer.alloc(4); sum.writeUInt32BE(crc(body))
+    return Buffer.concat([len, body, sum])
+  }
+  const head = Buffer.alloc(13)
+  head.writeUInt32BE(w, 0); head.writeUInt32BE(h, 4); head[8] = 8; head[9] = 6
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
+}
 
 // --- Walking a scene ----------------------------------------------------------------------
 const hex = (c: Color) => '#' + c.getHexString()
@@ -192,6 +324,22 @@ it('exports every building and car', async () => {
     await r.unmount()
     return pieces
   }
+  // The ground textures, painted first (textures.ts keeps each image once it's made): the lawn on
+  // the town's own land, one image per four tiles, and the meadow past it, one per 16 units.
+  const { grassTex, meadowTex } = await import('./scene/textures')
+  const { TILE } = await import('./game/data')
+  const textures: { key: string; name: string; file: string; span: number }[] = []
+  painting = true
+  for (const [key, make, span] of [['grass', grassTex, 4 * TILE], ['meadow', meadowTex, 16]] as const) {
+    const data = png(make().image as HTMLCanvasElement)
+    const name = `${key}-${createHash('sha1').update(data).digest('hex').slice(0, 16)}`
+    const file = join(dirname(OUT), 'textures', `${name}.png`)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, data)
+    textures.push({ key, name, file: `${name}.png`, span })
+  }
+  painting = false
+  if (process.env.RBX_ONLY === 'textures') return void writeFileSync(OUT, JSON.stringify({ textures }))
   const LEVELS = (process.env.RBX_LEVELS ?? '1').split(',').map(Number)
   // RBX_ONLY=outskirts skips the buildings, cars and street pieces (a quicker run while working on
   // the countryside).
@@ -260,7 +408,7 @@ it('exports every building and car', async () => {
   }
   await outskirts('outskirts:forest', plots, true)
   for (const key of plots) await outskirts(`wilds:${key}`, plots.filter((k) => k !== key), false)
-  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens }))
+  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

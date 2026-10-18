@@ -56,11 +56,13 @@ async function call(url, init, what) {
   }
 }
 
-async function upload(key, creator, name, file) {
+// A mesh pack goes up as a Model; a ground texture as a Decal, whose id Open Cloud gives back is
+// the image's own, ready for a Texture.
+async function upload(key, creator, name, file, image = false) {
   const form = new FormData()
-  const request = { assetType: 'Model', displayName: `Cartopia ${name}`.slice(0, 50), description: 'Cartopia 3D models', creationContext: { creator, expectedPrice: 0 } }
+  const request = { assetType: image ? 'Decal' : 'Model', displayName: `Cartopia ${name.replace(":", " ")}`.slice(0, 50), description: image ? 'Cartopia ground texture' : 'Cartopia 3D models', creationContext: { creator, expectedPrice: 0 } }
   form.append('request', JSON.stringify(request))
-  form.append('fileContent', new Blob([readFileSync(file)], { type: 'model/gltf-binary' }), `${name}.glb`)
+  form.append('fileContent', new Blob([readFileSync(file)], { type: image ? 'image/png' : 'model/gltf-binary' }), image ? `${name}.png` : `${name}.glb`)
   let op = await call(`${API}/assets`, { method: 'POST', headers: { 'x-api-key': key }, body: form }, `upload ${name}`)
   for (let i = 0; !op.done; i++) {
     if (i > 60) throw new Error(`upload ${name}: Roblox didn't finish processing it`)
@@ -77,7 +79,13 @@ if (!key || !universe) {
   console.error('needs API_KEY and UNIVERSE')
   process.exit(1)
 }
-const packs = JSON.parse(readFileSync(join(GLB_DIR, 'packs.json'), 'utf8'))
+const TEX_DIR = join(ROOT, 'build/textures')
+const texList = existsSync(join(TEX_DIR, 'list.json')) ? JSON.parse(readFileSync(join(TEX_DIR, 'list.json'), 'utf8')) : []
+// Textures share assets.json with the packs, as "texture:<name>".
+const packs = [
+  ...JSON.parse(readFileSync(join(GLB_DIR, 'packs.json'), 'utf8')).map((p) => ({ ...p, path: join(GLB_DIR, p.file) })),
+  ...texList.map((t) => ({ name: `texture:${t.name}`, path: join(TEX_DIR, t.file), image: true })),
+]
 const assets = existsSync(ASSETS) ? JSON.parse(readFileSync(ASSETS, 'utf8')) : {}
 const todo = packs.filter((p) => !assets[p.name])
 console.log(`${packs.length} packs, ${todo.length} to upload`)
@@ -87,7 +95,7 @@ if (todo.length) {
     const creator = creatorFromEnv() ?? (await creatorOf(universe))
     console.log(`uploading as ${JSON.stringify(creator)}`)
     for (const p of todo) {
-      assets[p.name] = await upload(key, creator, p.name, join(GLB_DIR, p.file))
+      assets[p.name] = await upload(key, creator, p.name, p.path, p.image)
       done++
       // Save as we go, so a run that stops halfway keeps what it uploaded.
       writeFileSync(ASSETS, JSON.stringify(Object.fromEntries(Object.entries(assets).sort()), null, 1) + '\n')
