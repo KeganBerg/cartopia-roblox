@@ -784,6 +784,8 @@ do
 		s.coins = 5000000
 		s.parts = 5000
 		s.level = 40
+		-- In the town's own colours (pressing every City look button above left it all white).
+		s.cityTheme = nil
 		-- A driver at the pizza block.
 		if s.cars[1] then
 			for _, b in list do
