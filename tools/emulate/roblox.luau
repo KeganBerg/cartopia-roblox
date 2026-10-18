@@ -104,6 +104,7 @@ roblox.implementMethod("Instance", "WaitForChild", function(inst, name)
 	return inst:FindFirstChild(name) or error(`emulator: {inst:GetFullName()} has no {name}`)
 end)
 
+local waiting = {}
 -- task: spawn runs at once, waits return at once (nothing here runs forever).
 local Task = {
 	spawn = function(fn, ...)
@@ -118,11 +119,25 @@ local Task = {
 	wait = function()
 		local co = coroutine.running()
 		if coroutine.isyieldable() then
+			table.insert(waiting, co)
 			coroutine.yield()
 		end
 		return 0
 	end,
 }
+-- Wakes everything parked in task.wait once (a harness calls this to move time on).
+function Emu.resumeWaits()
+	local list = waiting
+	waiting = {}
+	for _, co in list do
+		if coroutine.status(co) == "suspended" then
+			local ok, err = coroutine.resume(co)
+			if not ok then
+				print("ERROR in a task:", err)
+			end
+		end
+	end
+end
 
 function Emu.load(placeFile: string)
 	local game = roblox.deserializePlace(fs.readFile(placeFile))
@@ -187,7 +202,7 @@ function Emu.load(placeFile: string)
 			DateTime = { now = function() return { UnixTimestampMillis = os.time() * 1000 } end },
 		}, nil)
 		-- Lune's load doesn't follow __index on the environment, so copy the Roblox types in.
-		for _, k in { "Instance", "Vector3", "Vector2", "Color3", "UDim", "UDim2", "Enum", "ColorSequence", "ColorSequenceKeypoint", "NumberSequence", "NumberRange", "BrickColor", "Rect", "Ray", "Font", "Content" } do
+		for _, k in { "Instance", "Vector3", "Vector2", "Color3", "UDim", "UDim2", "Enum", "ColorSequence", "ColorSequenceKeypoint", "NumberSequence", "NumberSequenceKeypoint", "NumberRange", "BrickColor", "Rect", "Ray", "Font", "Content" } do
 			e[k] = roblox[k]
 		end
 		e.CFrame = FixedCFrame

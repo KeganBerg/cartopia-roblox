@@ -13,6 +13,7 @@
 -- String requires, as the converted game code uses, so tests can run it with plain Luau too.
 local race = require("./Game/race") :: any
 local data = require("./Game/data") :: any
+local grip = require("./Game/grip") :: any
 
 local DragRace = {}
 
@@ -27,8 +28,15 @@ DragRace.MAX_TICKS = DragRace.GO_TICK + math.round(60 / race.RACE_DT)
 DragRace.MAX_EVENTS = 300
 
 export type Rival = { pi: number, shift: number, skill: string? }
--- What both sides agree on before the race: the cars and the rival's driving.
-export type Spec = { myPi: number, mySkill: string?, rival: Rival, seed: number, track: number }
+-- What the venue and the weather do to a car's grip (Shared.Game.grip conditions).
+export type Grip = { lo: number, hi: number, spin: number, dust: number }
+-- What both sides agree on before the race: the cars, the strip's grip for each and the rival's
+-- driving. Grip left out is a clean dry strip.
+export type Spec = { myPi: number, mySkill: string?, rival: Rival, seed: number, track: number, grip: Grip?, theirGrip: Grip? }
+
+local function gripOf(g: Grip?): Grip
+	return g or grip.CLEAR
+end
 -- A press: "down" (pedal down: revs before GO, a shift after), "up" (pedal up), "boost".
 export type Event = { tick: number, kind: string }
 
@@ -59,6 +67,7 @@ export type Race = {
 	shifts: number,
 	top: number,
 	theirBoostAt: number?,
+	spin: boolean, -- the wheels are spinning (for the smoke and the "Wheelspin" note)
 	done: boolean,
 }
 
@@ -68,8 +77,9 @@ function DragRace.new(spec: Spec): Race
 	-- The rival's shift point in each gear: a clean driver shifts inside the perfect band, a sloppy
 	-- one too early (Race.tsx).
 	local aiShift = {}
+	local theirs = gripOf(spec.theirGrip)
 	for g = 0, race.TOP_GEAR - 1 do
-		local b = race.shiftBand(g, nil, nil, race.AI_BAND)
+		local b = race.shiftBand(g, theirs.lo, theirs.hi, race.AI_BAND)
 		aiShift[g + 1] = b.lo + (b.hi - b.lo) * (0.25 + 0.6 * r()) - (1 - cleanness) * (0.06 + 0.1 * r())
 	end
 	return {
@@ -89,6 +99,7 @@ function DragRace.new(spec: Spec): Race
 		shifts = 0,
 		top = 0,
 		theirBoostAt = nil,
+		spin = false,
 		done = false,
 	}
 end
@@ -114,7 +125,8 @@ function DragRace.input(r: Race, kind: string): boolean
 		if not me.launched then
 			r.held = true
 		elseif me.finished == nil and me.gear < race.TOP_GEAR then
-			local band = race.shiftBand(me.gear)
+			local g = gripOf(r.spec.grip)
+			local band = race.shiftBand(me.gear, g.lo, g.hi)
 			local s = race.shiftQuality(me.rpm, band.lo, band.hi)
 			local q, label = s.q, s.label
 			if data.smoothShift(r.spec.mySkill) and label == "Good" then
@@ -171,22 +183,24 @@ function DragRace.step(r: Race)
 	end
 	r.tick += 1
 	local t = DragRace.time(r)
-	local mine = data.skillBoost(spec.mySkill, me, th) * data.skillDrag(spec.rival.skill, me, t)
+	local myGrip, theirGrip = gripOf(spec.grip), gripOf(spec.theirGrip)
+	local mine = data.skillBoost(spec.mySkill, me, th) * data.skillDrag(spec.rival.skill, me, t) * grip.gripMul(myGrip, me.gear, me.rpm, t)
 	race.stepRacer(me, spec.myPi, dt, t, mine, spec.track)
 	r.top = math.max(r.top, me.speed)
+	r.spin = me.launched and me.finished == nil and (grip.spinning(myGrip, me.gear, me.rpm, t) or (me.gear == 0 and me.quality < 0.84))
 	-- The rival: off the line after its reaction, shifting at its shift points, boost in fourth.
 	if not th.launched and t >= r.aiReaction then
 		race.launchRacer(th, r.aiReaction)
 	end
 	if th.launched and th.gear < race.TOP_GEAR and th.rpm >= r.aiShift[th.gear + 1] then
-		local band = race.shiftBand(th.gear, nil, nil, race.AI_BAND)
+		local band = race.shiftBand(th.gear, theirGrip.lo, theirGrip.hi, race.AI_BAND)
 		local q = race.shiftQuality(th.rpm, band.lo, band.hi, false)
 		race.shiftRacer(th, if data.smoothShift(spec.rival.skill) and q.label == "Good" then 1.08 else q.q)
 	end
 	if th.gear >= race.AI_BOOST_GEAR and race.fireBoost(th) then
 		r.theirBoostAt = r.tick
 	end
-	local theirs = data.skillBoost(spec.rival.skill, th, me) * data.skillDrag(spec.mySkill, th, t)
+	local theirs = data.skillBoost(spec.rival.skill, th, me) * data.skillDrag(spec.mySkill, th, t) * grip.gripMul(theirGrip, th.gear, th.rpm, t)
 	race.stepRacer(th, spec.rival.pi, dt, t, theirs, spec.track)
 	if (me.finished ~= nil and th.finished ~= nil) or r.tick >= DragRace.MAX_TICKS then
 		r.done = true

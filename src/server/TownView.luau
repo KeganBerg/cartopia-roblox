@@ -31,6 +31,12 @@ local ASPHALT = Color3.fromHex("#9ba1a8")
 local GRIME = Color3.fromHex("#5f646b")
 local PAVING = Color3.fromHex("#eadfc8")
 local GRASS = Color3.fromHex(Catalog.GRASS)
+-- Ground layers, in studs. The web game stacks its flat layers a few hundredths of a unit apart,
+-- which an orthographic camera tells apart; Roblox's camera stands hundreds of studs back, where
+-- surfaces that close blend into one (the roads and lots vanished into the grass). So the owned
+-- plots sit well under the asphalt (top 0.2), and the meadow well under them.
+local LAND_TOP = -0.4
+local MEADOW_TOP = -0.9
 local MEADOW = Color3.fromHex(Catalog.MEADOW)
 
 local TownView = {}
@@ -81,8 +87,8 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		meadow.Name = "Meadow"
 		meadow.Anchored = true
 		meadow.Size = Vector3.new(2000, 4, 2000)
-		-- Its top at the web game's LAYER.outer (-0.05 units), under the lake and the owned plots.
-		meadow.CFrame = CFrame.new(origin + Vector3.new((i % 2 - 0.5) * 2000, -2.5, (i // 2 - 0.5) * 2000))
+		-- Its top below the owned plots (see LAND_TOP).
+		meadow.CFrame = CFrame.new(origin + Vector3.new((i % 2 - 0.5) * 2000, MEADOW_TOP - 2, (i // 2 - 0.5) * 2000))
 		meadow.Color = MEADOW
 		meadow.Material = Enum.Material.Grass
 		meadow.TopSurface = Enum.SurfaceType.Smooth
@@ -141,7 +147,7 @@ function TownView._renderLand(self: TownView, land: { string })
 			local p = part({
 				Name = k,
 				Size = Vector3.new(PLOT * TILE, 1, PLOT * TILE),
-				CFrame = CFrame.new(c + Vector3.new(0, -0.5, 0)),
+				CFrame = CFrame.new(c + Vector3.new(0, LAND_TOP - 0.5, 0)),
 				Color = GRASS,
 				Material = Enum.Material.Grass,
 				Parent = (self.folder :: any).Land,
@@ -240,7 +246,7 @@ function TownView._renderLawn(self: TownView, land: { string }, roads: { string 
 				if used[`{x},{z}`] then
 					continue
 				end
-				local c = self:tileToWorld(x, z)
+				local c = self:tileToWorld(x, z) + Vector3.new(0, LAND_TOP, 0)
 				local function spot(k2: number, spread: number): Vector3
 					return c + Vector3.new((hash(x, z, k2) - 0.5) * TILE * spread, 0, (hash(x, z, k2 + 101) - 0.5) * TILE * spread)
 				end
@@ -284,7 +290,8 @@ local DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 local CORNERS = { { 1, 3, 1, 1 }, { 1, 4, 1, -1 }, { 2, 4, -1, -1 }, { 2, 3, -1, 1 } }
 local HALF = data.TILE / 2 -- web units, as the pieces are measured
 local WALK = 0.4
-local PAINT_Y = 0.03 * SCALE
+-- Lane paint and kerb grime sit clearly above the asphalt, for the same reason as LAND_TOP.
+local PAINT_Y = 0.02 * SCALE + 0.25
 
 -- A flat strip of paint lying on the asphalt, at (x, z) web units from the tile's middle.
 local function paint(m: Model, c: Vector3, x: number, z: number, w: number, d: number, color: string)
@@ -353,7 +360,7 @@ function TownView._roadModel(self: TownView, t: any): Model
 		part({
 			Name = "Grime",
 			Size = Vector3.new(TILE, 0.05, 0.32 * SCALE),
-			CFrame = here * rot * CFrame.new(0, 0.02 * SCALE + 0.03, (HALF - WALK - 0.16) * SCALE),
+			CFrame = here * rot * CFrame.new(0, 0.02 * SCALE + 0.18, (HALF - WALK - 0.16) * SCALE),
 			Color = GRIME,
 			Transparency = 0.55,
 			Material = Enum.Material.SmoothPlastic,

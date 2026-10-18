@@ -108,6 +108,23 @@ export class JsDate {
   getUTCHours() {
     return Math.floor((((this.t % DAY) + DAY) % DAY) / 3600000)
   }
+  // Local time is UTC here: Roblox servers run on UTC, and the season (scene/season.ts) only
+  // needs the month and day.
+  getFullYear() {
+    return this.getUTCFullYear()
+  }
+  getMonth() {
+    return this.getUTCMonth()
+  }
+  getDate() {
+    return this.getUTCDate()
+  }
+  getDay() {
+    return this.getUTCDay()
+  }
+  getHours() {
+    return this.getUTCHours()
+  }
   toISOString() {
     const [y, m, d] = this.ymd()
     const ms = ((this.t % DAY) + DAY) % DAY
