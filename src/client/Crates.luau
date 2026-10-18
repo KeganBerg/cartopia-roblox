@@ -687,7 +687,14 @@ local function odds(dock: Instance, order: number, def: any, s: any, width: numb
 		end
 	elseif open == "card" then
 		for _, e in cardList do
-			cell(emoji(e.x.icon or "🃏"), if e.have then "✔" else `{pct(o.card * callCards.CALL_WEIGHT[e.x.tier] / math.max(1, cardW))}%`, e.have)
+			cell(function(f: Frame)
+				-- A still swatch of the card's scene, edged in its tier (the web's crate-cc).
+				local sw = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(40, 34), BackgroundColor3 = Ui.WHITE, ZIndex = 6, Parent = f }, {
+					Ui.corner(6),
+					Ui.stroke(2, Ui.WHITE),
+				})
+				CallCardArt.chip(sw, e.x.id, 40 / 34)
+			end, if e.have then "✔" else `{pct(o.card * callCards.CALL_WEIGHT[e.x.tier] / math.max(1, cardW))}%`, e.have)
 		end
 	elseif open == "skin" then
 		local owned = {}
@@ -871,7 +878,8 @@ function Crates.draw(parent: Instance, ctx: any)
 				Ui.corner(20),
 				Ui.stroke(4, Color3.fromHex(glow)),
 			})
-			CallCardArt.scene(cardF, open.drop.card, { aspect = 5 / 6 })
+			-- The card with your race car standing on its ground (the web's CallCardShowcase).
+			CallCardArt.showcase(cardF, open.drop.card, { aspect = 5 / 6 })
 			popIn(cardF, 0, 40)
 		end
 
