@@ -81,7 +81,13 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		f.Parent = folder
 	end
 	-- Meadow under the whole lot and the countryside past it, 4,000 studs across like the web
-	-- game's outer ground (World.tsx OUTER), in four pieces (a part is at most 2,048 studs).
+	-- game's outer ground (World.tsx OUTER), in four pieces (a part is at most 2,048 studs). The
+	-- pieces' middles are ~1,400 studs off, past what instance streaming sends a player, so the
+	-- model is kept persistent: without it players saw Workspace.Ground in its place.
+	local meadows = Instance.new("Model")
+	meadows.Name = "Meadow"
+	meadows.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+	meadows.Parent = folder
 	for i = 0, 3 do
 		local meadow = Instance.new("Part")
 		meadow.Name = "Meadow"
@@ -90,10 +96,11 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		-- Its top below the owned plots (see LAND_TOP).
 		meadow.CFrame = CFrame.new(origin + Vector3.new((i % 2 - 0.5) * 2000, MEADOW_TOP - 2, (i // 2 - 0.5) * 2000))
 		meadow.Color = MEADOW
-		meadow.Material = Enum.Material.Grass
+		-- Flat colour like the web's ground: Roblox's Grass material reads far brighter and greener.
+		meadow.Material = Enum.Material.SmoothPlastic
 		meadow.TopSurface = Enum.SurfaceType.Smooth
 		meadow.CastShadow = false
-		meadow.Parent = folder
+		meadow.Parent = meadows
 	end
 	folder.Parent = parent
 	return setmetatable({
@@ -149,7 +156,7 @@ function TownView._renderLand(self: TownView, land: { string })
 				Size = Vector3.new(PLOT * TILE, 1, PLOT * TILE),
 				CFrame = CFrame.new(c + Vector3.new(0, LAND_TOP - 0.5, 0)),
 				Color = GRASS,
-				Material = Enum.Material.Grass,
+				Material = Enum.Material.SmoothPlastic,
 				Parent = (self.folder :: any).Land,
 			})
 			self.land[k] = p

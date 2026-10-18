@@ -17,8 +17,8 @@
           "Locked": true,
           "Size": [2048, 16, 2048],
           "Position": [0, -12, 0],
-          "Color": [0.42, 0.66, 0.29],
-          "Material": "Grass",
+          "Color": [0.549, 0.604, 0.263],
+          "Material": "SmoothPlastic",
           "TopSurface": "Smooth",
           "BottomSurface": "Smooth"
         }
