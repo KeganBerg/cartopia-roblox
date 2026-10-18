@@ -15,45 +15,66 @@ local RaceScenery = require(script.Parent.RaceScenery)
 
 local Builder = {}
 
+-- Written by the model build (tools/models/build.mjs); empty in a build from before mods.
+local MOD_DROPS: { [string]: any } = (Catalog :: any).MOD_DROPS or {}
+local WHEELS: { [string]: any } = (Catalog :: any).WHEELS or {}
+
 local templates: { [string]: Model } = {}
 local meshParts: { [string]: MeshPart } = {}
 
--- Loads every uploaded mesh pack (server only: InsertService). Waits for all of them, up to
--- timeout seconds, calling progress(done, total) as each one finishes. Safe to call more than once.
-function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: number) -> ())?)
+-- Loads mesh packs (server only) and shares a copy of each mesh with the clients through
+-- ReplicatedStorage.MeshLibrary once that exists. Calls back after each pack.
+local function loadPacks(assets: { number }, each: (() -> ())?)
 	local InsertService = game:GetService("InsertService")
-	local byAsset: { [number]: boolean } = {}
-	for _, m in Meshes.MESHES do
-		if m.asset ~= 0 then
-			byAsset[m.asset] = true
-		end
-	end
-	local left, total = 0, 0
-	for _ in byAsset do
-		total += 1
-	end
-	if progress then
-		progress(0, total)
-	end
-	for asset in byAsset do
-		left += 1
+	for _, asset in assets do
 		task.spawn(function()
 			local ok, model = pcall(InsertService.LoadAsset, InsertService, asset)
 			if ok and model then
+				local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
 				for _, d in model:GetDescendants() do
-					if d:IsA("MeshPart") then
+					if d:IsA("MeshPart") and not meshParts[d.Name] then
 						meshParts[d.Name] = d
+						if library then
+							local copy = d:Clone()
+							copy.Parent = library
+						end
 					end
 				end
 			else
 				warn(`[Cartopia] mesh pack {asset} didn't load: {model}`)
 			end
-			left -= 1
-			if progress then
-				progress(total - left, total)
+			if each then
+				each()
 			end
 		end)
 	end
+end
+
+-- Loads every uploaded mesh pack (server only: InsertService). Waits for all of them, up to
+-- timeout seconds, calling progress(done, total) as each one finishes. Safe to call more than once.
+function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: number) -> ())?)
+	local byAsset: { [number]: boolean } = {}
+	for _, m in Meshes.MESHES do
+		-- A car's mod pack waits until that car needs it (Builder.loadFor).
+		if m.asset ~= 0 and not (m :: any).lazy then
+			byAsset[m.asset] = true
+		end
+	end
+	local list = {}
+	for asset in byAsset do
+		table.insert(list, asset)
+	end
+	local total = #list
+	local left = total
+	if progress then
+		progress(0, total)
+	end
+	loadPacks(list, function()
+		left -= 1
+		if progress then
+			progress(total - left, total)
+		end
+	end)
 	local start = os.clock()
 	while left > 0 and os.clock() - start < (timeout or 60) do
 		task.wait(0.1)
@@ -88,7 +109,68 @@ function Builder.useLibrary(timeout: number?): boolean
 		end
 	end
 	table.clear(templates)
+	-- Meshes the server loads later (a car's mods, Builder.loadFor) arrive one by one.
+	library.ChildAdded:Connect(function(d: Instance)
+		if d:IsA("MeshPart") then
+			meshParts[d.Name] = d
+		end
+	end)
 	return true
+end
+
+-- The packs each car's mods are in, found once, and how far each pack has loaded.
+local modPacks: { [string]: { number } } = {}
+local packState: { [number]: "loading" | "done" } = {}
+
+local function packsOf(car: string): { number }
+	local hit = modPacks[car]
+	if hit then
+		return hit
+	end
+	local seen: { [number]: boolean } = {}
+	local assets: { number } = {}
+	local prefix = `mod:{car}:`
+	for name, parts in Catalog.MODELS do
+		if name:sub(1, #prefix) == prefix then
+			for _, p in parts do
+				local m = p[1] == "m" and Meshes.MESHES[p[13]]
+				if m and m.asset ~= 0 and not seen[m.asset] then
+					seen[m.asset] = true
+					table.insert(assets, m.asset)
+				end
+			end
+		end
+	end
+	modPacks[car] = assets
+	return assets
+end
+
+-- Whether a car's mod packs have all loaded (true when it has none to load).
+function Builder.modsReady(car: string): boolean
+	for _, a in packsOf(car) do
+		if packState[a] ~= "done" then
+			return false
+		end
+	end
+	return true
+end
+
+-- Loads the mesh packs of a car's mods (server only), waiting up to timeout seconds. The meshes
+-- reach the clients through MeshLibrary.
+function Builder.loadFor(car: string, timeout: number?)
+	local assets = packsOf(car)
+	for _, a in assets do
+		if not packState[a] then
+			packState[a] = "loading"
+			loadPacks({ a }, function()
+				packState[a] = "done"
+			end)
+		end
+	end
+	local start = os.clock()
+	while not Builder.modsReady(car) and os.clock() - start < (timeout or 20) do
+		task.wait(0.1)
+	end
 end
 
 -- Whether a mesh has a real MeshPart (false: it's drawn as a box).
@@ -252,14 +334,28 @@ local function template(name: string): Model?
 	-- A countryside or race venue mesh covers a whole patch of ground, so a stand-in box would bury
 	-- the town or the road: those are left out until their mesh is uploaded.
 	-- Racing stripes and hats as boxes would bury the car, so they wait for their meshes too.
-	local scenery = (merged ~= nil or name:sub(1, 7) == "stripe:" or name:sub(1, 4) == "hat:") and not Builder.previewMeshes
-	for _, p in parts do
-		if not (scenery and p[1] == "m" and not meshParts[p[13]]) then
-			makePart(p).Parent = model
+	-- Mods too, and a mod model missing meshes isn't kept, so it fills in once they arrive.
+	local mod = name:sub(1, 4) == "mod:"
+	local scenery = (merged ~= nil or mod or name:sub(1, 7) == "stripe:" or name:sub(1, 4) == "hat:") and not Builder.previewMeshes
+	-- A car's parts and its mods' are named by their place in the list, which Catalog.MOD_DROPS
+	-- and WHEELS point at.
+	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil
+	local missing = false
+	for i, p in parts do
+		if scenery and p[1] == "m" and not meshParts[p[13]] then
+			missing = true
+		else
+			local part = makePart(p)
+			if numbered then
+				part.Name = tostring(i)
+			end
+			part.Parent = model
 		end
 	end
 	model.WorldPivot = CFrame.new()
-	templates[name] = model
+	if not (mod and missing) then
+		templates[name] = model
+	end
 	return model
 end
 

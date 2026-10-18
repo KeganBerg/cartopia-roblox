@@ -8,6 +8,8 @@
 --   Race   RemoteFunction  client -> server: ("rivals" | "campaign" | "start" | "finish", ...)
 --                          -> ok, result or error text (see Races)
 --   Crate  RemoteFunction  client -> server: (crate id, free source?, count) -> ok, the opens or why
+--   Meshes RemoteFunction  client -> server: (car id) -> loads that car's mod meshes into
+--                          ReplicatedStorage.MeshLibrary, answering once they're in
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -74,6 +76,9 @@ raceRemote.Parent = remotes
 local crateRemote = Instance.new("RemoteFunction")
 crateRemote.Name = "Crate"
 crateRemote.Parent = remotes
+local meshRemote = Instance.new("RemoteFunction")
+meshRemote.Name = "Meshes"
+meshRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
 
 Splash.start()
@@ -345,6 +350,15 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 		return false, why
 	end
 	return true, result
+end
+
+-- A car's mod meshes, for the garage pictures (each car's pack loads once for everyone).
+meshRemote.OnServerInvoke = function(_player: Player, car: any)
+	if type(car) ~= "string" or not Builder.has(car) then
+		return false
+	end
+	Builder.loadFor(car)
+	return true
 end
 
 crateRemote.OnServerInvoke = function(player: Player, id: any, free: any, count: any)

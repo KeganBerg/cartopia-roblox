@@ -21,6 +21,7 @@ local CrateDepot = require(script.Parent.Crates)
 local CallCards = require(script.Parent.CallCards)
 local PaintShop = require(script.Parent.PaintShop)
 local HatShop = require(script.Parent.HatShop)
+local ModShop = require(script.Parent.ModShop)
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 
 local Cars = {}
@@ -237,8 +238,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	end
 
 	-- The car on the turntable, turning slowly, framed in the space between the two cards.
-	local function stage(model: string, job: Paint.Job, pi: number, owned: number?, hat: any?)
-		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job, hat)
+	local function stage(model: string, job: Paint.Job, pi: number, owned: number?, hat: any?, mods: { string }?)
+		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job, hat, mods)
 		v.Position = UDim2.fromOffset(280, 10)
 		v.ZIndex = 1
 		v.Parent = content
@@ -286,6 +287,10 @@ function Cars.open(ctx: any, tab: string?): Instance
 	local painting: { uid: string, job: Paint.Job }? = nil
 	-- A hat being tried on in the Hats tab (false: trying no hat).
 	local hatting: { uid: string, hat: any }? = nil
+	-- A mod part being tried on in the Mods tab.
+	local modding: { uid: string, id: string }? = nil
+	-- Cars whose mod meshes have been asked for (they load the first time a car needs them).
+	local asked: { [string]: boolean } = {}
 	local function garage()
 		local s = store.useGame.getState()
 		local rows = {}
@@ -347,7 +352,21 @@ function Cars.open(ctx: any, tab: string?): Instance
 		end
 		local tryJob = if painting and painting.uid == car.c.uid and garageTab == "paint" then painting.job else nil
 		local tryHat = if hatting and hatting.uid == car.c.uid and garageTab == "hats" then hatting.hat else nil
-		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat)
+		local tryMod = if modding and modding.uid == car.c.uid and garageTab == "mods" then modding.id else nil
+		local mods = ModShop.withMod(car.c.mods, tryMod)
+		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat, mods)
+		-- The car's mod meshes, the first time it shows mods or opens the Mods tab: drawn again once in.
+		if not asked[car.c.model] and (#mods > 0 or garageTab == "mods") then
+			asked[car.c.model] = true
+			local model = car.c.model
+			task.spawn(function()
+				Remote.meshesFor(model)
+				task.wait(0.5)
+				if page.Parent then
+					render()
+				end
+			end)
+		end
 
 		local listCard = glass(content, "List", { Position = UDim2.fromOffset(12, 16), Size = UDim2.new(0, 260, 1, -28) })
 		local filters = Ui.new("Frame", { Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, 34), BackgroundTransparency = 1, ZIndex = 3, Parent = listCard })
@@ -425,6 +444,7 @@ function Cars.open(ctx: any, tab: string?): Instance
 			b.Activated:Connect(function()
 				if garageTab ~= t[1] then
 					HatShop.reset()
+					ModShop.reset()
 				end
 				garageTab = t[1]
 				render()
@@ -460,6 +480,13 @@ function Cars.open(ctx: any, tab: string?): Instance
 				end
 				y += 46
 			end
+		elseif garageTab == "mods" then
+			local space = Ui.new("Frame", { Name = "Shop", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 4, 1, -y), BackgroundTransparency = 1, ZIndex = 3, Parent = pad })
+			ModShop.draw(space, ctx, car.c, tryMod, function(id: string?)
+				modding = if id then { uid = car.c.uid, id = id } else nil
+				render()
+			end)
+			return
 		elseif garageTab == "hats" then
 			local space = Ui.new("Frame", { Name = "Shop", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 4, 1, -y), BackgroundTransparency = 1, ZIndex = 3, Parent = pad })
 			HatShop.draw(space, ctx, car.c, tryHat, function(h: any)

@@ -13,6 +13,7 @@ local actRemote = remotes:WaitForChild("Act") :: RemoteFunction
 local townEvent = remotes:WaitForChild("Town") :: RemoteEvent
 local raceRemote = remotes:WaitForChild("Race") :: RemoteFunction
 local crateRemote = remotes:WaitForChild("Crate") :: RemoteFunction
+local meshRemote = remotes:WaitForChild("Meshes") :: RemoteFunction
 
 local Remote = {}
 
@@ -102,5 +103,18 @@ townEvent.OnClientEvent:Connect(function(snap)
 	Remote.search = snap.search
 	changed:Fire(snap)
 end)
+
+-- Asks the server for a car's mod meshes (they load the first time a car needs them) and waits
+-- until they're here. Returns at once when they already are.
+local meshesHere: { [string]: boolean } = {}
+function Remote.meshesFor(car: string)
+	if meshesHere[car] then
+		return
+	end
+	local sent, ok = pcall(meshRemote.InvokeServer, meshRemote, car)
+	if sent and ok then
+		meshesHere[car] = true
+	end
+end
 
 return Remote
