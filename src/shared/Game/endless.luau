@@ -250,7 +250,7 @@ ____exports.KINDS = {
                 __TS__ArraySort(
                     __TS__ArrayFilter(
                         __ns___data_1.BUILDINGS,
-                        function(____, d) return if __truthy(d.jobSeconds) then d.kind ~= "obstacle" else d.jobSeconds and d.price > 0 and not __truthy(d.bucks) and not __truthy(d.event) and not d.wild and not d.parked and d.unlockLevel <= t.level and not have:has(d.id) end
+                        function(____, d) return (if __truthy(d.jobSeconds) then d.kind ~= "obstacle" else d.jobSeconds) and d.price > 0 and not __truthy(d.bucks) and not __truthy(d.event) and not d.wild and not d.parked and d.unlockLevel <= t.level and not have:has(d.id) end
                     ),
                     function(____, a, b) return a.price - b.price end
                 ),

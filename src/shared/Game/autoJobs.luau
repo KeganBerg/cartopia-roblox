@@ -250,7 +250,7 @@ function ____exports.applyAutoJobs(buildings, plan)
             if not __ns___data_1.takesDriver(__ns___data_1.buildingDef(b.def)) then
                 return b
             end
-            local car = to:get(b.uid) or if if __truthy(b.car) then not used:has(b.car) else b.car then b.car else nil
+            local car = to:get(b.uid) or (if if __truthy(b.car) then not used:has(b.car) else b.car then b.car else nil)
             return if car == b.car then b else __obj(
                 false and (function() return __TS__ObjectAssign({}, b, {car = car}) end),
                 __SPREAD,
@@ -276,10 +276,10 @@ function ____exports.roundPay(buildings, cars)
         n = n + jobPay(
             b,
             boost:get(b.uid) or 0
-        ) * (1 + if c and not c.flat and not c.lowFuel then __ns___data_1.driverBonus(
+        ) * (1 + (if c and not c.flat and not c.lowFuel then __ns___data_1.driverBonus(
             __ns___data_1.carDef(c.model),
             d.id
-        ) else 0)
+        ) else 0))
     end
     return math.floor(n + 0.5)
 end

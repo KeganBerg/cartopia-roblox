@@ -606,7 +606,7 @@ local KIND_RANK = {
 }
 function ____exports.revealOrder(opens)
     local function rank(d)
-        return ____exports.dropTier(d) * 100 + KIND_RANK[d.kind] * 10 + if d.kind == "coins" and d.jackpot then 5 else 0
+        return ____exports.dropTier(d) * 100 + KIND_RANK[d.kind] * 10 + (if d.kind == "coins" and d.jackpot then 5 else 0)
     end
     local function won(d)
         return if d.coins ~= nil then d.coins else 0

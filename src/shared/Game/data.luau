@@ -2813,9 +2813,9 @@ function ____exports.hotSpot(level, t)
         ____exports.RESCUE_SPOTS,
         function(____, sp) return level >= sp.unlockLevel end
     )
-    return if __truthy(#open) then open else __TS__ArraySlice(____exports.RESCUE_SPOTS, 0, 1)[____exports.utcDay(t) % math.max(1, #open) + 1].id
+    return (if __truthy(#open) then open else __TS__ArraySlice(____exports.RESCUE_SPOTS, 0, 1))[____exports.utcDay(t) % math.max(1, #open) + 1].id
 end
-____exports.rarityWeight = function(r, hot) return ____exports.RARITY[r].weight * if hot and r == "rare" then ____exports.HOT_RARE else 1 end
+____exports.rarityWeight = function(r, hot) return ____exports.RARITY[r].weight * (if hot and r == "rare" then ____exports.HOT_RARE else 1) end
 ____exports.TRUCK = {{pins = 8, flat = 0.25, parts = 0, level = 1}, {pins = 9, flat = 0.18, parts = 25, level = 4}, {pins = 10, flat = 0.12, parts = 60, level = 9}, {
     pins = 11,
     flat = 0.06,
@@ -2917,7 +2917,7 @@ ____exports.driverPayout = function(d, level, car, boost)
     if boost == nil then
         boost = 0
     end
-    return math.floor(____exports.upgradePayout(d, level) * (1 + if car then ____exports.driverBonus(car, d.id) else 0 + boost) + 0.5)
+    return math.floor(____exports.upgradePayout(d, level) * (1 + (if car then ____exports.driverBonus(car, d.id) else 0) + boost) + 0.5)
 end
 ____exports.MERGE_BONUS = {[2] = 0.1, [4] = 0.25, [8] = 0.35, [16] = 0.5}
 ____exports.mergeBonus = function(members) return ____exports.MERGE_BONUS[members] or 0 end
@@ -5933,7 +5933,7 @@ function ____exports.panelJobCost(was, next)
             if __truthy(p and p.bucks) then
                 bucks = bucks + p.bucks
             else
-                coins = coins + if id == "rims" then ____exports.RIM_COLOR_COST else ____exports.PANEL_COLOR_COST
+                coins = coins + (if id == "rims" then ____exports.RIM_COLOR_COST else ____exports.PANEL_COLOR_COST)
             end
         end
         if (function(v_3) return if __truthy(v_3) then b.pattern ~= (a and a.pattern) else v_3 end)(b and b.pattern) then
@@ -6870,7 +6870,7 @@ ____exports.touristGroup = function(score, roll)
         roll = __random()
     end
     local extra = if score >= 12 then 2 else if score >= 4 then 1 else 0
-    return 1 + if roll < math.min(0.75, score * 0.05) then extra else 0
+    return 1 + (if roll < math.min(0.75, score * 0.05) then extra else 0)
 end
 ____exports.BARN_PER_DAY = 1
 ____exports.BARN_RARITY = {common = 70, scarce = 25, rare = 5}

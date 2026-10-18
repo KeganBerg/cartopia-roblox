@@ -393,7 +393,7 @@ local function groundAt(now)
         while t <= now do
             local f = feelAt(t, scratch)
             local dt = STEP_MS / 1000
-            wet = if f.rain > 0.05 then math.min(1, wet + dt * (0.6 + f.rain) / 40) else math.max(0, wet - dt / if scratchMix.clearing > 0.5 then 260 else 120)
+            wet = if f.rain > 0.05 then math.min(1, wet + dt * (0.6 + f.rain) / 40) else math.max(0, wet - dt / (if scratchMix.clearing > 0.5 then 260 else 120))
             cover = if f.snow > 0.05 then math.min(1, cover + dt * (0.4 + f.snow) / 60) else math.max(0, cover - dt / 150)
             t = t + STEP_MS
         end

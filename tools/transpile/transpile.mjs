@@ -38,6 +38,18 @@ const out = join(root, 'src/shared/Game')
   else if (!src.includes('patched by tools/transpile')) throw new Error('TypeScriptToLua changed: re-check the conditional patch')
 }
 
+// TypeScriptToLua 1.37 bug: it prints a Luau if-expression bare where it is an operand, so
+// `(c ? a : b) && x` comes out as `if c then a else b and x`, which Luau reads as
+// `if c then a else (b and x)`. Patch the printer to always bracket one there. Idempotent.
+{
+  const file = join(here, 'node_modules/typescript-to-lua/dist/LuaPrinter.js')
+  const bug = `            return lua.isFunctionExpression(expression) || lua.isTableExpression(expression);`
+  const fix = `            return lua.isFunctionExpression(expression) || lua.isTableExpression(expression) || lua.isConditionalExpression(expression); // patched by tools/transpile`
+  const src = readFileSync(file, 'utf8')
+  if (src.includes(bug)) writeFileSync(file, src.replace(bug, fix))
+  else if (!src.includes('patched by tools/transpile')) throw new Error('TypeScriptToLua changed: re-check the printer patch')
+}
+
 // Lua tables can't hold nil, so `{ ...old, need: null }` would keep old.need. __TS__Obj (what
 // `__obj` calls) builds such literals and remembers which keys it set to nil, in a weak table, and
 // the patched __TS__ObjectAssign (Object.assign and TypeScriptToLua's own spreads) clears those keys

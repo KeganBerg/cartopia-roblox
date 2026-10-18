@@ -22,9 +22,9 @@ function ____exports.bestCar(cars)
     return best
 end
 function ____exports.raceCarOf(cars, uid)
-    return if __truthy(uid) then __TS__ArrayFind(
+    return (if __truthy(uid) then __TS__ArrayFind(
         cars,
         function(____, c) return c.uid == uid end
-    ) else nil or ____exports.bestCar(cars)
+    ) else nil) or ____exports.bestCar(cars)
 end
 return ____exports

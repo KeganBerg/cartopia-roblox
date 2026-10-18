@@ -219,7 +219,7 @@ function ____exports.shiftRacer(r, q)
     r.gear = r.gear + 1
     r.rpm = math.max(____exports.IDLE, r.rpm * ____exports.RATIO[r.gear] / ____exports.RATIO[r.gear + 1])
     r.streak = if q >= 1 then r.streak + 1 else 0
-    r.boost = math.min(1, r.boost + if q >= 1 then ____exports.SHIFT_FILL.perfect else if q >= 0.95 then ____exports.SHIFT_FILL.good else 0)
+    r.boost = math.min(1, r.boost + (if q >= 1 then ____exports.SHIFT_FILL.perfect else if q >= 0.95 then ____exports.SHIFT_FILL.good else 0))
 end
 function ____exports.fireBoost(r)
     if r.boostUsed or r.boost <= 0 or not r.launched or r.finished ~= nil then

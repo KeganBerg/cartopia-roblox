@@ -62,7 +62,7 @@ function ____exports.masteryXp(level, reached, classes, sky)
         classes,
         function(____, a, t) return a + (____exports.CLASS_XP[t] or 0) end,
         0
-    ) + if sky then ____exports.GALAXY_XP else 0
+    ) + (if sky then ____exports.GALAXY_XP else 0)
     return math.floor(share * __ns___data_1.xpToNext(level) + 0.5)
 end
 ____exports.emptyMastery = function() return {
@@ -142,7 +142,7 @@ end
 function ____exports.noteRace(m, won, mode, upset)
     local cur = m or ____exports.emptyMastery()
     local ____temp_2 = cur.races + 1
-    local ____temp_3 = cur.wins + if won then 1 else 0
+    local ____temp_3 = cur.wins + (if won then 1 else 0)
     local ____temp_1
     if won and not __TS__ArrayIncludes(cur.modes, mode) then
         local ____array_0 = __TS__SparseArrayNew(table.unpack(cur.modes))
@@ -155,7 +155,7 @@ function ____exports.noteRace(m, won, mode, upset)
         races = ____temp_2,
         wins = ____temp_3,
         modes = ____temp_1,
-        upsets = cur.upsets + if won and upset then 1 else 0,
+        upsets = cur.upsets + (if won and upset then 1 else 0),
         tier = cur.tier
     }
     next.tier = math.max(

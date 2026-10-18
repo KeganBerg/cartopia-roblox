@@ -16,8 +16,8 @@ function ____exports.surfaceOf(kind, at)
     local f = __ns___weather_1.FEEL[kind]
     return {
         wet = if f.rain > 0 then 0.6 + 0.4 * f.rain else 0,
-        snow = math.min(1, if f.snow > 0 then 0.6 + 0.4 * f.snow else 0 + if venue == "snow" then 0.35 else 0),
-        dust = math.min(1, f.dust + if venue == "desert" then 0.35 else 0)
+        snow = math.min(1, (if f.snow > 0 then 0.6 + 0.4 * f.snow else 0) + (if venue == "snow" then 0.35 else 0)),
+        dust = math.min(1, f.dust + (if venue == "desert" then 0.35 else 0))
     }
 end
 ____exports.carGrip = function(car, up, mods) return car.grip + up.tires * 4 + __TS__ArrayReduce(
@@ -62,7 +62,7 @@ end
 function ____exports.gripMul(c, gear, rpm, t)
     local m = 1
     if c.spin > 0 and gear <= 1 then
-        m = m * (1 - c.spin * if gear == 0 then 1 else 0.5 * (0.5 + 0.5 * math.min(1, rpm)))
+        m = m * (1 - c.spin * (if gear == 0 then 1 else 0.5) * (0.5 + 0.5 * math.min(1, rpm)))
     end
     if c.dust > 0 and gear == 0 and t < 1.5 then
         m = m * (1 - c.dust)

@@ -553,6 +553,10 @@ it('exports every building and car', async () => {
   const { freshGeo } = await import('./scene/CarModel')
   const { isBike } = await import('./game/data')
   const panelDrops: Record<string, number[]> = {}
+  // Each car's trim pieces (game/trim.ts): drawn with a tint, headlights and handles in colours
+  // nothing else on a car uses, the pieces that change are its glass, lamps and handles.
+  const trimOf: Record<string, Record<string, number[]>> = {}
+  const TRIM_MARK: Record<string, string> = { tint: '#0c0e10', lights: '#d3a6ff', handles: '#161616' }
   const panelOf = (p: number[], n: number[], z: number[]) => {
     if (p[1] > z[1] + 0.015 && p[2] < z[0] + 0.02) return 'roof'
     if (n[1] > 0.35 && p[2] > z[0]) return 'hood'
@@ -612,6 +616,11 @@ it('exports every building and car', async () => {
     const stripes = striped.filter((p) => p.look.c === '#0000fe')
     if (stripes.length) models.push({ id: `stripe:${c.id}`, kind: 'piece', pieces: stripes })
     cutPanels(c.id, c.body, pieces, paint)
+    const trimmed = (await renderApart(<CarModel body={c.body} model={c.id} color="#ff00ff" trim={{ tint: 'limo', lights: 'violet', handles: 'black' }} />)).pieces
+    for (const [kind, mark] of Object.entries(TRIM_MARK)) {
+      const list = a.flatMap((p, i) => (trimmed[i] && trimmed[i].look.c !== p.look.c && trimmed[i].look.c === mark ? [i] : []))
+      if (list.length) (trimOf[c.id] ??= {})[kind] = list
+    }
     if (process.env.RBX_MODS === '0') continue
     for (const m of MODS) {
       if (!modFits(m, c.body) || m.slot === 'tires') continue
@@ -801,7 +810,7 @@ it('exports every building and car', async () => {
     }
     batching.off = false
   }
-  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

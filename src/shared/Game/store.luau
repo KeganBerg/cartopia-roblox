@@ -104,10 +104,10 @@ function ____exports.fuelCap(s)
             __ns___data_1.buildingLevel(b)
         ) end,
         0
-    ) + if __TS__ArraySome(
+    ) + (if __TS__ArraySome(
         s.buildings,
         function(____, b) return __truthy(b.merge) end
-    ) then __ns___merge_1.mergeFuel(s.buildings) else 0
+    ) then __ns___merge_1.mergeFuel(s.buildings) else 0)
     return __ns___data_1.baseFuelCap(s.level) + gas
 end
 function addXp(s, amount)
@@ -202,7 +202,7 @@ function ____exports.gemsX10(save, store)
             end
             store.setItem(GEMS_X10_KEY, "1")
             local guest = not __truthy(store.getItem("cartopia-save-owner"))
-            return true, if if __truthy(save) then guest else save and type(save.bucks) == "number" then __obj(
+            return true, if (if __truthy(save) then guest else save) and type(save.bucks) == "number" then __obj(
                 false and (function() return __TS__ObjectAssign({}, save, {bucks = save.bucks * 10}) end),
                 __SPREAD,
                 save,
@@ -1124,7 +1124,7 @@ function ____exports.canPlaceBlock(s, g, x, z)
                 local j = 0
                 while j < g.h do
                     local o = occ:get(key(x + i, z + j))
-                    if not ____exports.owns(s.land, x + i, z + j) or if __truthy(o) then not ids:has(o) else o then
+                    if not ____exports.owns(s.land, x + i, z + j) or (if __truthy(o) then not ids:has(o) else o) then
                         return false
                     end
                     j = j + 1
@@ -1671,9 +1671,9 @@ function ____exports.taskProgress(s, period, slot)
     return math.max(0, (s.stats[def.stat] or 0) - (base and base[def.stat] or 0))
 end
 ____exports.taskDone = function(s, period, slot) return ____exports.taskProgress(s, period, slot) >= slot.n end
-____exports.periodSlots = function(q, period) return if period == "daily" then q and q.daily else q and q.weekly or ({}) end
-____exports.periodDone = function(q, period) return if period == "daily" then q and q.dayDone else q and q.weekDone or ({}) end
-____exports.chestOpened = function(q, period) return not not if period == "daily" then q and q.dayChest else q and q.weekChest end
+____exports.periodSlots = function(q, period) return (if period == "daily" then q and q.daily else q and q.weekly) or ({}) end
+____exports.periodDone = function(q, period) return (if period == "daily" then q and q.dayDone else q and q.weekDone) or ({}) end
+____exports.chestOpened = function(q, period) return not not (if period == "daily" then q and q.dayChest else q and q.weekChest) end
 function ____exports.currentSeason(s, now)
     if now == nil then
         now = Date:now()
@@ -1775,10 +1775,10 @@ function ____exports.claimable(s)
     local goals = #__TS__ArrayFilter(
         {__TS__SparseArraySpread(____array_31)},
         function(____, g) return ____exports.goalOpen(s, g) and ____exports.goalDone(s, g) end
-    ) + if __ns___endless_1.endlessCapped(s.endless) then 0 else #__TS__ArrayFilter(
+    ) + (if __ns___endless_1.endlessCapped(s.endless) then 0 else #__TS__ArrayFilter(
         ____exports.activeEndless(s),
         function(____, g) return ____exports.endlessReady(s, g) end
-    )
+    ))
     local tasks = 0
     for ____, p in ipairs({"daily", "weekly"}) do
         local done = ____exports.periodDone(s.quests, p)
@@ -1844,7 +1844,7 @@ local function tapMerged(s, set, uids)
             parts = parts,
             xp = __ns___data_1.xpGain(s.level, xp)
         })
-        s.toast(((((("+" .. __localeString(pay)) .. " coins") .. if __truthy(parts) then (", +" .. tostring(parts)) .. " parts" else "") .. ", +") .. tostring(__ns___data_1.xpGain(s.level, xp))) .. " XP")
+        s.toast(((((("+" .. __localeString(pay)) .. " coins") .. (if __truthy(parts) then (", +" .. tostring(parts)) .. " parts" else "")) .. ", +") .. tostring(__ns___data_1.xpGain(s.level, xp))) .. " XP")
         return set(withXp(
             s,
             xp,
@@ -2804,7 +2804,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 local d = __ns___data_1.buildingDef(c.anchor.def)
                 local gain = __ns___data_1.mergeGain(d)
                 local bonus = if __truthy(gain) then (((" " .. gain) .. " +") .. tostring(math.floor(__ns___data_1.mergeBonus(#c.members) * 100 + 0.5))) .. "%" else ""
-                s.toast(if __ns___merge_1.isGlobe(c) then ((("Two " .. __ns___merge_1.LANDMARK_NAME) .. "s became the ") .. __ns___merge_1.GLOBE_NAME) .. "!" else if __ns___merge_1.isLandmark(c) and size == 2 then ("Four Sky Towers became the " .. __ns___merge_1.LANDMARK_NAME) .. "!" else if size == 4 then ("Giant " .. if __ns___merge_1.isLandmark(c) then __ns___merge_1.LANDMARK_NAME else d.name) .. "! 16 in one." else ((("Merged " .. tostring(#c.members)) .. " into one big ") .. d.name) .. "!" .. bonus)
+                s.toast((if __ns___merge_1.isGlobe(c) then ((("Two " .. __ns___merge_1.LANDMARK_NAME) .. "s became the ") .. __ns___merge_1.GLOBE_NAME) .. "!" else if __ns___merge_1.isLandmark(c) and size == 2 then ("Four Sky Towers became the " .. __ns___merge_1.LANDMARK_NAME) .. "!" else if size == 4 then ("Giant " .. (if __ns___merge_1.isLandmark(c) then __ns___merge_1.LANDMARK_NAME else d.name)) .. "! 16 in one." else ((("Merged " .. tostring(#c.members)) .. " into one big ") .. d.name) .. "!") .. bonus)
                 set({
                     buildings = __ns___merge_1.applyMerge(s.buildings, c),
                     updatedAt = Date:now()
@@ -2961,7 +2961,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         parts = parts,
                         xp = __ns___data_1.xpGain(s.level, xp)
                     })
-                    s.toast(((((("+" .. tostring(pay)) .. " coins") .. if __truthy(parts) then (", +" .. tostring(parts)) .. " parts" else "") .. ", +") .. tostring(__ns___data_1.xpGain(s.level, xp))) .. " XP")
+                    s.toast(((((("+" .. tostring(pay)) .. " coins") .. (if __truthy(parts) then (", +" .. tostring(parts)) .. " parts" else "")) .. ", +") .. tostring(__ns___data_1.xpGain(s.level, xp))) .. " XP")
                     local cars = s.cars
                     local rolling = __TS__ArrayFilter(
                         cars,
@@ -3397,7 +3397,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     },
                     function(____, x) return not not __truthy(x) end
                 )
-                s.toast((table.concat(bits, " · ") .. if __truthy(earned) then (" · +" .. tostring(earned)) .. " coins" else "") .. if parts > s.parts then (" · +" .. tostring(parts - s.parts)) .. " parts" else "")
+                s.toast((table.concat(bits, " · ") .. (if __truthy(earned) then (" · +" .. tostring(earned)) .. " coins" else "")) .. (if parts > s.parts then (" · +" .. tostring(parts - s.parts)) .. " parts" else ""))
                 set(withXp(
                     s,
                     xp,
@@ -3626,7 +3626,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     opts = {}
                 end
                 local s = get()
-                local base = if won then reward else opts.loss or math.floor(reward * if opts.live then __ns___boosts_1.LIVE_LOSS_SHARE else __ns___boosts_1.LOSS_SHARE + 0.5)
+                local base = if won then reward else opts.loss or math.floor(reward * (if opts.live then __ns___boosts_1.LIVE_LOSS_SHARE else __ns___boosts_1.LOSS_SHARE) + 0.5)
                 local b = __ns___boosts_1.boostFor(
                     s.boosts,
                     opts.mode or "race",
@@ -3649,8 +3649,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                             if won then {hatQuest = hatRaceWin(s)} else {},
                             {
                                 coins = s.coins + coins,
-                                trophies = s.trophies + if won then 1 else 0,
-                                racesWon = s.racesWon + if won then 1 else 0,
+                                trophies = s.trophies + (if won then 1 else 0),
+                                racesWon = s.racesWon + (if won then 1 else 0),
                                 boosts = b.next,
                                 stats = __obj(
                                     false and (function() return __TS__ObjectAssign(
@@ -3673,9 +3673,9 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         "coins",
                         s.coins + coins,
                         "trophies",
-                        s.trophies + if won then 1 else 0,
+                        s.trophies + (if won then 1 else 0),
                         "racesWon",
-                        s.racesWon + if won then 1 else 0,
+                        s.racesWon + (if won then 1 else 0),
                         "boosts",
                         b.next,
                         "stats",
@@ -4060,7 +4060,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     return
                 end
                 __ns____lib_sound_1.sfx.coin()
-                s.toast(((((("Goal complete! +" .. tostring(g.coins)) .. " coins") .. if __truthy(g.bucks) then (", +" .. tostring(g.bucks)) .. " gems" else "") .. ", +") .. tostring(__ns___data_1.xpGain(s.level, g.xp))) .. " XP")
+                s.toast(((((("Goal complete! +" .. tostring(g.coins)) .. " coins") .. (if __truthy(g.bucks) then (", +" .. tostring(g.bucks)) .. " gems" else "")) .. ", +") .. tostring(__ns___data_1.xpGain(s.level, g.xp))) .. " XP")
                 local ____set_142 = set
                 local ____withXp_141 = withXp
                 local ____g_xp_140 = g.xp
@@ -4097,7 +4097,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if __truthy(pay.parts) then
                     setTimeout(__ns____lib_sound_1.sfx.levelUp, 150)
                 end
-                s.toast((((((("Goal complete! +" .. __localeString(pay.coins)) .. " coins") .. if __truthy(pay.parts) then (", +" .. tostring(pay.parts)) .. " parts" else "") .. if __truthy(pay.bucks) then (", +" .. tostring(pay.bucks)) .. " gems" else "") .. ", +") .. __localeString(xp)) .. " XP")
+                s.toast((((((("Goal complete! +" .. __localeString(pay.coins)) .. " coins") .. (if __truthy(pay.parts) then (", +" .. tostring(pay.parts)) .. " parts" else "")) .. (if __truthy(pay.bucks) then (", +" .. tostring(pay.bucks)) .. " gems" else "")) .. ", +") .. __localeString(xp)) .. " XP")
                 set(withXp(
                     s,
                     xp,
@@ -4227,7 +4227,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 setTimeout(__ns____lib_sound_1.sfx.levelUp, 150)
                 local stars = if period == "daily" then __ns___data_1.SEASON_STARS.dailyChest else __ns___data_1.SEASON_STARS.weeklyChest
                 local xp = __ns___data_1.chestXp(period, s.level)
-                s.toast((((((((((("Chest opened! +" .. __localeString(pay.coins)) .. " coins, +") .. tostring(c.parts)) .. " parts") .. if __truthy(c.bucks) then (", +" .. tostring(c.bucks)) .. " gems" else "") .. if __truthy(c.fuel) then (", +" .. tostring(c.fuel)) .. " fuel" else "") .. ", +") .. __localeString(xp)) .. " XP, +") .. tostring(stars)) .. " ⭐")
+                s.toast((((((((((("Chest opened! +" .. __localeString(pay.coins)) .. " coins, +") .. tostring(c.parts)) .. " parts") .. (if __truthy(c.bucks) then (", +" .. tostring(c.bucks)) .. " gems" else "")) .. (if __truthy(c.fuel) then (", +" .. tostring(c.fuel)) .. " fuel" else "")) .. ", +") .. __localeString(xp)) .. " XP, +") .. tostring(stars)) .. " ⭐")
                 local quests = if period == "daily" then __obj(
                     false and (function() return __TS__ObjectAssign({}, q, {dayChest = true}) end),
                     __SPREAD,
@@ -4414,7 +4414,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         now
                     ))
                 end
-                local bucks = prize.bucks + if prize.car then __ns___data_1.SEASON_CAR_BUCKS else 0
+                local bucks = prize.bucks + (if prize.car then __ns___data_1.SEASON_CAR_BUCKS else 0)
                 s.toast((("Tier " .. tostring(tier + 1)) .. "! ") .. table.concat(
                     __TS__ArrayFilter(
                         {if __truthy(prize.coins) then ("+" .. __localeString(prize.coins)) .. " coins" else prize.coins, if __truthy(prize.parts) then ("+" .. tostring(prize.parts)) .. " parts" else prize.parts, if __truthy(bucks) then ("+" .. tostring(bucks)) .. " gems" else bucks},
@@ -5344,7 +5344,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             receiveGifts = function(fuel, parts)
                 local s = get()
                 __ns____lib_sound_1.sfx.coin()
-                s.toast((("Collected" .. if __truthy(fuel) then (" +" .. tostring(fuel)) .. " ⛽" else "") .. if __truthy(parts) then (" +" .. tostring(parts)) .. " ⚙" else "") .. " from friends")
+                s.toast((("Collected" .. (if __truthy(fuel) then (" +" .. tostring(fuel)) .. " ⛽" else "")) .. (if __truthy(parts) then (" +" .. tostring(parts)) .. " ⚙" else "")) .. " from friends")
                 set({
                     fuel = s.fuel + fuel,
                     parts = s.parts + parts,
@@ -5379,7 +5379,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     s.toast((fin.name .. " unlocks at level ") .. tostring(fin.unlockLevel))
                     return false
                 end
-                if if __truthy(fin.mastery) then __ns___mastery_1.carClassTier(s.mastery, car.model) < fin.mastery else fin.mastery and fin.id ~= car.finish then
+                if (if __truthy(fin.mastery) then __ns___mastery_1.carClassTier(s.mastery, car.model) < fin.mastery else fin.mastery) and fin.id ~= car.finish then
                     __ns____lib_sound_1.sfx.error()
                     s.toast(fin.blurb)
                     return false
@@ -5453,7 +5453,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 )
                 set(if recolour then withXp(s, 5, patch) else patch)
                 __ns____lib_sound_1.sfx.buy()
-                s.toast(if recolour then if paint then (("Painted " .. if fin.id == "gloss" then "" else fin.name .. " ") .. paint.name) .. "!" else fin.name .. " finish on!" else if __truthy(job.stripe) then "Stripes on!" else "Stripes off")
+                s.toast(if recolour then if paint then (("Painted " .. (if fin.id == "gloss" then "" else fin.name .. " ")) .. paint.name) .. "!" else fin.name .. " finish on!" else if __truthy(job.stripe) then "Stripes on!" else "Stripes off")
                 return true
             end,
             paintPanels = function(cuid, want)
@@ -5476,10 +5476,10 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     if not v then
                         continue
                     end
-                    if bike and pn.car or if __truthy(v.color) then not pn.color or not (__TS__ArraySome(
+                    if bike and pn.car or (if __truthy(v.color) then not pn.color or not (__TS__ArraySome(
                         __ns___data_1.PAINTS,
                         function(____, p) return p.color == v.color end
-                    ) or __ns___data_2.hasCustomPaint(s) and __ns___data_2.isHexColor(v.color)) else v.color or if __truthy(v.pattern) then not pn.pattern else v.pattern then
+                    ) or __ns___data_2.hasCustomPaint(s) and __ns___data_2.isHexColor(v.color)) else v.color) or (if __truthy(v.pattern) then not pn.pattern else v.pattern) then
                         return false
                     end
                     local ____truthy_result_292
@@ -5825,7 +5825,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     function(____, c) return c.uid == cuid end
                 )
                 local d = __ns___data_1.skinDef(id)
-                if not car or if __truthy(id) then not d else id or (car.skin or nil) == id then
+                if not car or (if __truthy(id) then not d else id) or (car.skin or nil) == id then
                     return false
                 end
                 local patch = {}
@@ -5911,7 +5911,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     function(____, c) return c.uid == cuid end
                 )
                 local d = __ns___data_1.modSkinDef(id)
-                local ____temp_340 = not car or if __truthy(id) then not d else id or not __TS__ArrayIncludes(__ns___data_1.SKINNED_SLOTS, slot)
+                local ____temp_340 = not car or (if __truthy(id) then not d else id) or not __TS__ArrayIncludes(__ns___data_1.SKINNED_SLOTS, slot)
                 if not ____temp_340 then
                     local ____opt_338 = car.modSkin
                     ____temp_340 = (____opt_338 and ____opt_338[slot] or nil) == id
@@ -6001,10 +6001,10 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     function(____, c) return c.uid == cuid end
                 )
                 local d = __ns___data_1.trackSkinDef(id)
-                local ____temp_345 = not car or __ns___data_1.carDef(car.model).body ~= "tank" or if __truthy(id) then not d or not __TS__ArrayIncludes(
+                local ____temp_345 = not car or __ns___data_1.carDef(car.model).body ~= "tank" or (if __truthy(id) then not d or not __TS__ArrayIncludes(
                     __ns___data_1.ownedTrackSkins(s.level),
                     d.id
-                ) else id
+                ) else id)
                 if not ____temp_345 then
                     local ____opt_343 = car.modSkin
                     ____temp_345 = (____opt_343 and ____opt_343.tracks or nil) == id
@@ -6535,7 +6535,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     return stars
                 end
                 local coins = if cleared then ch.coins else 0
-                local bucks = if cleared then ch.bucks else 0 + if perfect then ch.starBucks else 0
+                local bucks = (if cleared then ch.bucks else 0) + (if perfect then ch.starBucks else 0)
                 local trophies = if cleared then ch.trophies else 0
                 setTimeout(__ns____lib_sound_1.sfx.levelUp, 200)
                 set(function(g) return {
@@ -6650,7 +6650,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 end
                 local def = __ns___events_1.eventFor(p.week)
                 local fresh = get().grantSkin(def.skin)
-                local coins = __ns___events_1.eventBonus(p.pi) * if fresh then 1 else 2
+                local coins = __ns___events_1.eventBonus(p.pi) * (if fresh then 1 else 2)
                 setTimeout(__ns____lib_sound_1.sfx.levelUp, 200)
                 set(function(g) return {
                     event = event,
@@ -6840,7 +6840,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         if won then {hatQuest = hatRaceWin(s)} else {},
                         {
                             coins = s.coins + amount,
-                            racesWon = s.racesWon + if won then 1 else 0,
+                            racesWon = s.racesWon + (if won then 1 else 0),
                             stats = __obj(
                                 false and (function() return __TS__ObjectAssign(
                                     {},
@@ -6865,7 +6865,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     "coins",
                     s.coins + amount,
                     "racesWon",
-                    s.racesWon + if won then 1 else 0,
+                    s.racesWon + (if won then 1 else 0),
                     "stats",
                     __obj(
                         false and (function() return __TS__ObjectAssign(
@@ -7161,7 +7161,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         return
                     end
                     local ____local = if not res and spotId == "track" then __ns___crates_1.rollSourcePiece("rusty_track", g.level, g.cars, g.restoParts or ({})) else nil
-                    local open = res and res.piece or if ____local then {crate = "rusty_track", cost = {coins = 0, bucks = 0}, drop = ____local} else nil
+                    local open = res and res.piece or (if ____local then {crate = "rusty_track", cost = {coins = 0, bucks = 0}, drop = ____local} else nil)
                     local d = open and open.drop
                     local piece = if d and (d.kind == "piece" or d.kind == "piecedupe") then {model = d.model, piece = d.piece} else nil
                     __ns____lib_sound_1.sfx.start()

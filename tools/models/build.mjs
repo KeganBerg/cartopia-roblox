@@ -545,10 +545,13 @@ export function convert(data) {
   for (const [car, list] of Object.entries(data.rimsOf ?? {})) rims[car] = toParts(car, list)
   const panelDrops = {}
   for (const [car, list] of Object.entries(data.panelDrops ?? {})) panelDrops[car] = toParts(car, list)
+  const trim = {}
+  for (const [car, byKind] of Object.entries(data.trimOf ?? {}))
+    for (const [kind, list] of Object.entries(byKind)) (trim[car] ??= {})[kind] = toParts(car, list)
   const stance = {}
   for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
     for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, stance, textures: data.textures ?? [] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, textures: data.textures ?? [] }
 }
 
 function mul(a, b) {
@@ -654,6 +657,8 @@ Catalog.LOOKS = {
   for (const [car, list] of Object.entries(result.rims ?? {})) cat += `\t[${str(car)}] = { ${list.map(num).join(', ')} },\n`
   cat += '}\n\n-- The car parts its custom paint panels ("panel:<car>:<hood|doors|roof|body>" models) take the\n-- place of: its paint.\nCatalog.PANEL_DROPS = {\n'
   for (const [car, list] of Object.entries(result.panelDrops ?? {})) cat += `\t[${str(car)}] = { ${list.map(num).join(', ')} },\n`
+  cat += '}\n\n-- Each car\'s trim parts (game/trim.ts): its glass (tint), headlights and door handles.\nCatalog.TRIM = {\n'
+  for (const [car, byKind] of Object.entries(result.trim ?? {})) cat += `\t[${str(car)}] = { ${lists(byKind)} },\n`
   cat += '}\n\n-- How far each stance mod moves a car\'s body up (or down), in studs.\nCatalog.STANCE = {\n'
   for (const [car, byMod] of Object.entries(result.stance ?? {})) cat += `\t[${str(car)}] = { ${Object.entries(byMod).map(([k, v]) => `${k} = ${num(v)}`).join(', ')} },\n`
   cat += '}\n\nCatalog.MODELS = {\n' + modelList('town') + '}\n\nreturn Catalog\n'
