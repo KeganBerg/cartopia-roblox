@@ -654,6 +654,8 @@ function TownView._buildingModel(self: TownView, b: any, turn: number, g: any, c
 	model:SetAttribute("Def", b.def)
 	model:SetAttribute("Name", if g and merge.isLandmark(g) then merge.landmarkName(g) else def.name)
 	model:SetAttribute("Level", level)
+	-- Quarter turns about its middle (client/SpeedwayLife puts the race and crowd inside it).
+	model:SetAttribute("Turn", turn)
 	model:SetAttribute("Owner", self.userId)
 	model:SetAttribute("Height", size.Y)
 	if g then

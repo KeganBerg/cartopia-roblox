@@ -30,6 +30,9 @@ vi.mock('./scene/Batch', async (load) => {
 // Screen effects and the sky's reflections need a real renderer and draw no shapes.
 vi.mock('./scene/PostFx', async (load) => ({ ...((await load()) as object), PostFx: () => null }))
 vi.mock('./scene/SkyEnv', async (load) => ({ ...((await load()) as object), SkyEnv: () => null }))
+// The Speedway's race and crowd (SpeedwayLife.tsx) move every frame, so the game draws them on each
+// player's own screen (client/SpeedwayLife.luau) instead of baking one still frame into the model.
+vi.mock('./scene/SpeedwayLife', async (load) => ({ ...((await load()) as object), SpeedwayLife: () => null }))
 
 // --- A canvas that remembers what was painted on it ---------------------------------------
 // Signs and other painted textures are drawn on 2D canvases. jsdom has none, so this records
@@ -494,8 +497,11 @@ it('exports every building and car', async () => {
   // RBX_ONLY=outskirts skips the buildings, cars and street pieces (a quicker run while working on
   // the countryside).
   const only = process.env.RBX_ONLY
+  // The Speedway grows with its level (taller glass, a canopy from 4, the upper deck from 7 that
+  // the fans in client/SpeedwayLife.luau stand on), so it's drawn at every level.
+  const levelsOf = (id: string) => (id === 'stadium' ? [...new Set([...LEVELS, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])].sort((a, b) => a - b) : LEVELS)
   if (!only) for (const d of BUILDINGS) {
-    for (const level of LEVELS) models.push({ id: d.id, kind: 'building', level, pieces: await render(<BuildingModel def={d} level={level} />) })
+    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, pieces: await render(<BuildingModel def={d} level={level} />) })
   }
   // Mods (CarMods.tsx, the Rims and Stance looks): each car drawn with one part fitted at a time
   // and compared with the stock car. The pieces the part adds are its model ("mod:<car>:<part>"),
