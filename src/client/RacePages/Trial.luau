@@ -22,7 +22,7 @@ Trial.id = "trial"
 Trial.title = "Time Trial"
 
 local MEDAL = { "🥇", "🥈", "🥉" }
-local PODIUM_H = { 0.62, 0.44, 0.3 }
+local PODIUM_H = { 0.22, 0.16, 0.11 }
 local function place(n: number): string
 	return MEDAL[n] or `#{n}`
 end
@@ -73,11 +73,11 @@ local function draw(page: Frame, ctx: any, api: any, info: any)
 	for i, at in { 2, 1, 3 } do
 		local r = b.top[at]
 		local x = (i - 0.5) / 3
-		local step = Ui.new("Frame", { Name = `Step{at}`, AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(x, 0, 1, -44), Size = UDim2.new(0.28, 0, PODIUM_H[at] * 0.42, 0), BackgroundColor3 = if at == 1 then Color3.fromHex("#ffd54f") elseif at == 2 then Color3.fromHex("#cfd8dc") else Color3.fromHex("#ffab91"), ZIndex = 2, Parent = stage }, {
+		local step = Ui.new("Frame", { Name = `Step{at}`, AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(x, 0, 1, -44), Size = UDim2.new(0.28, 0, PODIUM_H[at], 0), BackgroundColor3 = if at == 1 then Color3.fromHex("#ffd54f") elseif at == 2 then Color3.fromHex("#cfd8dc") else Color3.fromHex("#ffab91"), ZIndex = 2, Parent = stage }, {
 			Ui.corner(8),
 			Ui.stroke(2.5, Ui.LINE),
 		})
-		Ui.text({ Text = MEDAL[at], TextSize = 22, Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = step })
+		Ui.text({ Text = MEDAL[at], TextSize = 22, Position = UDim2.fromOffset(0, 4), Size = UDim2.new(1, 0, 0, 26), ZIndex = 2, Parent = step })
 		if r then
 			local pic = rowCar(r.look, UDim2.new(1.3, 0, 0, 70))
 			if pic then
@@ -86,7 +86,7 @@ local function draw(page: Frame, ctx: any, api: any, info: any)
 				pic.ZIndex = 3
 				pic.Parent = step
 			end
-			Ui.text({ Text = string.format("%.3f", r.t), TextSize = 13, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, 2), Size = UDim2.new(1.2, 0, 0, 16), Stroke = 2, ZIndex = 3, Parent = step })
+			Ui.text({ Text = string.format("%.3f", r.t), TextSize = 14, TextColor3 = Ui.INK, Position = UDim2.fromOffset(0, 30), Size = UDim2.new(1, 0, 0, 16), ZIndex = 3, Parent = step })
 		end
 	end
 	-- The week's prizes: 1st, 2nd, 3rd and top ten.
@@ -109,7 +109,7 @@ local function draw(page: Frame, ctx: any, api: any, info: any)
 	-- Right: prizes to claim, then the board.
 	local side = Ui.scroller({ Name = "Board", AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.new(0.5, -6, 1, 0), Parent = page })
 	Ui.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = side })
-	Ui.new("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 6), Parent = side })
+	Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 3), PaddingBottom = UDim.new(0, 6), Parent = side })
 	for i, p in info.prizes do
 		local row = Ui.new("Frame", { Name = "Claim", LayoutOrder = i, Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = Color3.fromHex("#fff8e1"), Parent = side }, { Ui.corner(12), Ui.stroke(2, Color3.fromHex("#ffb300")) })
 		Ui.text({ Text = place(p.place), TextSize = 24, Position = UDim2.fromOffset(8, 0), Size = UDim2.new(0, 40, 1, 0), Parent = row })
