@@ -20,6 +20,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MeshoptSimplifier } from 'meshoptimizer'
+import { polishBuilding } from './walk.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '../..')
@@ -136,7 +137,33 @@ function quat([X, Y, Z]) {
 // matching material so paving and asphalt keep some of their grain.
 const TEXTURED = { '#eadfc8': 'Pavement', '#9ba1a8': 'Asphalt' }
 
-function lookKey(look, paint) {
+// The Roblox material nearest each of the web game's hand-drawn textures (scene/textures.ts), for
+// buildings: players walk right up to them, where a flat colour reads as an untextured wall. Ground
+// textures (grass, asphalt) stay as they are: the town's ground is drawn to its own rules.
+const TEX_MATERIAL = {
+  brickTex: 'Brick',
+  sidingTex: 'WoodPlanks',
+  shingleTex: 'RoofShingles',
+  gravelTex: 'Pebble',
+  concreteTex: 'Concrete',
+  paverTex: 'Pavement',
+  corrugatedTex: 'Metal',
+  shutterTex: 'Metal',
+  containerTex: 'Metal',
+  curtainTex: 'Fabric',
+  sandTex: 'Sand',
+  beachSandTex: 'Sand',
+  snowTex: 'Snow',
+  soilTex: 'Ground',
+  dirtTex: 'Ground',
+  windowTex: 'Glass',
+}
+
+// The windows walk.mjs adds to bare walls: a pale frame round dark glass.
+const WINDOW_FRAME = { c: '#eceff1', o: 1 }
+const WINDOW_GLASS = { c: '#5b7a90', o: 1, tex: 'windowTex' }
+
+function lookKey(look, paint, building = false) {
   const c = look.c
   const transparency = Math.round((1 - look.o) * 100) / 100
   // Lit glow (emissive or unlit bright colours on signs and lamps) shows as Neon.
@@ -147,6 +174,7 @@ function lookKey(look, paint) {
   // 1 with roughness 1; that's not metal.)
   else if ((look.met ?? 0) > 0.6 && (look.rough ?? 1) < 0.8) material = 'Metal'
   else if (TEXTURED[c]) material = TEXTURED[c]
+  else if (building && TEX_MATERIAL[look.tex]) material = TEX_MATERIAL[look.tex]
   const color = material === 'Neon' && look.e ? look.e : c
   return { color, transparency, material, text: look.text ?? null, paint: !!paint }
 }
@@ -330,8 +358,8 @@ export function convert(data) {
   const { geos, models } = data
   const looks = []
   const lookIds = new Map()
-  const lookId = (look, paint) => {
-    const l = lookKey(look, paint)
+  const lookId = (look, paint, building) => {
+    const l = lookKey(look, paint, building)
     const k = JSON.stringify(l)
     if (!lookIds.has(k)) {
       lookIds.set(k, looks.length + 1)
@@ -342,7 +370,7 @@ export function convert(data) {
   // Meshes by key, the model that first used each, and a cache of cleaned geometry.
   const meshes = new Map()
   const cleaned = new Map()
-  const stats = { parts: 0, meshes: 0, tris: 0 }
+  const stats = { parts: 0, meshes: 0, tris: 0, moved: 0, windows: 0 }
 
   const meshKey = (m) => createHash('sha1').update(new Float32Array(m.pos)).update(new Uint32Array(m.idx)).digest('hex').slice(0, 16)
 
@@ -381,7 +409,7 @@ export function convert(data) {
       }
       const T = decompose(piece.m)
       const P = geo.params
-      const look = lookId(piece.look, paint.has(i))
+      const look = lookId(piece.look, paint.has(i), model.kind === 'building')
       const add = (kind, p, axes, size, extra) => {
         const q = quat(axes)
         parts.push([kind, ...p.map((x) => x * SCALE), ...q, ...size.map((x) => Math.max(THIN, x * SCALE)), look, ...(extra ? [extra] : [])])
@@ -416,7 +444,7 @@ export function convert(data) {
       }
       // Anything else is a mesh. Cleaned geometry is shared by every piece that draws it.
       for (const sub of trianglesOf(geo, piece.group, model.id.startsWith('horizon:'))) {
-        const subLook = sub.color ? lookId({ ...piece.look, c: mul(piece.look.c, sub.color) }, paint.has(i)) : look
+        const subLook = sub.color ? lookId({ ...piece.look, c: mul(piece.look.c, sub.color) }, paint.has(i), model.kind === 'building') : look
         const ck = `${piece.g}/${piece.group ?? 0}/${sub.color}`
         let m = cleaned.get(ck)
         if (!m) {
@@ -450,6 +478,12 @@ export function convert(data) {
         // Look for vertex-coloured meshes: the last part takes the sub-mesh's colour.
         if (sub.color) parts[parts.length - 1][11] = subLook
       }
+    }
+    if (model.kind === 'building') {
+      const r = polishBuilding(parts, model.lot?.map((x) => x * SCALE), looks, lookId(WINDOW_FRAME, false, true), lookId(WINDOW_GLASS, false, true))
+      stats.moved += r.moved
+      stats.windows += r.windows
+      if (process.env.WALK_LOG && (r.moved || r.windows)) console.log(`${name}: ${r.moved} moved, ${r.windows} windows`)
     }
     out[name] = scenery.has(model.id) ? mergeScenery(model.kind === 'race' ? cutLong(parts) : parts, model.id) : parts
   }
@@ -853,5 +887,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const result = convert(loadModels(file))
   const list = write(result)
   const s = result.stats
-  console.log(`${Object.keys(result.models).length} models, ${s.parts} parts, ${s.meshes} meshes (${s.tris} triangles) in ${list.length} packs`)
+  console.log(`${Object.keys(result.models).length} models, ${s.parts} parts, ${s.meshes} meshes (${s.tris} triangles) in ${list.length} packs; ${s.moved} props moved out of walls, ${s.windows} windows added`)
 }
