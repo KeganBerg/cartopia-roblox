@@ -243,7 +243,8 @@ function TownView._renderLand(self: TownView, land: { string })
 					CastShadow = false,
 					Parent = (self.folder :: any).Land,
 				})
-			else
+			elseif self.folder:FindFirstChild("Meadow") then
+				-- (In the shared world its ground already covers land not bought yet.)
 				self.land[k] = meadowPart((self.folder :: any).Meadow, self.origin, c - self.origin, Vector3.new(PLOT * TILE, 0, PLOT * TILE))
 			end
 		end
