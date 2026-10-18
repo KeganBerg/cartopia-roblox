@@ -60,7 +60,7 @@ async function call(url, init, what) {
 // the image's own, ready for a Texture.
 async function upload(key, creator, name, file, image = false) {
   const form = new FormData()
-  const request = { assetType: image ? 'Decal' : 'Model', displayName: `Cartopia ${name.replace(":", " ")}`.slice(0, 50), description: image ? 'Cartopia ground texture' : 'Cartopia 3D models', creationContext: { creator, expectedPrice: 0 } }
+  const request = { assetType: image ? 'Decal' : 'Model', displayName: `Cartopia ${name.replace(":", " ")}`.slice(0, 50), description: image ? 'Cartopia picture' : 'Cartopia 3D models', creationContext: { creator, expectedPrice: 0 } }
   form.append('request', JSON.stringify(request))
   form.append('fileContent', new Blob([readFileSync(file)], { type: image ? 'image/png' : 'model/gltf-binary' }), image ? `${name}.png` : `${name}.glb`)
   let op = await call(`${API}/assets`, { method: 'POST', headers: { 'x-api-key': key }, body: form }, `upload ${name}`)
@@ -81,10 +81,14 @@ if (!key || !universe) {
 }
 const TEX_DIR = join(ROOT, 'build/textures')
 const texList = existsSync(join(TEX_DIR, 'list.json')) ? JSON.parse(readFileSync(join(TEX_DIR, 'list.json'), 'utf8')) : []
-// Textures share assets.json with the packs, as "texture:<name>".
+// The loading screen's pictures (tools/splash/build.mjs).
+const SPLASH_DIR = join(ROOT, 'build/splash')
+const splashList = existsSync(join(SPLASH_DIR, 'list.json')) ? JSON.parse(readFileSync(join(SPLASH_DIR, 'list.json'), 'utf8')) : []
+// Textures and pictures share assets.json with the packs, as "texture:<name>" and "splash:<name>".
 const packs = [
   ...JSON.parse(readFileSync(join(GLB_DIR, 'packs.json'), 'utf8')).map((p) => ({ ...p, path: join(GLB_DIR, p.file) })),
   ...texList.map((t) => ({ name: `texture:${t.name}`, path: join(TEX_DIR, t.file), image: true })),
+  ...splashList.map((t) => ({ name: `splash:${t.name}`, path: join(SPLASH_DIR, t.file), image: true })),
 ]
 const assets = existsSync(ASSETS) ? JSON.parse(readFileSync(ASSETS, 'utf8')) : {}
 const todo = packs.filter((p) => !assets[p.name])
@@ -94,13 +98,18 @@ if (todo.length) {
   try {
     const creator = creatorFromEnv() ?? (await creatorOf(universe))
     console.log(`uploading as ${JSON.stringify(creator)}`)
-    for (const p of todo) {
-      assets[p.name] = await upload(key, creator, p.name, p.path, p.image)
-      done++
-      // Save as we go, so a run that stops halfway keeps what it uploaded.
-      writeFileSync(ASSETS, JSON.stringify(Object.fromEntries(Object.entries(assets).sort()), null, 1) + '\n')
-      console.log(`${p.name} -> ${assets[p.name]}`)
+    // A few at a time: Roblox takes a few seconds to process each one.
+    const queue = [...todo]
+    const worker = async () => {
+      for (let p = queue.shift(); p; p = queue.shift()) {
+        assets[p.name] = await upload(key, creator, p.name, p.path, p.image)
+        done++
+        // Save as we go, so a run that stops halfway keeps what it uploaded.
+        writeFileSync(ASSETS, JSON.stringify(Object.fromEntries(Object.entries(assets).sort()), null, 1) + '\n')
+        console.log(`${p.name} -> ${assets[p.name]}`)
+      }
     }
+    await Promise.all(Array.from({ length: 4 }, worker))
   } catch (err) {
     // Never stops the publish: the game draws a box for each shape not uploaded, and the next
     // run tries again.

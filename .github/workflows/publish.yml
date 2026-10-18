@@ -59,6 +59,8 @@ jobs:
         run: |
           npm ci --prefix tools/models
           node tools/models/build.mjs web
+          # The loading screen's pictures, from the web game's own splash art.
+          node tools/splash/build.mjs web
 
       - name: Upload new 3D shapes to Roblox
         if: env.CAN_PUBLISH == 'true'
@@ -70,6 +72,7 @@ jobs:
           # A key without Assets permission leaves a warning and the game draws boxes in their place.
           node tools/models/upload.mjs
           node tools/models/build.mjs --json build/models.json
+          node tools/splash/build.mjs web
 
       - name: Install Luau 0.700 (newer releases flag type errors in the port)
         run: |
@@ -80,7 +83,7 @@ jobs:
       - name: See whether the web game changed
         id: diff
         run: |
-          git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models tests/Golden.luau tests/StoreGolden.luau
+          git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau tests/Golden.luau tests/StoreGolden.luau
           if [ -f tools/models/assets.json ]; then git add tools/models/assets.json; fi
           if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi
           # A scheduled check publishes only when something is new: a web game change, or a commit

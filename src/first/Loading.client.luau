@@ -7,22 +7,63 @@
 --      model library
 --   4. the town's parts streamed to this client, and the countryside drawn round it
 --   5. every mesh, texture and picture in view, downloaded (ContentProvider:PreloadAsync)
--- Then it fades away. If something never arrives it still lifts after MAX seconds.
+-- Then the player's car drives off and it fades away. If something never arrives it still lifts
+-- after MAX seconds.
 
 local ContentProvider = game:GetService("ContentProvider")
 local Players = game:GetService("Players")
 local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
 local MAX = 120 -- seconds before the cover lifts whatever is still missing
+local LABEL = "Loading your town…" -- the web's words; the bar shows how far along it is
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local LoadingScreen = require(script.Parent:WaitForChild("LoadingScreen"))
-local screen = LoadingScreen.new(playerGui)
+-- The server looks up each picture's own image id when the upload gave a decal's (see
+-- server/Splash) and shares it as a Workspace attribute.
+local screen = LoadingScreen.new(playerGui, {
+	content = function(id: number): string
+		return (workspace:GetAttribute(`Splash{id}`) :: string?) or `rbxassetid://{id}`
+	end,
+})
 ReplicatedFirst:RemoveDefaultLoadingScreen()
+workspace.AttributeChanged:Connect(function(name)
+	if string.sub(name, 1, 6) == "Splash" then
+		screen:refreshImages()
+	end
+end)
+
+-- The town's time of day, worked out as the web's loading screen does (from game/clock.ts: the
+-- 20-minute day, eased), so the screen is right from its first frame.
+do
+	local m = (DateTime.now().UnixTimestampMillis % 1200000) / 1200000
+	local d = math.abs(m + 0.05 * math.sin(2 * math.pi * m) - 0.5)
+	local x = math.clamp((0.3 - d) / 0.2, 0, 1)
+	local n = x * x * (3 - 2 * x)
+	screen:setTime(if n > 0.7 then "night" elseif n > 0.08 then "dusk" else "day")
+end
+
+-- The player's race car, which the server names as soon as their save is open; the Hot Shot if
+-- it hasn't after a few seconds.
+local function useCar()
+	screen:setCar(player:GetAttribute("SplashCar") :: string?, player:GetAttribute("SplashPaint") :: string?)
+end
+player:GetAttributeChangedSignal("SplashCar"):Connect(useCar)
+task.delay(4, function()
+	if not screen.model then
+		useCar()
+	end
+end)
+if player:GetAttribute("SplashCar") then
+	useCar()
+end
+-- Its own pictures first, so they're up while everything else loads.
+task.spawn(function()
+	pcall(ContentProvider.PreloadAsync, ContentProvider, screen:images())
+end)
 
 local started = os.clock()
 local spin = RunService.RenderStepped:Connect(function(dt)
@@ -40,42 +81,25 @@ local function waitFor(check: () -> boolean)
 	end
 end
 
--- The sky's colours for the town's time of day, once the shared game code has replicated.
-task.spawn(function()
-	local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
-	local ok, tod = pcall(function()
-		local Js = require(Game:WaitForChild("__js")) :: any
-		Js.setClock(function()
-			return DateTime.now().UnixTimestampMillis
-		end)
-		local clock = require(Game:WaitForChild("clock")) :: any
-		local n = clock.nightAmount(clock.dayPhase())
-		return if n > 0.7 then "night" elseif n > 0.08 then "dusk" else "day"
-	end)
-	if ok then
-		screen:tint(tod)
-	end
-end)
-
 -- 1. The place.
-screen:set("Loading", 0.02)
+screen:set(LABEL, 0.02)
 if not game:IsLoaded() then
 	game.Loaded:Wait()
 end
 
 -- 2. The 3D shapes, which the server loads once when it starts.
-screen:set("Unpacking the cars and buildings", 0.05)
+screen:set(LABEL, 0.05)
 waitFor(function()
 	local total = workspace:GetAttribute("ShapesTotal") :: number?
 	local done = workspace:GetAttribute("ShapesLoaded") :: number?
 	if total and done and total > 0 then
-		screen:set("Unpacking the cars and buildings", 0.05 + 0.4 * done / total)
+		screen:set(LABEL, 0.05 + 0.4 * done / total)
 	end
 	return workspace:GetAttribute("ShapesReady") == true
 end)
 
 -- 3. The player's town.
-screen:set("Building your town", 0.45)
+screen:set(LABEL, 0.45)
 waitFor(function()
 	-- And the server's model library, which the shop's pictures are drawn from.
 	return player:GetAttribute("TownReady") == true and ReplicatedStorage:FindFirstChild("ModelLibrary") ~= nil
@@ -97,13 +121,13 @@ waitFor(function()
 end)
 
 -- 4. Its parts streamed in round its middle, and the countryside round it.
-screen:set("Building your town", 0.5)
+screen:set(LABEL, 0.5)
 local town = myTown()
 local origin = if town then town:GetAttribute("Origin") :: Vector3? else nil
 if origin and workspace.StreamingEnabled then
 	pcall(player.RequestStreamAroundAsync, player, origin, math.max(1, math.min(30, timeLeft())))
 end
-screen:set("Planting the countryside", 0.55)
+screen:set(LABEL, 0.55)
 waitFor(function()
 	local c = workspace:FindFirstChild("Countryside")
 	return c ~= nil and c:GetAttribute("Drawn") == true
@@ -142,7 +166,7 @@ for id in wanted do
 	table.insert(list, id)
 end
 local total, done = #list, 0
-screen:set("Painting the town", 0.6)
+screen:set(LABEL, 0.6)
 if total > 0 then
 	-- In a few batches at once, so one slow download doesn't hold up the rest.
 	local BATCHES = 8
@@ -157,7 +181,7 @@ if total > 0 then
 			task.spawn(function()
 				pcall(ContentProvider.PreloadAsync, ContentProvider, batch, function()
 					done += 1
-					screen:set("Painting the town", 0.6 + 0.38 * done / total)
+					screen:set(LABEL, 0.6 + 0.38 * done / total)
 				end)
 				running -= 1
 			end)
@@ -168,26 +192,12 @@ if total > 0 then
 	end)
 end
 
--- A couple of frames so the first drawn frame has everything, then fade out.
-screen:set("Here we go", 1)
+-- A couple of frames so the first drawn frame has everything, then the car drives off.
 for _ = 1, 3 do
 	RunService.RenderStepped:Wait()
 end
 if timeLeft() <= 0 then
 	warn("[Cartopia] Still loading after " .. MAX .. " seconds; showing the game anyway.")
 end
-local fade = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-for _, d in screen.gui:GetDescendants() do
-	if d:IsA("Frame") or d:IsA("TextButton") then
-		TweenService:Create(d, fade, { BackgroundTransparency = 1 }):Play()
-	end
-	if d:IsA("TextLabel") or d:IsA("TextButton") then
-		TweenService:Create(d, fade, { TextTransparency = 1 }):Play()
-	end
-	if d:IsA("UIStroke") then
-		TweenService:Create(d, fade, { Transparency = 1 }):Play()
-	end
-end
-task.wait(0.5)
+screen:finish()
 spin:Disconnect()
-screen.gui:Destroy()

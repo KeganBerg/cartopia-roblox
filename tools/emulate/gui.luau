@@ -276,6 +276,10 @@ local function node(g, r)
 			n.textColor = hex(g.PlaceholderColor3)
 		end
 	end
+	if (g:IsA("ImageLabel") or g:IsA("ImageButton")) and g:GetAttribute("Key") then
+		-- Which picture (render.mjs finds it in build/splash), its tint and how it's fitted.
+		n.image = { key = g:GetAttribute("Key"), color = hex(g.ImageColor3), t = g.ImageTransparency, scale = enumName(g.ScaleType) }
+	end
 	if g:IsA("ViewportFrame") then
 		-- What it shows: its parts and camera, which render.mjs draws as a little picture.
 		local parts = {}
