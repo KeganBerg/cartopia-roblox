@@ -16,6 +16,10 @@ end
 -- Opens `count` (1 or 10) of crate `id`, or the free crate `free` (a source in the town's
 -- freeCrates). Returns the opens, or nil and why (the town's "you need" note says what's short).
 function Crates.open(self: Crates, userId: number, id: any, free: any, count: any): (any, string?)
+	-- The Daily Spin comes through the same remote: the spin itself is a crate open ("wheel").
+	if id == "wheel" then
+		return self:spin(userId)
+	end
 	if type(id) ~= "string" or not self.crates.crateDef(id) then
 		return nil, "no such crate"
 	end
@@ -36,6 +40,30 @@ function Crates.open(self: Crates, userId: number, id: any, free: any, count: an
 			return nil, "not opened"
 		end
 		return opened, nil
+	end)
+end
+
+-- Today's free spin of the Daily Spin wheel (ui/Wheel.tsx). The web rolls a signed-in player's
+-- spin on its server (wheel_spin()) and a guest's in the browser with the store's own spinWheel and
+-- rollWheel (game/wheel.ts, the same odds as the server's table); here the server runs that
+-- spinWheel inside the player's town, with no online spinner plugged in, so the roll, the prize
+-- and the once-a-day mark all come from the web game's code. Returns the spin { slice, open } for
+-- the wheel to land on, or nil and why ("spun today").
+function Crates.spin(self: Crates, userId: number): (any, string?)
+	return self.towns:_with(userId, function(s: any): (any, string?)
+		s.tick(self.towns.now())
+		if s.lastDaily == self.store.today() then
+			return nil, "spun today"
+		end
+		local got: any = nil
+		local promise = self.store.spinWheel()
+		promise["then"](promise, function(_, value)
+			got = value
+		end)
+		if got == nil then
+			return nil, "not spun"
+		end
+		return got, nil
 	end)
 end
 

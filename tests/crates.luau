@@ -51,4 +51,44 @@ return function(test)
 		assert(crates:open(1, "nope", nil, 1) == nil, "unknown")
 		assert(crates:open(1, "street", "cup:nope", 1) == nil, "not a free crate of theirs")
 	end)
+	test("wheel: today's spin is rolled on the server with the web's odds, paid once, then refused", function()
+		local crates, towns = setup()
+		local wheel = require(G .. "wheel")
+		local before = towns:snapshot(1).save
+		local spin, why = crates:open(1, "wheel")
+		assert(spin, `spin: {why}`)
+		local slice = wheel.wheelSlice(spin.slice)
+		assert(slice and spin.open.crate == "wheel", `a slice of the wheel: {spin.slice}`)
+		local after = towns:snapshot(1).save
+		assert(after.lastDaily == require(G .. "store").today(), "marked spun today")
+		local coins = if spin.open.drop.kind == "coins" or spin.open.drop.kind == "skindupe" then spin.open.drop.coins else 0
+		assert(after.coins == before.coins + coins, `coins {before.coins} -> {after.coins} (+{coins})`)
+		assert(after.bucks == before.bucks + wheel.spinGems(spin.open), `gems {before.bucks} -> {after.bucks}`)
+		local again, why2 = crates:open(1, "wheel")
+		assert(again == nil and why2 == "spun today", tostring(why2))
+		assert(towns:snapshot(1).save.coins == after.coins, "nothing more paid")
+	end)
+
+	test("wheel: many spins land on every slice about as often as the web's weights say", function()
+		local store = require(G .. "store")
+		local wheel = require(G .. "wheel")
+		local crates, towns = setup()
+		local seen = {}
+		local N = 2000
+		for _ = 1, N do
+			towns:_with(1, function()
+				store.useGame.setState({ lastDaily = "2000-01-01" })
+			end)
+			local spin = assert(crates:open(1, "wheel"))
+			seen[spin.slice] = (seen[spin.slice] or 0) + 1
+		end
+		for _, s in wheel.WHEEL do
+			local want = wheel.wheelPct(s) / 100 * N
+			local got = seen[s.id] or 0
+			-- A part or skin slice pays as coins-m when it has nothing to give, so leave those three out.
+			if s.id ~= wheel.WHEEL_FALLBACK and (s.kind == "coins" or s.kind == "gems" or s.kind == "jackpot") then
+				assert(math.abs(got - want) < 4 * math.sqrt(want) + 5, `{s.id}: {got} of {N}, want about {want}`)
+			end
+		end
+	end)
 end
