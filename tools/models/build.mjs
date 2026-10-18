@@ -335,6 +335,7 @@ export function convert(data) {
   const meshKey = (m) => createHash('sha1').update(new Float32Array(m.pos)).update(new Uint32Array(m.idx)).digest('hex').slice(0, 16)
 
   const out = {}
+  const piecesToParts = {}
   const loose = new Map()
   const scenery = new Set()
   const races = new Set()
@@ -346,8 +347,18 @@ export function convert(data) {
     const keep = merged ? (m) => ((m.key ??= meshKey(m)), loose.set(m.key, m), m.key) : remember
     const name = model.kind === 'building' ? `${model.id}@${model.level ?? 1}` : model.id
     const paint = new Set(model.paint ?? [])
+    // A car's mods share one pack ("mod:<car>"), which the game loads only when that car needs it.
+    const packOwner = model.id.startsWith('mod:') ? model.id.split(':').slice(0, 2).join(':') : model.id
     const parts = []
+    // Which parts (1-based, as Luau counts) each piece became, for the stock pieces a mod takes away.
+    const partsOf = []
     model.pieces.forEach((piece, i) => {
+      const from = parts.length
+      convertPiece(piece, i)
+      partsOf[i] = Array.from({ length: parts.length - from }, (_, k) => from + k + 1)
+    })
+    if (model.kind === 'car') piecesToParts[model.id] = partsOf
+    function convertPiece(piece, i) {
       const geo = geos[piece.g]
       // The web game stacks the strip's flat layers (ground, asphalt, paint) a hundredth of a unit
       // apart (layers.ts LAYER) and nudges paint forward in depth (decal). Roblox has no such nudge, and a
@@ -398,7 +409,7 @@ export function convert(data) {
         }
         if (!m.idx.length) continue
         if (T && !T.mirrored) {
-          const key = keep(m, model.id)
+          const key = keep(m, packOwner)
           add('m', apply(piece.m, m.center), T.axes, m.size.map((x, k) => x * T.s[k]), key)
         } else {
           // Skewed or mirrored: bake the transform into the vertices.
@@ -410,13 +421,13 @@ export function convert(data) {
           const idx = flip ? m.idx.map((_, j, a) => a[j - (j % 3) + [0, 2, 1][j % 3]]) : m.idx
           const baked = cleanMesh(pos, null, idx)
           baked.size = b.s
-          const key = keep(baked, model.id)
+          const key = keep(baked, packOwner)
           add('m', b.c, [[1, 0, 0], [0, 1, 0], [0, 0, 1]], b.s, key)
         }
         // Look for vertex-coloured meshes: the last part takes the sub-mesh's colour.
         if (sub.color) parts[parts.length - 1][11] = subLook
       }
-    })
+    }
     out[name] = scenery.has(model.id) ? mergeScenery(model.kind === 'race' ? cutLong(parts) : parts, model.id) : parts
   }
 
@@ -521,7 +532,18 @@ export function convert(data) {
     const T = decompose(m)
     if (T && !T.mirrored) hatSpots[id] = [...T.p.map((x) => x * SCALE), ...quat(T.axes), T.s[1]]
   }
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, textures: data.textures ?? [] }
+  // Mods: the stock car parts each one takes away, every car's stock wheel parts, and how far
+  // each stance moves a car's body (studs).
+  const toParts = (car, list) => list.flatMap((i) => piecesToParts[car]?.[i] ?? [])
+  const modDrops = {}
+  for (const [car, byMod] of Object.entries(data.modDrops ?? {}))
+    for (const [mod, list] of Object.entries(byMod)) (modDrops[car] ??= {})[mod] = toParts(car, list)
+  const wheels = {}
+  for (const [car, list] of Object.entries(data.wheelsOf ?? {})) wheels[car] = toParts(car, list)
+  const stance = {}
+  for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
+    for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, stance, textures: data.textures ?? [] }
 }
 
 function mul(a, b) {
@@ -617,6 +639,13 @@ Catalog.LOOKS = {
   }
   cat += '}\n\n-- Where each car wears a hat ("hat:<id>" models): { x, y, z, qx, qy, qz, qw, scale } from the car\'s\n-- middle on the ground, in studs.\nCatalog.HAT_SPOTS = {\n'
   for (const [id, s] of Object.entries(result.hatSpots ?? {})) cat += `\t[${str(id)}] = { ${s.map(num).join(', ')} },\n`
+  const lists = (o) => Object.entries(o).map(([k, v]) => `[${str(k)}] = { ${v.map(num).join(', ')} }`).join(', ')
+  cat += '}\n\n-- Mods ("mod:<car>:<mod>" models): the car\'s own parts (indices into its MODELS entry) each mod\n-- takes away, by car then mod.\nCatalog.MOD_DROPS = {\n'
+  for (const [car, byMod] of Object.entries(result.modDrops ?? {})) cat += `\t[${str(car)}] = { ${lists(byMod)} },\n`
+  cat += '}\n\n-- Each car\'s stock wheel parts (tyres and rims), which a set of rims replaces.\nCatalog.WHEELS = {\n'
+  for (const [car, list] of Object.entries(result.wheels ?? {})) cat += `\t[${str(car)}] = { ${list.map(num).join(', ')} },\n`
+  cat += '}\n\n-- How far each stance mod moves a car\'s body up (or down), in studs.\nCatalog.STANCE = {\n'
+  for (const [car, byMod] of Object.entries(result.stance ?? {})) cat += `\t[${str(car)}] = { ${Object.entries(byMod).map(([k, v]) => `${k} = ${num(v)}`).join(', ')} },\n`
   cat += '}\n\nCatalog.MODELS = {\n' + modelList('town') + '}\n\nreturn Catalog\n'
   writeFileSync(join(OUT_DIR, 'Catalog.luau'), cat)
   // The countryside, apart so the town's own models stay quick to load. Parts are in studs from
@@ -635,7 +664,7 @@ RaceScenery.MODELS = {
   writeFileSync(join(OUT_DIR, 'RaceScenery.luau'), rs)
 
   const list = packs(meshes)
-  let mesh = header('Each mesh: the Roblox asset (a model of MeshParts named by key) it was uploaded in, and its size in studs.') + `-- asset = 0 until tools/models/upload.mjs uploads its pack; the game draws a box in its place until then.
+  let mesh = header('Each mesh: the Roblox asset (a model of MeshParts named by key) it was uploaded in, and its size in studs.') + `-- asset = 0 until tools/models/upload.mjs uploads its pack; the game draws a box in its place until then.\n-- lazy: in a car's mod pack, loaded only when a car needs it (Builder.loadFor).
 local Meshes = {}
 
 Meshes.MESHES = {
@@ -643,7 +672,8 @@ Meshes.MESHES = {
   for (const pk of list) {
     const asset = assets[pk.name] ?? 0
     writeFileSync(join(GLB_DIR, `${pk.name}.glb`), glb(pk.meshes))
-    for (const m of pk.meshes) mesh += `\t[${str(m.key)}] = { asset = ${asset}, size = Vector3.new(${m.size.map((x) => num(x * SCALE)).join(', ')}) },\n`
+    const lazy = pk.owner.startsWith('mod:') ? ', lazy = true' : ''
+    for (const m of pk.meshes) mesh += `\t[${str(m.key)}] = { asset = ${asset}, size = Vector3.new(${m.size.map((x) => num(x * SCALE)).join(', ')})${lazy} },\n`
   }
   mesh += '}\n\nreturn Meshes\n'
   writeFileSync(join(OUT_DIR, 'Meshes.luau'), mesh)

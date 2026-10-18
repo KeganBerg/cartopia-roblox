@@ -374,6 +374,55 @@ it('exports every building and car', async () => {
   if (!only) for (const d of BUILDINGS) {
     for (const level of LEVELS) models.push({ id: d.id, kind: 'building', level, pieces: await render(<BuildingModel def={d} level={level} />) })
   }
+  // Mods (CarMods.tsx, the Rims and Stance looks): each car drawn with one part fitted at a time
+  // and compared with the stock car. The pieces the part adds are its model ("mod:<car>:<part>"),
+  // and the stock pieces it takes away (a roof rack where the roof gear was) are listed by index.
+  // A stance moves the whole body, so it's kept as numbers instead: how far the body rises.
+  const { MODS, modFits } = await import('./game/data')
+  // Drawn with geometry lists of their own, so only the pieces a mod adds reach the export.
+  type Drawn = { pieces: Piece[]; list: Geo[] }
+  const renderApart = async (el: React.ReactElement): Promise<Drawn> => {
+    const list: Geo[] = []
+    const r = await ReactThreeTestRenderer.create(el)
+    const pieces = walk(r.scene.instance as Object3D, new Map(), list)
+    await r.unmount()
+    return { pieces, list }
+  }
+  const geoHash = (G: Geo) => createHash('sha1').update(JSON.stringify([G.type, G.params, G.pos, G.idx, G.col ?? null])).digest('hex').slice(0, 16)
+  const sigs = new WeakMap<Geo, string>()
+  const sigOf = (p: Piece, list: Geo[]) => {
+    const G = list[p.g]
+    let h = sigs.get(G)
+    if (!h) sigs.set(G, (h = geoHash(G)))
+    return `${h}/${p.group ?? ''}/${p.m.join(',')}/${JSON.stringify(p.look)}`
+  }
+  // A piece drawn apart, with its geometry moved into the export's own list (once per shape).
+  const byHash = new Map<string, number>()
+  const adopt = (p: Piece, list: Geo[]): Piece => {
+    const G = list[p.g]
+    const h = sigs.get(G) ?? geoHash(G)
+    let g = byHash.get(h)
+    if (g === undefined) byHash.set(h, (g = geoList.push(G) - 1))
+    return { ...p, g }
+  }
+  // The stock pieces missing from `next`, and the indices of `next`'s pieces stock doesn't have.
+  const diff = (stock: Piece[], next: Drawn) => {
+    const left = new Map<string, number[]>()
+    stock.forEach((p, i) => {
+      const k = sigOf(p, geoList)
+      left.set(k, [...(left.get(k) ?? []), i])
+    })
+    const added: number[] = []
+    next.pieces.forEach((p, i) => {
+      const hit = left.get(sigOf(p, next.list))
+      if (hit?.length) hit.shift()
+      else added.push(i)
+    })
+    return { dropped: [...left.values()].flat().sort((a, b) => a - b), added }
+  }
+  const modDrops: Record<string, Record<string, number[]>> = {}
+  const wheelsOf: Record<string, number[]> = {}
+  const stanceOf: Record<string, Record<string, number>> = {}
   // Each car twice in two paints: the pieces that change colour are its paint.
   if (!only) for (const c of CARS) {
     const a = await render(<CarModel body={c.body} model={c.id} color="#ff00ff" />)
@@ -386,6 +435,25 @@ it('exports every building and car', async () => {
     const striped = await render(<CarModel body={c.body} model={c.id} color={c.colors[0]} stripe="#0000fe" />)
     const stripes = striped.filter((p) => p.look.c === '#0000fe')
     if (stripes.length) models.push({ id: `stripe:${c.id}`, kind: 'piece', pieces: stripes })
+    if (process.env.RBX_MODS === '0') continue
+    for (const m of MODS) {
+      if (!modFits(m, c.body) || m.slot === 'tires') continue
+      const ma = await renderApart(<CarModel body={c.body} model={c.id} color="#ff00ff" mods={[m.id]} />)
+      const { dropped, added } = diff(a, ma)
+      if (m.slot === 'stance') {
+        // The body's paint, moved up or down: how far it rose.
+        const at = ma.pieces.find((p) => p.look.c === '#ff00ff')
+        const was = a.find((p) => p.look.c === '#ff00ff')
+        if (at && was) (stanceOf[c.id] ??= {})[m.id] = r4(at.m[13] - was.m[13])
+        continue
+      }
+      if (!added.length && !dropped.length) continue
+      const mc = await renderApart(<CarModel body={c.body} model={c.id} color={c.colors[0]} mods={[m.id]} />)
+      models.push({ id: `mod:${c.id}:${m.id}`, kind: 'piece', pieces: added.map((i) => adopt(mc.pieces[i], mc.list)), paint: added.flatMap((i, k) => (ma.pieces[i].look.c === '#ff00ff' ? [k] : [])) })
+      if (dropped.length) (modDrops[c.id] ??= {})[m.id] = dropped
+      // The stock wheels (tyres and rims) are what a set of rims replaces.
+      if (m.slot === 'rims') wheelsOf[c.id] ??= dropped
+    }
   }
   // Hats (CarHat.tsx), each standing on its own origin, once in every colour it comes in (named as
   // CarHat caches them: "hat:<id>|<colours>"). The shapes are the same in each colour, so only the
@@ -551,7 +619,7 @@ it('exports every building and car', async () => {
     }
     batching.off = false
   }
-  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, modDrops, wheelsOf, stanceOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

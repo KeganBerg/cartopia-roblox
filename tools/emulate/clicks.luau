@@ -129,6 +129,9 @@ raceRemote.Parent = remotes
 local crateRemote = Instance.new("RemoteFunction")
 crateRemote.Name = "Crate"
 crateRemote.Parent = remotes
+local meshRemote = Instance.new("RemoteFunction")
+meshRemote.Name = "Meshes"
+meshRemote.Parent = remotes
 -- The race desk, as init.server.luau makes it (a seeded stand-in for Random).
 local seed = 7
 local G = RS.Shared.Game
@@ -275,6 +278,9 @@ local crateDesk = emu.require(SSS.Server.Crates).new(towns, store, emu.require(G
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
 	if remote.Name == "Race" then
 		return raceDesk(name, ...)
+	elseif remote.Name == "Meshes" then
+		-- Every mesh is already here in the previews.
+		return true
 	elseif remote.Name == "Crate" then
 		local ran, result, why = pcall(crateDesk.open, crateDesk, 1, name, ...)
 		if not ran then
@@ -463,6 +469,13 @@ clickAll("hats", function()
 		signalFor(b, "Activated"):Fire()
 	end
 end)
+clickAll("mods", function()
+	hud.openPanel("cars", "garage")
+	local b = hud.gui:FindFirstChild("mods", true)
+	if b then
+		signalFor(b, "Activated"):Fire()
+	end
+end)
 clickAll("paint", function()
 	hud.openPanel("cars", "garage")
 	local b = hud.gui:FindFirstChild("paint", true)
@@ -537,7 +550,14 @@ if SHOTS then
 	shot("book", nil)
 	-- Paint: try chrome with white stripes on the first car, look at a locked colour, then buy.
 	towns:_with(1, function()
-		store.useGame.setState({ coins = 1000000, level = 10 })
+		-- Gems and stock cars again: pressing every Mods button above spent them and fitted parts.
+		local cars = {}
+		for i, c in store.useGame.getState().cars do
+			cars[i] = table.clone(c)
+			cars[i].mods = nil
+			cars[i].ownedMods = nil
+		end
+		store.useGame.setState({ coins = 1000000, bucks = 1000, level = 10, cars = cars, selectedCar = cars[1].uid })
 	end)
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 	hud.ctx.close()
@@ -578,6 +598,30 @@ if SHOTS then
 	shot("hats-worn", nil)
 	tap("crown")
 	shot("hats-locked", nil)
+	-- Mods: try the GT Wing and fit it, then try gold rims and a lift kit on top.
+	towns:_with(1, function()
+		store.useGame.setState({ parts = 500 })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("cars", "garage")
+	tap("mods")
+	shot("mods", nil)
+	tap("gtwing")
+	shot("mods-try", nil)
+	local wing = hud.gui:FindFirstChild("gtwing", true)
+	local buy = wing and wing:FindFirstChild("Go", true)
+	assert(buy, "no buy button on the GT Wing")
+	signalFor(buy, "Activated"):Fire()
+	local modded = towns:snapshot(1).save.cars[1].mods or {}
+	assert(table.find(modded, "gtwing"), "the GT Wing didn't stick")
+	shot("mods-fitted", nil)
+	tap("rims")
+	tap("goldmesh")
+	shot("mods-rims", nil)
+	tap("stance")
+	tap("lifted")
+	shot("mods-stance", nil)
 	-- Call Cards: wearing one you won, then looking at one still locked.
 	towns:_with(1, function()
 		store.useGame.setState({ callCards = { "neonalley", "plasma", "goldrush" }, callCard = "neonalley" })

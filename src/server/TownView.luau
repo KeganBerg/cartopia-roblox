@@ -21,6 +21,7 @@ local streetFurniture = require(Game.streetFurniture) :: any
 local Builder = require(Shared.Models.Builder)
 local Catalog = require(Shared.Models.Catalog)
 local Paint = require(Shared.Models.Paint)
+local Mods = require(Shared.Models.Mods)
 
 local SCALE = Catalog.SCALE
 local TILE = data.TILE * SCALE -- studs per tile
@@ -76,6 +77,9 @@ export type TownView = typeof(setmetatable(
 		lawnKey: string?,
 		buildings: { [string]: { model: Model, key: string } },
 		cars: { [string]: { model: Model, key: string } },
+		-- The last save drawn, and the cars whose mod meshes are loading.
+		last: any,
+		waiting: { [string]: boolean },
 	},
 	TownView
 ))
@@ -137,6 +141,8 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		roads = {},
 		buildings = {},
 		cars = {},
+		last = nil,
+		waiting = {},
 	}, TownView)
 end
 
@@ -640,7 +646,21 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 			queue += 1
 		end
 		local job = Paint.jobOf(car)
-		local key = `{car.model}|{Paint.key(job)}|{Paint.hatName(car.hat) or ""}`
+		local key = `{car.model}|{Paint.key(job)}|{Paint.hatName(car.hat) or ""}|{Mods.key(car.mods)}`
+		-- A car's mod meshes load the first time it needs them; it's drawn again once they're in.
+		if car.mods and #car.mods > 0 and not Builder.modsReady(car.model) then
+			key ..= "|waiting"
+			if not self.waiting[car.model] then
+				self.waiting[car.model] = true
+				task.spawn(function()
+					Builder.loadFor(car.model)
+					self.waiting[car.model] = nil
+					if self.last and self.folder.Parent then
+						self:render(self.last)
+					end
+				end)
+			end
+		end
 		local have: { model: Model, key: string }? = self.cars[car.uid]
 		if have and have.key ~= key then
 			have.model:Destroy()
@@ -651,6 +671,7 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 			if m then
 				Paint.apply(m, job, if type(job.stripe) == "string" then Builder.build(`stripe:{car.model}`) else nil)
 				Paint.wearHat(m, car.model, car.hat, Builder.build)
+				Mods.fit(m, car.model, car.mods, Builder.build)
 				m.Name = car.uid
 				m.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 				m:SetAttribute("Uid", car.uid)
@@ -674,6 +695,7 @@ end
 
 -- Draws the town as a save describes it.
 function TownView.render(self: TownView, save: any)
+	self.last = save
 	self.folder:SetAttribute("TownName", save.townName)
 	self:_renderLand(save.land or {})
 	local list = save.roads or {}
