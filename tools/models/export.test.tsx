@@ -13,7 +13,7 @@ import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
   Color, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
-  type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D,
+  type BoxGeometry, type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D, type PlaneGeometry,
 } from 'three'
 import { BUILDINGS, CARS } from './game/data'
 
@@ -903,6 +903,91 @@ it('exports every building and car', async () => {
       console.log(`${id}: ${near.length} pieces, ${far.length} far`)
       await r.unmount()
     }
+    batching.off = false
+  }
+  // Rusty's search lot at each spot (RescueScene.tsx), laid out for 8 to 11 spots as the tow
+  // truck's levels give them, on a wide screen (a Roblox phone is held sideways): the ground, the
+  // dirt loop, the spots' pads, the yard round it and the spot's own scenery (RescueYard,
+  // LotScenery) and Rusty himself, as "rescue:<spot>:<n>". What moves is drawn by the game
+  // (client/RescueLot): each spot's tarp ("rescue:tarp:<spot>:<k>", one per tarp shape, in the
+  // spot's colours), the tow truck with its crane post ("rescue:truck") and the small finds
+  // ("rescue:loot:<kind>").
+  if (!only || only === 'rescue') await rescues()
+  async function rescues() {
+    const { RescueScene } = await import('./scene/RescueScene')
+    const { RESCUE_SPOTS, TRUCK } = await import('./game/data')
+    const counts = [...new Set(TRUCK.map((t: { pins: number }) => t.pins))]
+    const scene = async (spot: string, pins: unknown[], revealed: boolean[]) => {
+      const search = { spot, pins, revealed, truckAt: null, flatAt: null, flat: false }
+      const r = await ReactThreeTestRenderer.create(
+        <RescueScene search={search as never} magnet={false} fast={false} auto={false} leaving={false} onArrive={() => {}} onFound={() => {}} onLeft={() => {}} onBusy={() => {}} />,
+        { width: 1280, height: 800 },
+      )
+      await r.advanceFrames(2, 1 / 60)
+      return r
+    }
+    const isMesh = (o: Object3D, type: string) => ((o as Mesh).geometry as { type?: string } | undefined)?.type === type
+    const has = (o: Object3D, test: (c: Object3D) => boolean) => {
+      let found = false
+      o.traverse((c) => void (found ||= test(c)))
+      return found
+    }
+    // A search spot: its first child is the big invisible tap target.
+    const isSpot = (o: Object3D) => isMesh(o.children[0] ?? o, 'CylinderGeometry') && (((o.children[0] as Mesh).geometry as { parameters?: { radiusTop?: number } }).parameters?.radiusTop === 1.3)
+    // The tow truck: the group with the flashing amber beacons on its cab roof.
+    const isTruck = (o: Object3D) => has(o, (c) => isMesh(c, 'BoxGeometry') && ((c as Mesh).geometry as BoxGeometry).parameters.width === 0.12 && ((c as Mesh).geometry as BoxGeometry).parameters.height === 0.07)
+    const count = (o: Object3D) => {
+      let n = 0
+      o.traverse(() => n++)
+      return n
+    }
+    batching.off = true
+    for (const sp of RESCUE_SPOTS) {
+      for (const n of counts) {
+        const r = await scene(sp.id, Array.from({ length: n }, () => ({ kind: 'nothing' })), Array.from({ length: n }, () => false))
+        const root = r.scene.instance as Object3D
+        const kids = root.children
+        // The lot itself: the biggest group (everything merged into a few draws in the web game).
+        const yard = kids.reduce((a, b) => (count(b) > count(a) ? b : a))
+        const ground = kids.find((o) => isMesh(o, 'PlaneGeometry') && ((o as Mesh).geometry as PlaneGeometry).parameters.width >= 100)
+        const rusty = kids.find((o) => o !== yard && !isSpot(o) && has(o, (c) => isMesh(c, 'CapsuleGeometry')))
+        const keep = new Set([yard, ground, rusty].filter(Boolean))
+        const shown = kids.map((o) => o.visible)
+        kids.forEach((o) => (o.visible = keep.has(o)))
+        const pieces = walk(root, geos, geoList)
+        kids.forEach((o, i) => (o.visible = shown[i]))
+        models.push({ id: `rescue:${sp.id}:${n}`, kind: 'race', pieces })
+        if (n === counts[0]) {
+          // The tarps, each without its turn to face the road (the game turns it).
+          const spots = kids.filter(isSpot)
+          for (let k = 0; k < 3; k++) {
+            const turned = spots[k].children[1].children[0]
+            models.push({ id: `rescue:tarp:${sp.id}:${k}`, kind: 'piece', pieces: walk(turned, geos, geoList) })
+          }
+          if (sp === RESCUE_SPOTS[0]) {
+            // The truck with an empty bed, without the soft shadow under it.
+            const truck = kids.find(isTruck)!
+            truck.traverse((c) => {
+              if (isMesh(c, 'PlaneGeometry')) c.visible = false
+            })
+            models.push({ id: 'rescue:truck', kind: 'piece', pieces: walk(truck, geos, geoList) })
+          }
+        }
+        console.log(`rescue:${sp.id}:${n}: ${pieces.length} pieces`)
+        await r.unmount()
+      }
+    }
+    // The small finds, as they ride in the truck's bed (found before the scene came up, so loaded
+    // at once): each bed slot holds one, drawn at half size.
+    const smalls = ['coins', 'parts', 'fuel', 'trophy'] as const
+    const pins = [...smalls.map((kind) => (kind === 'trophy' ? { kind } : { kind, n: 1 })), ...Array.from({ length: counts[0] - smalls.length }, () => ({ kind: 'nothing' }))]
+    const r = await scene(RESCUE_SPOTS[0].id, pins, pins.map((_, i) => i < smalls.length))
+    const truck = (r.scene.instance as Object3D).children.find(isTruck)!
+    const scaled = truck.children[0]
+    const slots = scaled.children.filter((o) => !(o as Mesh).isMesh && Math.abs(o.scale.x - 0.5) < 1e-6)
+    if (slots.length !== smalls.length) throw new Error(`rescue loot: ${slots.length} bed slots`)
+    slots.forEach((slot, i) => models.push({ id: `rescue:loot:${smalls[i]}`, kind: 'piece', pieces: walk(slot, geos, geoList) }))
+    await r.unmount()
     batching.off = false
   }
   // Each car's size in town traffic (townCarSize.ts): drawn smaller so it fits its lane.

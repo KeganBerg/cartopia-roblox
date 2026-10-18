@@ -741,7 +741,20 @@ local function shot(name, world, w, h)
 	local fog = if lighting.FogEnd < 10000 and not lighting:FindFirstChildOfClass("Atmosphere")
 		then { color = lighting.FogColor:ToHex(), start = lighting.FogStart, ["end"] = lighting.FogEnd }
 		else nil
-	fs.writeFile(`build/shot-{name}.json`, serde.encode("json", { parts = parts, fog = fog }))
+	-- Beams (light columns): their two ends, widths, colour and fade.
+	local beams = {}
+	if world then
+		for _, d in world:GetDescendants() do
+			if d:IsA("Beam") and d.Enabled and d.Attachment0 and d.Attachment1 then
+				-- (The emulator has no WorldPosition: from the part they're on.)
+				local a = d.Attachment0.Parent.CFrame * d.Attachment0.Position
+				local b = d.Attachment1.Parent.CFrame * d.Attachment1.Position
+				local tk = d.Transparency.Keypoints
+				table.insert(beams, { from = { a.X, a.Y, a.Z }, to = { b.X, b.Y, b.Z }, width = { d.Width0, d.Width1 }, color = d.Color.Keypoints[1].Value:ToHex(), fade = { tk[1].Value, tk[#tk].Value }, glow = d.LightEmission })
+			end
+		end
+	end
+	fs.writeFile(`build/shot-{name}.json`, serde.encode("json", { parts = parts, fog = fog, beams = if #beams > 0 then beams else nil }))
 	local toasts = hud.gui:FindFirstChild("Toasts", true)
 	if toasts then
 		for _, t in toasts:GetChildren() do
@@ -750,7 +763,7 @@ local function shot(name, world, w, h)
 			end
 		end
 	end
-	local raceGui = player.PlayerGui:FindFirstChild("Race")
+	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("RescueSearch")
 	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, w or 1280, h or 800), bubbles = {} }))
 	local cam = game.Workspace.CurrentCamera
 	local cf = cam.CFrame
@@ -1402,64 +1415,143 @@ if SHOTS then
 	shot("rescue-bay-free", nil)
 	rustyTown()
 	tabTo("find")
+	game.Workspace.CurrentCamera.ViewportSize = roblox.Vector2.new(1280, 800)
 	press("suburbs")
-	assert(hud.gui:FindFirstChild("Coach", true), "no coach on a fresh search")
-	shot("rescue-search-start", nil)
+	-- The search is a 3D lot on its own screen (RescueLot), driven a frame at a time.
+	local function sgui()
+		return player.PlayerGui:FindFirstChild("RescueSearch")
+	end
+	local function sfind(name)
+		local g = sgui()
+		return g and g:FindFirstChild(name, true)
+	end
+	local function spress(name)
+		local b = sfind(name)
+		if b then
+			signalFor(b, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		return b ~= nil
+	end
+	local function sync()
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	end
+	-- Runs the lot for n frames (passing on the server's news); stops early once until() says so.
+	local function lotFrames(n, untilFn)
+		for f = 1, n do
+			local step = renderSteps.RescueLot
+			if not step then
+				return false
+			end
+			step(1 / 30)
+			if f % 5 == 0 then
+				sync()
+			end
+			if untilFn and untilFn() then
+				return true
+			end
+			Emu.resumeWaits()
+		end
+		return false
+	end
+	local RescueLot = emu.require(client.RescueLot)
+	local hudGui = if hud.gui:IsA("ScreenGui") then hud.gui else hud.gui:FindFirstAncestorOfClass("ScreenGui")
+	assert(sgui() and renderSteps.RescueLot, "the search didn't open the 3D lot")
+	assert(not hudGui.Enabled, "the HUD stayed up over the lot")
+	assert(game.Workspace:FindFirstChild("RescueLot"), "no lot in the world")
+	lotFrames(90)
+	assert(sfind("Coach"), "no coach on a fresh search")
+	shot("rescue-search-start", game.Workspace:FindFirstChild("RescueLot"))
+	-- And on a phone (844 x 390 scales the HUD by 0.55, so it lays out at 1535 x 709).
+	do
+		local root = hud.gui:FindFirstChild("Root")
+		local cam = game.Workspace.CurrentCamera
+		root.Size = roblox.UDim2.fromOffset(1535, 709)
+		cam.ViewportSize = roblox.Vector2.new(1535, 709)
+		lotFrames(2)
+		-- (The emulator doesn't fire property changes: follow the HUD's size by hand.)
+		sfind("SearchScreen").Size = root.Size
+		shot("rescue-search-start-phone", game.Workspace:FindFirstChild("RescueLot"), 1535, 709)
+		root.Size = roblox.UDim2.fromOffset(1280, 800)
+		sfind("SearchScreen").Size = root.Size
+		cam.ViewportSize = roblox.Vector2.new(1280, 800)
+		lotFrames(2)
+	end
+	-- Tapping a spot drives the truck there; the tarp comes off and the find is lifted aboard.
 	for i = 1, 3 do
 		local q = towns:snapshot(1).search
-		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 		if q and not q.flat then
-			press(`Tarp{i}`)
+			RescueLot.current():pick(i)
+			lotFrames(240)
 		end
 	end
-	shot("rescue-search", nil)
-	-- The next find pops up over the lot (before time moves on and it fades).
+	assert(towns:snapshot(1).search.revealed[1], "driving to a spot didn't search it")
+	shot("rescue-search", game.Workspace:FindFirstChild("RescueLot"))
+	-- The next find pops up over the lot.
 	do
 		local q = towns:snapshot(1).search
 		if q and not q.flat then
 			for i, r in q.revealed do
 				if not r then
-					local t = hud.gui:FindFirstChild(`Tarp{i}`, true)
-					signalFor(t, "Activated"):Fire()
+					RescueLot.current():pick(i)
 					break
 				end
 			end
+			local popped = lotFrames(240, function()
+				return sfind("Found") ~= nil
+			end)
 			if not towns:snapshot(1).search.flat then
-				assert(hud.gui:FindFirstChild("Found", true), "no find pop-up")
-				shot("rescue-found", nil)
+				assert(popped, "no find pop-up")
+				shot("rescue-found", game.Workspace:FindFirstChild("RescueLot"))
 			end
+			lotFrames(120)
 		end
 	end
 	-- Leave with a haul aboard asks first; Cancel keeps the search going.
 	do
 		local q = towns:snapshot(1).search
 		if q and q.flat then
-			press("FixTruck")
+			spress("FixTruck")
+			sync()
 		end
-		local leave = hud.gui:FindFirstChild("Leave", true)
+		local leave = sfind("Leave")
 		signalFor(leave:FindFirstChild("Face") or leave, "Activated"):Fire()
-		local ask = hud.gui:FindFirstChild("Confirm", true)
+		local ask = sfind("Confirm")
 		assert(ask, "Leave with a haul didn't ask")
-		shot("rescue-leave", nil)
-		press("Cancel")
+		shot("rescue-leave", game.Workspace:FindFirstChild("RescueLot"))
+		spress("Cancel")
 		assert(towns:snapshot(1).search, "Cancel left the lot")
-		assert(not hud.gui:FindFirstChild("Confirm", true), "Cancel didn't close the question")
+		assert(not sfind("Confirm"), "Cancel didn't close the question")
 	end
-	-- Search all turns into Stop while it runs.
+	-- Search all turns into Stop while it runs, and the truck carries on by itself.
 	do
-		local all = hud.gui:FindFirstChild("SearchAll", true)
+		local all = sfind("SearchAll")
 		if all then
+			local before = 0
+			for _, r in towns:snapshot(1).search.revealed do
+				before += if r then 1 else 0
+			end
 			signalFor(all, "Activated"):Fire()
-			local again = hud.gui:FindFirstChild("SearchAll", true)
+			local again = sfind("SearchAll")
 			local l = again and again:FindFirstChildWhichIsA("TextLabel", true)
 			assert(not again or (l and l.Text:find("Stop")), "Search all didn't turn into Stop")
+			lotFrames(150)
+			local after = 0
+			for _, r in towns:snapshot(1).search.revealed do
+				after += if r then 1 else 0
+			end
+			assert(after > before or towns:snapshot(1).search.flat, "Search all didn't search")
+			again = sfind("SearchAll")
 			if again then
 				signalFor(again, "Activated"):Fire()
 			end
+			lotFrames(150)
 		end
 	end
 	if towns:snapshot(1).search and towns:snapshot(1).search.flat then
-		press("FixTruck")
+		spress("FixTruck")
+		sync()
+		lotFrames(30)
 	end
 	-- A resto-mod piece aboard, so the haul shows its puzzle.
 	do
@@ -1474,9 +1566,15 @@ if SHOTS then
 			q.piece = { model = car.id, piece = 2 }
 			store.useGame.setState({ search = q, restoParts = { `{car.id}:0` } })
 		end)
-		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		sync()
 	end
-	press("TowHome")
+	spress("TowHome")
+	-- The truck drives off with its haul; then it's home.
+	lotFrames(600)
+	sync()
+	assert(not towns:snapshot(1).search, "Tow home never got home")
+	assert(not sgui() and not renderSteps.RescueLot and not game.Workspace:FindFirstChild("RescueLot"), "the lot stayed up after the search")
+	assert(hudGui.Enabled, "the HUD didn't come back")
 	-- The finds land one at a time and their counts roll up: let them all land.
 	require("@lune/task").wait(0.7)
 	Emu.resumeWaits()
