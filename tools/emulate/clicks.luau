@@ -1275,3 +1275,53 @@ do
 	end
 	closeRace()
 end
+-- A page from client/RacePages with no race: opens it from the front page's small button and
+-- presses the first button whose words match `press` (a TextButton named `press` when byName),
+-- asserting that nothing threw and the server took every call.
+local function modePage(tag, mini, press, byName)
+	closeRace()
+	hud.ctx.close()
+	calls = {}
+	handlerErrors = {}
+	hud.openPanel("race", "hub")
+	local m = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), mini, 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+	end)
+	assert(m, `no {mini} button on the front page`)
+	if SHOTS then
+		-- The front page, with the reputation chip in its head.
+		shot(`hub-{tag}`, nil)
+	end
+	signalFor(m, "Activated"):Fire()
+	Emu.resumeWaits()
+	if SHOTS then
+		shot(`page-{tag}`, nil)
+	end
+	local b = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Visible and (if byName then d.Name == press else string.find(label(d), press) ~= nil)
+	end)
+	assert(b, `no {press} button on the {mini} page`)
+	signalFor(b, "Activated"):Fire()
+	Emu.resumeWaits()
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	assert(#handlerErrors == 0, `{tag}: {table.concat(handlerErrors, "; ")}`)
+	for _, c in calls do
+		assert(c:sub(1, 2) == "ok", `{tag}: {c}`)
+	end
+	if SHOTS then
+		shot(`page-{tag}-after`, nil)
+	end
+	hud.ctx.close()
+end
+
+-- The Trophy Road: claim every stop the trophies reach.
+local roadBefore = towns:snapshot(1).save.road or 0
+modePage("road", "Trophy Road", "Claim")
+local roadSave = towns:snapshot(1).save
+print(`trophy road: {roadBefore} -> {roadSave.road} of {math.floor(roadSave.trophies / 25)} stops`)
+assert((roadSave.road or 0) > roadBefore, "the Trophy Road claimed nothing")
+-- Flair: the trophies opened Frost; pick it (seeing the page clears the new count too).
+modePage("flair", "Flair", "frost", true)
+local flairSave = towns:snapshot(1).save
+print(`flair: trail {flairSave.trail}, seen {flairSave.flairSeen}`)
+assert(flairSave.trail == "frost", "Frost wasn't picked")
