@@ -125,6 +125,12 @@ local function makePart(p: { any }): BasePart
 		if template then
 			part = template:Clone()
 			;(part :: MeshPart).TextureID = ""
+			-- The packs' materials come in as SurfaceAppearance, which would hide the look's colour.
+			for _, child in part:GetChildren() do
+				if child:IsA("SurfaceAppearance") then
+					child:Destroy()
+				end
+			end
 		else
 			-- Not uploaded yet (or didn't load): a box of the mesh's size stands in.
 			part = Instance.new("Part")
@@ -147,7 +153,13 @@ local function makePart(p: { any }): BasePart
 		end
 	end
 	part.Size = size
-	part.CFrame = cf
+	if kind == "m" and part:IsA("MeshPart") then
+		-- Roblox's glTF import turns the geometry half round about Y, so a mesh placed as the web
+		-- game places it lands mirrored through its own middle; turn it back.
+		part.CFrame = cf * CFrame.Angles(0, math.pi, 0)
+	else
+		part.CFrame = cf
+	end
 	part.Anchored = true
 	part.CanCollide = false
 	part.CanTouch = false
