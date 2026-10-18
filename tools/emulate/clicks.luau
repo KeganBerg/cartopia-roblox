@@ -584,6 +584,28 @@ clickAll("paint", function()
 		signalFor(b, "Activated"):Fire()
 	end
 end)
+-- A car stuck on a job (a flat tire, or out of gas): its fix-it sheet, opened as Goals' Go › does.
+local function stuckCar(how)
+	local uid
+	towns:_with(1, function()
+		local cars = {}
+		for i, c in store.useGame.getState().cars do
+			cars[i] = table.clone(c)
+			cars[i].flat = if i == 1 and how == "flat" then true else nil
+			cars[i].lowFuel = if i == 1 and how == "gas" then true else nil
+		end
+		uid = cars[1].uid
+		store.useGame.setState({ cars = cars })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	return uid
+end
+for _, how in { "flat", "gas" } do
+	clickAll(how, function()
+		hud.openPanel("flat", stuckCar(how))
+	end)
+end
+stuckCar(nil)
 -- The shop's price buttons, tapped the way a player taps them: each must start building (an
 -- affordable one) or open the "you need" popup (a locked or too dear one), never nothing.
 do
@@ -687,6 +709,43 @@ if SHOTS then
 		hud.openPanel(p)
 		shot(`panel-{p}`, nil)
 	end
+	-- Goals: each tab, then the story done (the 📖 ✔ chip, endless goals with their pictures).
+	local function goalsTab(id)
+		hud.ctx.close()
+		hud.openPanel("goals")
+		local t = hud.gui:FindFirstChild(id, true)
+		assert(t, `no {id} tab`)
+		signalFor(t:FindFirstChild("Face") or t, "Activated"):Fire()
+	end
+	for _, id in { "story", "daily", "weekly" } do
+		goalsTab(id)
+		shot(`goals-{id}`, nil)
+	end
+	local before
+	towns:_with(1, function()
+		local s = store.useGame.getState()
+		before = { claimedGoals = s.claimedGoals, tutorial = s.tutorial, endless = s.endless }
+		local all = {}
+		for _, g in emu.require(G.data).GOALS do
+			if not g.event then
+				table.insert(all, g.id)
+			end
+		end
+		store.useGame.setState({ claimedGoals = all, tutorial = 99, endless = { n = 7, day = "", today = 0, drawn = 3, goals = { { k = 1, kind = "bldgUp", def = "pizza", n = 3, base = 0 }, { k = 2, kind = "carUp", def = s.cars[1].uid, n = 2, base = 0 }, { k = 3, kind = "wins", n = 5, base = 0 } } } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	goalsTab("story")
+	shot("goals-endless", nil)
+	towns:_with(1, function()
+		store.useGame.setState(before)
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	for _, how in { "flat", "gas" } do
+		hud.ctx.close()
+		hud.openPanel("flat", stuckCar(how))
+		shot(`flat-{how}`, nil)
+	end
+	stuckCar(nil)
 	for _, t in { "hub", "quick", "campaign", "rivals" } do
 		hud.ctx.close()
 		hud.openPanel("race", t)

@@ -12,6 +12,9 @@ local endless = require(Game.endless) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
+local Thumb = require(script.Parent.Thumb)
+local Fly = require(script.Parent.Fly)
+local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 
 local Goals = {}
 
@@ -39,7 +42,26 @@ local function has(list: { any }?, v: any): boolean
 	return list ~= nil and table.find(list, v) ~= nil
 end
 
--- Where a goal gets done, as goTo in ui/Goals.tsx; screens the port doesn't have yet say so.
+-- The garage on one of its tabs (paint, mods, tune), with the picked car (else the first) on it.
+local function garage(ctx: any, s: any, tab: string, uid: string?)
+	local pick: any = nil
+	for _, c in s.cars do
+		if c.uid == (uid or s.selectedCar) then
+			pick = c
+		end
+	end
+	pick = pick or s.cars[1]
+	ctx.open("garage", if pick then { car = pick.uid, tab = tab } else nil)
+end
+
+-- Race menu tabs for the web's race tabs. The port has no Grand Prix or Pro Tour pages yet: their
+-- tiles are on the front page.
+local RACE_TAB = { daily = "daily", quick = "quick", campaign = "campaign", gp = "hub", road = "road", tour = "hub", world = "world", cups = "cup", rivals = "rivals", tuner = "tuner" }
+local function race(ctx: any, tab: string)
+	ctx.open("race", RACE_TAB[tab] or "hub")
+end
+
+-- Where a goal gets done, as goTo in ui/Goals.tsx.
 local function goTo(ctx: any, stat: string, def: string?)
 	local s = store.useGame.getState()
 	local function firstOf(pred: (any) -> boolean): any?
@@ -72,17 +94,26 @@ local function goTo(ctx: any, stat: string, def: string?)
 		ctx.open("shop")
 	elseif stat == "jobs" or stat == "coinsEarned" or stat == "level" then
 		ctx.close()
-		ctx.toast("Tap the bubbles over your businesses to run jobs and collect coins.")
+		ctx.toast("Tap the flashing bubbles to run jobs and collect coins.")
 	elseif stat == "roads" then
 		ctx.open("edit", "road")
 		ctx.toast("Drag on empty grass to lay road")
 	elseif stat == "plots" then
-		ctx.open("edit", "land")
-		ctx.toast("Tap a plot next to your town to buy it")
+		local price = data.plotPrice(#(s.land or {}) - #data.START_LAND)
+		if s.coins < price then
+			ctx.open("need", { res = "coins", missing = price - s.coins, what = "more land" })
+		else
+			ctx.open("edit", "land")
+			ctx.toast("Tap a plot next to your town to buy it")
+		end
 	elseif stat == "carsBought" or stat == "carsOwned" then
 		ctx.open("showroom")
-	elseif stat == "painted" or stat == "modsBought" or stat == "power" then
-		ctx.open("garage")
+	elseif stat == "painted" then
+		garage(ctx, s, "paint")
+	elseif stat == "modsBought" then
+		garage(ctx, s, "mods")
+	elseif stat == "power" then
+		garage(ctx, s, "tune")
 	elseif stat == "upgrades" or stat == "bldgLevel" then
 		local b = firstOf(function(o)
 			local d = data.buildingDef(o.def)
@@ -114,12 +145,26 @@ local function goTo(ctx: any, stat: string, def: string?)
 			ctx.open("shop", "arcade")
 		end
 	elseif stat == "serviced" or stat == "flatsFixed" then
+		-- A car stuck with a flat or an empty tank: its fix-it sheet.
+		for _, c in s.cars do
+			if c.flat or c.lowFuel then
+				ctx.open("flat", c.uid)
+				return
+			end
+		end
 		ctx.close()
 		ctx.toast("Cars sometimes get flats or run dry on jobs. Run a few and watch for the 🛞 and ⛽ bubbles.")
 	elseif stat == "cratesOpened" then
 		ctx.open("crates")
+	elseif stat == "dailyRuns" then
+		race(ctx, "daily")
+	elseif stat == "racesWon" or stat == "races" then
+		race(ctx, "quick")
+	elseif stat == "campaignWins" or stat == "stars" or stat == "chapters" then
+		race(ctx, "campaign")
+	elseif stat == "gpWins" then
+		race(ctx, "gp")
 	else
-		-- Races, the campaign, Grand Prix, daily runs: the race hub.
 		ctx.open("race")
 	end
 end
@@ -130,9 +175,12 @@ local ENDLESS_GO = {
 	upgrades = "upgrades", mods = "modsBought", paint = "painted", gp = "gpWins", stars = "stars", build = "owns", cars = "carsOwned", land = "plots",
 	drivers = "drivers", level = "level", restore = "rescued", flats = "flatsFixed", power = "power", arcade = "arcadePlays", crates = "cratesOpened",
 }
+-- Kinds played from a Race menu tab.
+local ENDLESS_TAB = { dailyRun = "daily", trophies = "road", proTour = "tour", worldTour = "world", cups = "cups", paintRival = "rivals", tuner = "tuner" }
 local function goToEndless(ctx: any, g: any)
 	local s = store.useGame.getState()
 	if g.kind == "bldgUp" then
+		-- The lowest-level one of that building, so the upgrade counts.
 		local best: any = nil
 		for _, b in s.buildings do
 			if b.def == g.def and (best == nil or data.buildingLevel(b) < data.buildingLevel(best)) then
@@ -145,10 +193,59 @@ local function goToEndless(ctx: any, g: any)
 			ctx.open("shop", g.def)
 		end
 	elseif g.kind == "carUp" then
-		ctx.open("garage")
+		garage(ctx, s, "tune", g.def)
+	elseif ENDLESS_TAB[g.kind] then
+		race(ctx, ENDLESS_TAB[g.kind])
 	else
 		goTo(ctx, ENDLESS_GO[g.kind] or "races", g.def)
 	end
+end
+
+-- The goal the HUD's tracker shows, as GoalTracker: one ready to collect first (endless ones only
+-- while not capped for the day), else the first still to do. go(ctx) takes you to it.
+function Goals.tracked(s: any): any?
+	local rows = {}
+	for _, g in store.activeGoals(s) do
+		table.insert(rows, { icon = g.icon, text = g.text, have = store.statValue(s, g.stat, g.def), target = g.target, ready = true, go = function(ctx)
+			goTo(ctx, g.stat, g.def)
+		end })
+	end
+	local capped = endless.endlessCapped(s.endless, now())
+	for _, g in store.activeEndless(s) do
+		local kind = endless.KINDS[g.kind]
+		table.insert(rows, { icon = if kind then kind.icon else "♾", text = endless.endlessText(g, s.cars), have = endless.endlessHave(store.endlessTown(s), g), target = g.n, ready = not capped, go = function(ctx)
+			goToEndless(ctx, g)
+		end })
+	end
+	for _, r in rows do
+		if r.ready and r.have >= r.target then
+			return r
+		end
+	end
+	for _, r in rows do
+		if r.have < r.target then
+			return r
+		end
+	end
+	return rows[1]
+end
+
+-- The building or car an endless goal is about, drawn in its icon box (EndlessIcon).
+local function endlessThumb(s: any, g: any): ((Frame) -> ())?
+	if (g.kind == "build" or g.kind == "bldgUp") and g.def then
+		return function(box: Frame)
+			Thumb.new("Buildings", g.def, UDim2.fromScale(1, 1)).Parent = box
+		end
+	elseif g.kind == "carUp" then
+		for _, c in s.cars do
+			if c.uid == g.def then
+				return function(box: Frame)
+					Thumb.car(c.model, UDim2.fromScale(1, 1), Paint.jobOf(c), nil, nil, nil, nil, c.skin).Parent = box
+				end
+			end
+		end
+	end
+	return nil
 end
 
 -- A row of rewards: coin and count, gems, parts, then XP and stars in purple (Reward).
@@ -177,7 +274,7 @@ local function reward(parent: Instance, pos: UDim2, r: { coins: number, xp: numb
 		word(tostring(r.bucks), Color3.fromHex("#455a64"))
 	end
 	if (r.parts or 0) > 0 then
-		icon("⚙")
+		icon("⚙️")
 		word(tostring(r.parts), Color3.fromHex("#455a64"))
 	end
 	if (r.xp or 0) > 0 then
@@ -198,8 +295,8 @@ local function bar(parent: Instance, props: { [string]: any }, pct: number, back
 	return b
 end
 
-type RowOpts = { icon: string, text: string, have: number, target: number, done: boolean, claimed: boolean?, wait: string?, onGo: () -> (), onClaim: () -> (), pay: any }
-local function row(list: Instance, order: number, o: RowOpts)
+type RowOpts = { icon: string, thumb: ((Frame) -> ())?, text: string, have: number, target: number, done: boolean, claimed: boolean?, wait: string?, onGo: () -> (), onClaim: () -> (), pay: any }
+local function row(ctx: any, list: Instance, order: number, o: RowOpts)
 	-- The card sits on the web's 0 2px 0 edge.
 	local edge = if o.done and not o.claimed then GREEN else Ui.EDGE
 	local shadow, r = Ui.shadowed({ Name = "Goal", LayoutOrder = order, Size = UDim2.new(1, 0, 0, ROW_H + 2), Parent = list }, {
@@ -218,11 +315,18 @@ local function row(list: Instance, order: number, o: RowOpts)
 	end
 	r.Size = UDim2.new(1, 0, 1, -2)
 	r.BackgroundTransparency = if o.claimed then 0.45 else 0
-	Ui.new("Frame", { Name = "Icon", Position = UDim2.new(0, 6, 0.5, -20), Size = UDim2.fromOffset(40, 40), BackgroundColor3 = if o.done then Color3.fromHex("#dcedc8") else Ui.SHEET, Parent = r }, {
+	-- A building or car shows the real thing in a wider box (.goal-thumb); the rest an emoji.
+	local iconW, iconH = if o.thumb then 56 else 40, if o.thumb then 48 else 40
+	local icon = Ui.new("Frame", { Name = "Icon", Position = UDim2.new(0, 6, 0.5, -iconH / 2), Size = UDim2.fromOffset(iconW, iconH), BackgroundColor3 = if o.done then Color3.fromHex("#dcedc8") else Ui.SHEET, ClipsDescendants = o.thumb ~= nil, Parent = r }, {
 		Ui.corner(10),
-		Ui.text({ Text = o.icon, TextSize = 22, Size = UDim2.fromScale(1, 1) }),
 	})
-	local main = Ui.new("TextButton", { Name = "Main", Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Position = UDim2.fromOffset(56, 8), Size = UDim2.new(1, -56 - 84, 1, -16), Parent = r })
+	if o.thumb then
+		o.thumb(icon)
+	else
+		Ui.text({ Text = o.icon, TextSize = 22, Size = UDim2.fromScale(1, 1), Parent = icon })
+	end
+	local left = 6 + iconW + 10
+	local main = Ui.new("TextButton", { Name = "Main", Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Position = UDim2.fromOffset(left, 8), Size = UDim2.new(1, -left - 84, 1, -16), Parent = r })
 	main.Activated:Connect(function()
 		if not o.done then
 			o.onGo()
@@ -230,8 +334,11 @@ local function row(list: Instance, order: number, o: RowOpts)
 	end)
 	Ui.text({ Text = o.text, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, 0, 0, 18), Parent = main })
 	local have = math.min(o.have, o.target)
-	bar(main, { Position = UDim2.fromOffset(0, 25), Size = UDim2.new(1, -46, 0, 8) }, have / math.max(1, o.target), "#e0e6ea")
-	Ui.text({ Text = `{Ui.commas(have)}/{Ui.commas(o.target)}`, TextSize = 12, TextColor3 = Color3.fromHex("#78909c"), TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(1, -40, 0, 21), Size = UDim2.fromOffset(40, 16), Parent = main })
+	-- The count takes the room it needs and the bar the rest (2,000/2,000 is wider than 0/3).
+	local count = `{Ui.commas(have)}/{Ui.commas(o.target)}`
+	local cw = math.max(28, math.ceil(Ui.textWidth(count, 12)) + 2)
+	bar(main, { Position = UDim2.fromOffset(0, 25), Size = UDim2.new(1, -cw - 6, 0, 8) }, have / math.max(1, o.target), "#e0e6ea")
+	Ui.text({ Text = count, TextSize = 12, TextColor3 = Color3.fromHex("#78909c"), TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(1, -cw, 0, 21), Size = UDim2.fromOffset(cw, 16), Parent = main })
 	reward(main, UDim2.fromOffset(0, 37), o.pay)
 	local at = { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 1), Size = UDim2.fromOffset(if o.wait then 70 else 50, 28), Parent = r }
 	if o.claimed then
@@ -240,7 +347,12 @@ local function row(list: Instance, order: number, o: RowOpts)
 		Ui.buy(at, `🔒 {o.wait}`, "grey", nil, 14)
 	elseif o.done then
 		at.Size = UDim2.fromOffset(66, 28)
-		Ui.buy(at, "Collect", "green", o.onClaim, 14)
+		local button: GuiObject
+		_, button = Ui.buy(at, "Collect", "green", function()
+			-- The reward flies off the button into the HUD's counters.
+			Fly.from(ctx, button, o.pay)
+			o.onClaim()
+		end, 14)
 	else
 		Ui.buy(at, "Go ›", "garage", o.onGo, 14)
 	end
@@ -258,14 +370,25 @@ local function head(list: Instance, order: number, text: string, pct: number?)
 	return l
 end
 
--- ♾ n and pips toward the next parts (5th) and gems (10th) bonus.
-local function endlessHead(list: Instance, order: number, s: any)
+-- ♾ n and pips toward the next parts (5th) and gems (10th) bonus. Once the story is done it heads
+-- the tab instead (storyDone: a bigger line with a 📖 ✔ chip in front).
+local function endlessHead(list: Instance, order: number, s: any, storyDone: number?)
 	local done = if s.endless then s.endless.n or 0 else 0
 	local pay = endless.ENDLESS_PAY
 	local at = done % pay.bucksEvery
 	local h = Ui.new("Frame", { Name = "Endless", LayoutOrder = order, Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, Parent = list })
-	Ui.text({ Text = `♾ {Ui.commas(done)}`, TextSize = 15, TextColor3 = Color3.fromHex("#5e35b1"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(2, 0), Size = UDim2.fromOffset(60, 26), Parent = h })
-	local pips = Ui.new("Frame", { Position = UDim2.fromOffset(66, 0), Size = UDim2.new(1, -68, 1, 0), BackgroundTransparency = 1, Parent = h }, {
+	local x = 2
+	if storyDone then
+		local chip = Ui.new("Frame", { Name = "StoryDone", Position = UDim2.new(0, x, 0.5, -11), Size = UDim2.fromOffset(52, 22), BackgroundColor3 = Color3.fromHex("#e8f5e9"), Parent = h }, { Ui.corner(10) })
+		Ui.text({ Text = "📖 ✔", TextSize = 13, TextColor3 = Color3.fromHex("#2e7d32"), Size = UDim2.fromScale(1, 1), Parent = chip })
+		x += 52 + 10
+	end
+	local count = `♾ {Ui.commas(done)}`
+	local size = if storyDone then 17 else 15
+	local w = math.ceil(Ui.textWidth(count, size)) + 4
+	Ui.text({ Text = count, TextSize = size, TextColor3 = Color3.fromHex("#5e35b1"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(x, 0), Size = UDim2.fromOffset(w, 26), Parent = h })
+	x += w + 10
+	local pips = Ui.new("Frame", { Position = UDim2.fromOffset(x, 0), Size = UDim2.new(1, -x - 2, 1, 0), BackgroundTransparency = 1, Parent = h }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalFlex = Enum.UIFlexAlignment.Fill, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	for i = 1, pay.bucksEvery do
@@ -305,15 +428,16 @@ local function storyTab(ctx: any, list: Instance, s: any): number
 		h += height + GAP
 	end
 	if claimed >= total then
+		-- The story's full bar says nothing new: a ✔ chip joins the endless line instead.
 		add(26)
-		endlessHead(list, order, s)
+		endlessHead(list, order, s, total)
 	else
 		add(20)
 		head(list, order, `Story {claimed}/{total}`, claimed / math.max(1, total))
 	end
 	for _, g in store.activeGoals(s) do
 		add(ROW_H + 2)
-		row(list, order, {
+		row(ctx, list, order, {
 			icon = g.icon,
 			text = g.text,
 			have = store.statValue(s, g.stat, g.def),
@@ -340,8 +464,9 @@ local function storyTab(ctx: any, list: Instance, s: any): number
 	for _, g in active do
 		local kind = endless.KINDS[g.kind]
 		add(ROW_H + 2)
-		row(list, order, {
+		row(ctx, list, order, {
 			icon = if kind then kind.icon else "♾",
+			thumb = endlessThumb(s, g),
 			text = endless.endlessText(g, s.cars),
 			have = endless.endlessHave(store.endlessTown(s), g),
 			target = g.n,
@@ -381,7 +506,7 @@ local function tasksTab(ctx: any, list: Instance, s: any, period: string): numbe
 		local have = store.taskProgress(s, period, slot)
 		order += 1
 		h += ROW_H + 2 + GAP
-		row(list, order, {
+		row(ctx, list, order, {
 			icon = d.icon,
 			text = store.taskText(period, slot),
 			have = have,
@@ -408,6 +533,9 @@ local function tasksTab(ctx: any, list: Instance, s: any, period: string): numbe
 		BackgroundTransparency = if opened then 0.45 else 0,
 		Parent = list,
 	}, { Ui.corner(12), Ui.stroke(if ready then 2 else 1.5, Color3.fromHex(if ready then "#ffb300" else "#b0bec5")) })
+	if ready then
+		Fly.glow(c, 12)
+	end
 	Ui.text({ Text = if opened then "📭" elseif daily then "🎁" else "💎", TextSize = 26, Position = UDim2.new(0, 6, 0.5, -20), Size = UDim2.fromOffset(40, 40), Parent = c })
 	Ui.text({ Text = if daily then "Daily chest" else "Weekly chest", Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(56, 8), Size = UDim2.new(1, -140, 0, 18), Parent = c })
 	local pips = Ui.new("Frame", { Position = UDim2.fromOffset(56, 29), Size = UDim2.fromOffset(200, 6), BackgroundTransparency = 1, Parent = c }, {
@@ -427,7 +555,9 @@ local function tasksTab(ctx: any, list: Instance, s: any, period: string): numbe
 	if opened then
 		Ui.text({ Text = "✔", TextSize = 20, TextColor3 = GREEN, AnchorPoint = at.AnchorPoint, Position = at.Position, Size = UDim2.fromOffset(36, 28), Parent = c })
 	elseif ready then
-		Ui.buy(at, "Open", "green", function()
+		local button: GuiObject
+		_, button = Ui.buy(at, "Open", "green", function()
+			Fly.from(ctx, button, { coins = chestPay.coins, xp = data.chestXp(period, s.level), bucks = qp.chest.bucks, parts = qp.chest.parts })
 			Remote.act("claimChest", period)
 		end, 14)
 	else
@@ -448,7 +578,7 @@ local function eventTab(ctx: any, list: Instance, s: any): number
 	for i, g in store.eventGoals(t) do
 		local locked = s.level < (g.level or 1)
 		h += ROW_H + 2 + GAP
-		row(list, i + 1, {
+		row(ctx, list, i + 1, {
 			icon = g.icon,
 			text = if locked then `{g.text} (level {g.level})` else g.text,
 			have = store.statValue(s, g.stat, g.def),
@@ -567,6 +697,15 @@ function Goals.open(ctx: any): Instance
 	local conn = Remote.changed:Connect(show)
 	overlay.Destroying:Connect(function()
 		conn:Disconnect()
+	end)
+	-- The countdowns (new tasks in, 🔒 wait, the event's end) keep moving while it's open.
+	task.spawn(function()
+		while overlay.Parent do
+			task.wait(30)
+			if overlay.Parent then
+				show()
+			end
+		end
 	end)
 	return overlay
 end
