@@ -118,7 +118,7 @@ function Gui.partOf(d)
 			local list = {}
 			for _, t in d:GetChildren() do
 				if t:IsA("Texture") and t:GetAttribute("Pattern") then
-					table.insert(list, { image = t:GetAttribute("Pattern"), span = t.StudsPerTileU, face = enumName(t.Face), color = t.Color3:ToHex(), z = t.ZIndex })
+					table.insert(list, { image = t:GetAttribute("Pattern"), span = t.StudsPerTileU, face = enumName(t.Face), color = t.Color3:ToHex(), z = t.ZIndex, offset = { t.OffsetStudsU, t.OffsetStudsV }, transparency = t.Transparency })
 				end
 			end
 			return if #list > 0 then list else nil
@@ -128,7 +128,13 @@ function Gui.partOf(d)
 		color = d.Color:ToHex(),
 		transparency = d.Transparency,
 		material = enumName(d.Material),
-		text = if label then { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() }
+		text = if label then {
+				text = label.Text,
+				fg = label.TextColor3:ToHex(),
+				bg = label.BackgroundColor3:ToHex(),
+				clear = label.BackgroundTransparency >= 1 or nil,
+				stroke = if label.TextStrokeTransparency < 1 then label.TextStrokeColor3:ToHex() else nil,
+			}
 			elseif surface and surface:GetAttribute("Checker") then (function()
 				local back = surface:FindFirstChildOfClass("Frame")
 				local cell = back and back:FindFirstChildOfClass("Frame")

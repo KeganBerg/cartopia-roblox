@@ -1,0 +1,779 @@
+[
+ {
+  "file": "music/fall-day-cider-mill.mp3",
+  "hash": "33cc104c10",
+  "length": 122.073
+ },
+ {
+  "file": "music/fall-day-maple-drive.mp3",
+  "hash": "de8696fe30",
+  "length": 125
+ },
+ {
+  "file": "music/fall-day-rainy-window.mp3",
+  "hash": "686091e35f",
+  "length": 138.333
+ },
+ {
+  "file": "music/fall-night-harvest-moon.mp3",
+  "hash": "5141a75df1",
+  "length": 150.455
+ },
+ {
+  "file": "music/fall-night-hayride-home.mp3",
+  "hash": "b56283f66d",
+  "length": 142.143
+ },
+ {
+  "file": "music/fall-night-night-shift.mp3",
+  "hash": "f0a530c173",
+  "length": 134.73
+ },
+ {
+  "file": "music/spring-day-paper-route.mp3",
+  "hash": "8921cb35ea",
+  "length": 111.667
+ },
+ {
+  "file": "music/spring-day-picnic-hill.mp3",
+  "hash": "42fadb1e91",
+  "length": 119.286
+ },
+ {
+  "file": "music/spring-day-sunny-side-street.mp3",
+  "hash": "fe0ce9808c",
+  "length": 114.091
+ },
+ {
+  "file": "music/spring-night-april-rain.mp3",
+  "hash": "d086f540d6",
+  "length": 155
+ },
+ {
+  "file": "music/spring-night-peeper-pond.mp3",
+  "hash": "41ae0f4f6a",
+  "length": 146.176
+ },
+ {
+  "file": "music/spring-night-porch-light.mp3",
+  "hash": "d314070485",
+  "length": 159.839
+ },
+ {
+  "file": "music/summer-day-garage-sale.mp3",
+  "hash": "08071cc964",
+  "length": 116.628
+ },
+ {
+  "file": "music/summer-day-lemonade-stand.mp3",
+  "hash": "47fad0b96d",
+  "length": 109.348
+ },
+ {
+  "file": "music/summer-day-pool-party.mp3",
+  "hash": "662e230576",
+  "length": 107.128
+ },
+ {
+  "file": "music/summer-night-fireflies.mp3",
+  "hash": "2d89653f8f",
+  "length": 138.333
+ },
+ {
+  "file": "music/summer-night-moon-garage.mp3",
+  "hash": "5510592f31",
+  "length": 142.143
+ },
+ {
+  "file": "music/summer-night-streetlights.mp3",
+  "hash": "ae04f96dcc",
+  "length": 150.455
+ },
+ {
+  "file": "music/winter-day-cocoa-break.mp3",
+  "hash": "ded3d842b2",
+  "length": 125
+ },
+ {
+  "file": "music/winter-day-first-snow.mp3",
+  "hash": "e714325bbe",
+  "length": 138.333
+ },
+ {
+  "file": "music/winter-day-snow-day.mp3",
+  "hash": "1995d190a0",
+  "length": 131.316
+ },
+ {
+  "file": "music/winter-night-fireside.mp3",
+  "hash": "697e3eae81",
+  "length": 146.176
+ },
+ {
+  "file": "music/winter-night-frosted-glass.mp3",
+  "hash": "e62bae1570",
+  "length": 155
+ },
+ {
+  "file": "music/winter-night-silent-lot.mp3",
+  "hash": "5ebac8ac66",
+  "length": 165
+ },
+ {
+  "file": "club/01-deep.mp3",
+  "hash": "2bdc371afd",
+  "loop": {
+   "start": 0.5,
+   "length": 128
+  }
+ },
+ {
+  "file": "club/02-piano.mp3",
+  "hash": "ca09aa9c6a",
+  "loop": {
+   "start": 0.5,
+   "length": 123.871
+  }
+ },
+ {
+  "file": "club/03-garage.mp3",
+  "hash": "fc2ba9ed8a",
+  "loop": {
+   "start": 0.5,
+   "length": 116.364
+  }
+ },
+ {
+  "file": "club/04-acid.mp3",
+  "hash": "1532540e03",
+  "loop": {
+   "start": 0.5,
+   "length": 120
+  }
+ },
+ {
+  "file": "club/05-disco.mp3",
+  "hash": "69f1421866",
+  "loop": {
+   "start": 0.5,
+   "length": 132.414
+  }
+ },
+ {
+  "file": "club/06-tech.mp3",
+  "hash": "d7031f015e",
+  "loop": {
+   "start": 0.5,
+   "length": 121.905
+  }
+ },
+ {
+  "file": "club/07-swing.mp3",
+  "hash": "8f3a1ad167",
+  "loop": {
+   "start": 0.5,
+   "length": 125.902
+  }
+ },
+ {
+  "file": "club/08-trance.mp3",
+  "hash": "2ffcaca858",
+  "loop": {
+   "start": 0.5,
+   "length": 111.304
+  }
+ },
+ {
+  "file": "club/09-liquid.mp3",
+  "hash": "cc66754753",
+  "loop": {
+   "start": 0.5,
+   "length": 88.276
+  }
+ },
+ {
+  "file": "club/10-wobble.mp3",
+  "hash": "385e08faf0",
+  "loop": {
+   "start": 0.5,
+   "length": 109.714
+  }
+ },
+ {
+  "file": "club/11-neon.mp3",
+  "hash": "4cc8e1258d",
+  "loop": {
+   "start": 0.5,
+   "length": 142.222
+  }
+ },
+ {
+  "file": "club/12-dembow.mp3",
+  "hash": "6d9b2a4acc",
+  "loop": {
+   "start": 0.5,
+   "length": 160
+  }
+ },
+ {
+  "file": "club/13-hard.mp3",
+  "hash": "b16c1f3bd6",
+  "loop": {
+   "start": 0.5,
+   "length": 102.4
+  }
+ },
+ {
+  "file": "club/14-amapiano.mp3",
+  "hash": "cbaeb0a605",
+  "loop": {
+   "start": 0.5,
+   "length": 135.929
+  }
+ },
+ {
+  "file": "club/15-stutter.mp3",
+  "hash": "6a6afa73b2",
+  "loop": {
+   "start": 0.5,
+   "length": 115.489
+  }
+ },
+ {
+  "file": "club/16-two-step.mp3",
+  "hash": "044a4bb4ee",
+  "loop": {
+   "start": 0.5,
+   "length": 113.778
+  }
+ },
+ {
+  "file": "club/17-rave-breaks.mp3",
+  "hash": "0984170dea",
+  "loop": {
+   "start": 0.5,
+   "length": 112.941
+  }
+ },
+ {
+  "file": "club/18-witch.mp3",
+  "hash": "baf38d4651",
+  "loop": {
+   "start": 0.5,
+   "length": 117.252
+  }
+ },
+ {
+  "file": "rave/build-up.mp3",
+  "hash": "82b51bfba3",
+  "length": 10
+ },
+ {
+  "file": "rave/drop-loop.mp3",
+  "hash": "1c5dabcf93",
+  "loop": {
+   "start": 0.5,
+   "length": 38.4
+  }
+ },
+ {
+  "file": "sprites/weather-spring.mp3",
+  "hash": "b56888659f",
+  "regions": {
+   "day-calm": {
+    "start": 0.8,
+    "length": 60,
+    "loop": true
+   },
+   "day-rain": {
+    "start": 62.1,
+    "length": 60,
+    "loop": true
+   },
+   "night-calm": {
+    "start": 123.4,
+    "length": 60,
+    "loop": true
+   },
+   "night-rain": {
+    "start": 184.7,
+    "length": 60,
+    "loop": true
+   }
+  }
+ },
+ {
+  "file": "sprites/weather-summer.mp3",
+  "hash": "1d599a670c",
+  "regions": {
+   "day-calm": {
+    "start": 0.8,
+    "length": 60,
+    "loop": true
+   },
+   "day-rain": {
+    "start": 62.1,
+    "length": 60,
+    "loop": true
+   },
+   "day-storm": {
+    "start": 123.4,
+    "length": 60,
+    "loop": true
+   },
+   "night-calm": {
+    "start": 184.7,
+    "length": 60,
+    "loop": true
+   },
+   "night-rain": {
+    "start": 246,
+    "length": 60,
+    "loop": true
+   },
+   "night-storm": {
+    "start": 307.3,
+    "length": 60,
+    "loop": true
+   }
+  }
+ },
+ {
+  "file": "sprites/weather-fall.mp3",
+  "hash": "9cd1f37da8",
+  "regions": {
+   "day-calm": {
+    "start": 0.8,
+    "length": 60,
+    "loop": true
+   },
+   "day-rain": {
+    "start": 62.1,
+    "length": 60,
+    "loop": true
+   },
+   "day-wind": {
+    "start": 123.4,
+    "length": 60,
+    "loop": true
+   },
+   "night-calm": {
+    "start": 184.7,
+    "length": 60,
+    "loop": true
+   },
+   "night-rain": {
+    "start": 246,
+    "length": 60,
+    "loop": true
+   },
+   "night-wind": {
+    "start": 307.3,
+    "length": 60,
+    "loop": true
+   }
+  }
+ },
+ {
+  "file": "sprites/weather-winter.mp3",
+  "hash": "5407a04b6e",
+  "regions": {
+   "day-calm": {
+    "start": 0.8,
+    "length": 60,
+    "loop": true
+   },
+   "day-snow": {
+    "start": 62.1,
+    "length": 60,
+    "loop": true
+   },
+   "night-calm": {
+    "start": 123.4,
+    "length": 60,
+    "loop": true
+   },
+   "night-snow": {
+    "start": 184.7,
+    "length": 60,
+    "loop": true
+   }
+  }
+ },
+ {
+  "file": "sprites/sfx.mp3",
+  "hash": "adf9864298",
+  "regions": {
+   "arcade-air": {
+    "start": 0.28,
+    "length": 0.353
+   },
+   "arcade-bump": {
+    "start": 0.853,
+    "length": 0.311
+   },
+   "arcade-buzz": {
+    "start": 1.383,
+    "length": 0.51
+   },
+   "arcade-crash": {
+    "start": 2.113,
+    "length": 0.532
+   },
+   "arcade-ding": {
+    "start": 2.865,
+    "length": 1.185
+   },
+   "arcade-fuel": {
+    "start": 4.27,
+    "length": 0.29
+   },
+   "arcade-gun": {
+    "start": 4.78,
+    "length": 0.423
+   },
+   "arcade-land": {
+    "start": 5.423,
+    "length": 0.447
+   },
+   "arcade-rev": {
+    "start": 6.09,
+    "length": 0.928
+   },
+   "arcade-scrub": {
+    "start": 7.238,
+    "length": 0.242
+   },
+   "arcade-siren": {
+    "start": 7.7,
+    "length": 1.419
+   },
+   "arcade-splash": {
+    "start": 9.339,
+    "length": 0.45
+   },
+   "arcade-squeal": {
+    "start": 10.009,
+    "length": 0.217
+   },
+   "arcade-wrench": {
+    "start": 10.446,
+    "length": 0.518
+   },
+   "boost": {
+    "start": 11.184,
+    "length": 0.767
+   },
+   "bulldoze-rock": {
+    "start": 12.171,
+    "length": 1.438
+   },
+   "bulldoze-tree": {
+    "start": 13.829,
+    "length": 1.438
+   },
+   "buy": {
+    "start": 15.487,
+    "length": 1.089
+   },
+   "challenge": {
+    "start": 16.796,
+    "length": 1.461
+   },
+   "click": {
+    "start": 18.477,
+    "length": 0.206
+   },
+   "coin": {
+    "start": 18.902,
+    "length": 1.176
+   },
+   "coins": {
+    "start": 20.299,
+    "length": 1.176
+   },
+   "countdown-go": {
+    "start": 21.695,
+    "length": 1.16
+   },
+   "countdown": {
+    "start": 23.075,
+    "length": 0.206
+   },
+   "crate-charge": {
+    "start": 23.502,
+    "length": 2.569
+   },
+   "crate-open-diamond": {
+    "start": 26.29,
+    "length": 1.837
+   },
+   "crate-open-garage": {
+    "start": 28.348,
+    "length": 0.726
+   },
+   "crate-open-gold": {
+    "start": 29.294,
+    "length": 1.62
+   },
+   "crate-open-street": {
+    "start": 31.135,
+    "length": 0.507
+   },
+   "crate-reveal-1": {
+    "start": 31.862,
+    "length": 0.841
+   },
+   "crate-reveal-2": {
+    "start": 32.923,
+    "length": 1.399
+   },
+   "crate-reveal-3": {
+    "start": 34.541,
+    "length": 2.728
+   },
+   "crate-reveal-4": {
+    "start": 37.49,
+    "length": 3.735
+   },
+   "crate-reveal-coins": {
+    "start": 41.444,
+    "length": 1.175
+   },
+   "dispatch": {
+    "start": 42.84,
+    "length": 1.343
+   },
+   "equip": {
+    "start": 44.402,
+    "length": 0.774
+   },
+   "error": {
+    "start": 45.397,
+    "length": 0.679
+   },
+   "horn-icecream": {
+    "start": 46.296,
+    "length": 2.271
+   },
+   "horn": {
+    "start": 48.787,
+    "length": 0.584
+   },
+   "jet": {
+    "start": 49.591,
+    "length": 1.339
+   },
+   "level-up": {
+    "start": 51.15,
+    "length": 3.555
+   },
+   "lose": {
+    "start": 54.925,
+    "length": 1.592
+   },
+   "menu-close": {
+    "start": 56.737,
+    "length": 0.474
+   },
+   "menu-open": {
+    "start": 57.431,
+    "length": 0.474
+   },
+   "message": {
+    "start": 58.125,
+    "length": 0.869
+   },
+   "notify": {
+    "start": 59.214,
+    "length": 1.455
+   },
+   "putt": {
+    "start": 60.89,
+    "length": 0.448
+   },
+   "rescue-clunk": {
+    "start": 61.557,
+    "length": 0.333
+   },
+   "rescue-fanfare-big": {
+    "start": 62.111,
+    "length": 3.937
+   },
+   "rescue-fanfare": {
+    "start": 66.268,
+    "length": 1.789
+   },
+   "rescue-go": {
+    "start": 68.277,
+    "length": 0.583
+   },
+   "rescue-home": {
+    "start": 69.08,
+    "length": 1.1
+   },
+   "rescue-land-car": {
+    "start": 70.4,
+    "length": 0.47
+   },
+   "rescue-land": {
+    "start": 71.09,
+    "length": 0.448
+   },
+   "rescue-reveal-common": {
+    "start": 71.758,
+    "length": 1.322
+   },
+   "rescue-reveal-nothing": {
+    "start": 73.3,
+    "length": 1.156
+   },
+   "rescue-reveal-rare": {
+    "start": 74.675,
+    "length": 3.856
+   },
+   "rescue-reveal-scarce": {
+    "start": 78.751,
+    "length": 1.925
+   },
+   "rescue-reveal-small": {
+    "start": 80.897,
+    "length": 1.198
+   },
+   "rescue-rumble-rare": {
+    "start": 82.315,
+    "length": 2.171
+   },
+   "rescue-rumble": {
+    "start": 84.705,
+    "length": 2.17
+   },
+   "rescue-tick": {
+    "start": 87.095,
+    "length": 0.379
+   },
+   "reward": {
+    "start": 87.694,
+    "length": 1.387
+   },
+   "send": {
+    "start": 89.301,
+    "length": 0.819
+   },
+   "shift": {
+    "start": 90.34,
+    "length": 0.525
+   },
+   "start": {
+    "start": 91.085,
+    "length": 0.8
+   },
+   "step": {
+    "start": 92.105,
+    "length": 0.795
+   },
+   "sweep": {
+    "start": 93.12,
+    "length": 1.408
+   },
+   "tab": {
+    "start": 94.748,
+    "length": 0.204
+   },
+   "unlock": {
+    "start": 95.172,
+    "length": 2.78
+   },
+   "wheel-tick": {
+    "start": 98.172,
+    "length": 0.205
+   },
+   "wheel-win-common": {
+    "start": 98.597,
+    "length": 1.341
+   },
+   "wheel-win-epic": {
+    "start": 100.158,
+    "length": 1.468
+   },
+   "wheel-win-legendary": {
+    "start": 101.847,
+    "length": 1.61
+   },
+   "wheel-win-rare": {
+    "start": 103.677,
+    "length": 1.411
+   },
+   "wheel-win-uncommon": {
+    "start": 105.308,
+    "length": 1.411
+   },
+   "win": {
+    "start": 106.939,
+    "length": 1.845
+   },
+   "thunder-far": {
+    "start": 109.004,
+    "length": 9.08
+   },
+   "thunder-near": {
+    "start": 118.304,
+    "length": 9.08
+   }
+  }
+ },
+ {
+  "file": "sprites/voice.mp3",
+  "hash": "e58adb1a34",
+  "regions": {
+   "01-welcome": {
+    "start": 0.28,
+    "length": 3.995
+   },
+   "02-pizza-job": {
+    "start": 4.495,
+    "length": 4.044
+   },
+   "03-collect": {
+    "start": 8.76,
+    "length": 4.174
+   },
+   "04-build-shop": {
+    "start": 13.154,
+    "length": 4.659
+   },
+   "05-build-lot-tap": {
+    "start": 18.033,
+    "length": 3.213
+   },
+   "06-build-lot-click": {
+    "start": 21.466,
+    "length": 2.475
+   },
+   "07-built-find": {
+    "start": 24.161,
+    "length": 4.882
+   },
+   "08-find-cars": {
+    "start": 29.263,
+    "length": 4.121
+   },
+   "09-restore": {
+    "start": 33.604,
+    "length": 4.872
+   },
+   "10-paint-rims": {
+    "start": 38.697,
+    "length": 4.116
+   },
+   "11-gas": {
+    "start": 43.032,
+    "length": 5.85
+   },
+   "12-first-race": {
+    "start": 49.102,
+    "length": 3.613
+   }
+  }
+ }
+]

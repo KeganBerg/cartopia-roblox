@@ -1,8 +1,8 @@
 --!strict
 -- The Daily Spin, as the web game's WheelPanel (ui/Wheel.tsx, wheel.css): one free spin a day on
--- a giant show wheel in a tyre shop at night (scene/WheelScene.tsx, drawn here flat: the tyre and
--- chrome rim, eight glossy slices with their prizes, chase lights on the lip and a rubber flapper
--- up top that kicks as each peg passes). The odds sit in the dock beside it with the Spin button.
+-- a giant show wheel in a tyre shop at night (client/WheelShop, the web's scene/WheelScene.tsx).
+-- The shop takes the whole screen and the camera; the odds and the Spin button sit in the dock,
+-- right of the wheel on a wide screen and under it on a phone, as on the web.
 --
 -- The spin is rolled on the server (server/Crates spin, the web store's own spinWheel with the
 -- web's odds); the wheel spins up straight away and then slows onto the slice it gave, as on the
@@ -24,6 +24,10 @@ local Remote = require(Client.Remote)
 local Ui = require(Client.Ui)
 local Icons = require(Client.Icons)
 local Thumb = require(Client.Thumb)
+local Sfx = require(Client.Sounds.Sfx)
+local WheelShop = require(Client.WheelShop)
+local DayNight = require(Client.DayNight)
+local Kit = require(Client.ArcadeGames.StarKit)
 
 local Wheel = {}
 Wheel.id = "daily"
@@ -33,13 +37,7 @@ local N = #WHEEL
 local STEP = 360 / N
 local FULL_SPEED = 720 -- degrees a second
 local STEP_NAME = "DailySpin"
-
--- Sizes (pixels at 1280x800), in the scene's proportions: slices 1.58, tyre 1.66 to 2.12.
-local R = 186
-local TYRE_IN = R * 1.66 / 1.58
-local TYRE_OUT = R * 2.12 / 1.58
-local HUB = R * 0.42 / 1.58
-local DOCK_W = 384
+local SCENE_STEP = "DailySpinScene"
 
 local BG = Color3.fromHex("#120c1c")
 local DOCK = Color3.fromHex("#181226")
@@ -139,113 +137,6 @@ local function sliceIcon(parent: Instance, s: any, size: number, z: number): Fra
 	return swatch(parent, SKIN_SWATCH, size, { ZIndex = z })
 end
 
--- A bar from the wheel's centre out to radius `len`, at angle `deg` clockwise from the top, inside
--- a frame 2R square (GUI frames turn about their own middle).
-local function spoke(parent: Instance, deg: number, len: number, thick: number, color: Color3, z: number, from: number?): Frame
-	local r0 = from or 0
-	local mid = (r0 + len) / 2
-	local a = math.rad(deg)
-	return Ui.new("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(0.5, mid * math.sin(a), 0.5, -mid * math.cos(a)),
-		Size = UDim2.fromOffset(thick, len - r0),
-		Rotation = deg,
-		BackgroundColor3 = color,
-		BorderSizePixel = 0,
-		ZIndex = z,
-		Parent = parent,
-	})
-end
-
-local function circle(parent: Instance, radius: number, color: Color3, z: number, props: { [string]: any }?): Frame
-	local f = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(radius * 2, radius * 2), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = z }, { Ui.round() })
-	for k, v in (props or {}) :: { [string]: any } do
-		(f :: any)[k] = v
-	end
-	f.Parent = parent
-	return f
-end
-
--- The wheel itself: tyre, rim, the turning slices (returned), the hub, the lights and the flapper.
-local function drawWheel(parent: Instance, level: number): (Frame, Frame, { Frame })
-	local size = TYRE_OUT * 2 + 8
-	local holder = Ui.new("Frame", { Name = "WheelStand", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, -(DOCK_W + 32) / 2, 0.5, 36), Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, ZIndex = 2, Parent = parent })
-	-- The steel A-frame and the hazard-ringed plinth under it.
-	for _, side in { -1, 1 } do
-		local leg = spoke(holder, 180 + side * 24, TYRE_OUT + 70, 16, Color3.fromHex("#455a64"), 2)
-		Ui.corner(4).Parent = leg
-	end
-	local plinth = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.5, TYRE_OUT + 50), Size = UDim2.fromOffset(TYRE_OUT * 1.6, 26), BackgroundColor3 = Color3.fromHex("#37474f"), ZIndex = 2, ClipsDescendants = true, Parent = holder }, { Ui.corner(8) })
-	for i = 0, 22 do
-		Ui.new("Frame", { Position = UDim2.fromOffset(i * 20 - 10, 0), Size = UDim2.fromOffset(9, 6), BackgroundColor3 = Color3.fromHex("#ffd600"), BorderSizePixel = 0, ZIndex = 2, Parent = plinth })
-	end
-	-- Tyre, sidewall and the chrome rim.
-	circle(holder, TYRE_OUT, Color3.fromHex("#1f2226"), 3, { Name = "Tyre" })
-	circle(holder, TYRE_OUT - 10, Color3.fromHex("#2a2e33"), 3)
-	circle(holder, TYRE_IN + 4, Color3.fromHex("#1f2226"), 3)
-	circle(holder, TYRE_IN, Color3.fromHex("#e9eef2"), 3, { Name = "Rim" })
-	circle(holder, R + 3, Color3.fromHex("#5d6a75"), 3)
-	-- The turning part: slices, spokes, pegs and prizes.
-	local rotor = Ui.new("Frame", { Name = "Rotor", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(R * 2, R * 2), BackgroundTransparency = 1, ZIndex = 4, Parent = holder })
-	local fill = 2
-	local thick = 2 * R * math.sin(math.rad(fill / 2)) * 1.7
-	for i, s in WHEEL do
-		local c = tierColor(s.tier)
-		if i % 2 == 0 then
-			c = Color3.new(c.R * 0.86, c.G * 0.86, c.B * 0.86)
-		end
-		local inner = mix(c, Ui.WHITE, 0.82)
-		local a0 = (i - 1) * STEP
-		local deg = a0 + fill / 2
-		while deg < a0 + STEP do
-			spoke(rotor, deg, R, thick, c, 4)
-			-- A lighter band toward the middle: the slices' gloss.
-			spoke(rotor, deg, R * 0.5, thick * 0.55, inner, 4, HUB)
-			deg += fill
-		end
-	end
-	for i = 0, N - 1 do
-		spoke(rotor, i * STEP, R, 4, Color3.fromHex("#e9eef2"), 5)
-		local a = math.rad(i * STEP)
-		Ui.new("Frame", { Name = "Peg", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, (R - 7) * math.sin(a), 0.5, -(R - 7) * math.cos(a)), Size = UDim2.fromOffset(12, 12), BackgroundColor3 = Color3.fromHex("#ffffff"), ZIndex = 6, Parent = rotor }, { Ui.round(), Ui.stroke(2, Color3.fromHex("#5d6a75")) })
-	end
-	for i, s in WHEEL do
-		local mid = (i - 0.5) * STEP
-		local a = math.rad(mid)
-		local at = R * 0.64
-		local prize = Ui.new("Frame", { Name = s.id, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, at * math.sin(a), 0.5, -at * math.cos(a)), Size = UDim2.fromOffset(84, 70), Rotation = mid, BackgroundTransparency = 1, ZIndex = 6, Parent = rotor }, {
-			Ui.new("UIListLayout", { HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }),
-		})
-		local icon = sliceIcon(prize, s, 30, 7)
-		icon.LayoutOrder = 1
-		local text = amount(s, level)
-		if text == "" then
-			text = if s.kind == "part" then "Part" else "Paint"
-		end
-		Ui.text({ Text = text, TextSize = 17, Size = UDim2.fromOffset(84, 19), Stroke = 1.5, StrokeColor = Ui.LINE, ZIndex = 8, LayoutOrder = 2, Parent = prize })
-	end
-	-- The gold hub.
-	local hub = circle(holder, HUB, Color3.fromHex("#ffc533"), 9, { Name = "Hub" })
-	Ui.stroke(4, Color3.fromHex("#a35f00")).Parent = hub
-	Ui.new("UIGradient", { Rotation = 90, Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromHex("#fff3a6")), ColorSequenceKeypoint.new(0.6, Color3.fromHex("#ffc533")), ColorSequenceKeypoint.new(1, Color3.fromHex("#c47c00")) }), Parent = hub })
-	Ui.text({ Text = "★", Body = true, Weight = "heavy", TextSize = 40, TextColor3 = Color3.fromHex("#fff3a6"), Size = UDim2.fromScale(1, 1), Stroke = 2, StrokeColor = Color3.fromHex("#9a5800"), ZIndex = 10, Parent = hub })
-	-- Chase lights on the tyre's lip.
-	local bulbs: { Frame } = {}
-	local LIGHTS = 28
-	for i = 0, LIGHTS - 1 do
-		local a = math.rad(i * 360 / LIGHTS)
-		local rr = (TYRE_IN + TYRE_OUT) / 2
-		local b = Ui.new("Frame", { Name = "Bulb", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, rr * math.sin(a), 0.5, -rr * math.cos(a)), Size = UDim2.fromOffset(11, 11), BackgroundColor3 = Color3.fromHex("#fff6c2"), ZIndex = 4, Parent = holder }, { Ui.round(), Ui.stroke(2, Color3.fromHex("#ffb300"), 0.3) })
-		table.insert(bulbs, b)
-	end
-	-- The rubber flapper at the top, pointing down onto the pegs.
-	local flapper = Ui.new("Frame", { Name = "Flapper", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, -(R + 10)), Size = UDim2.fromOffset(20, 46), BackgroundTransparency = 1, ZIndex = 11, Parent = holder })
-	Ui.new("Frame", { Size = UDim2.new(1, 0, 0.62, 0), BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 11, Parent = flapper }, { Ui.corner(5), Ui.stroke(2, Ui.LINE) })
-	Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.62, -2), Size = UDim2.fromOffset(16, 16), Rotation = 45, BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 11, Parent = flapper }, { Ui.corner(3), Ui.stroke(2, Ui.LINE) })
-	circle(flapper, 6, Color3.fromHex("#e9eef2"), 12, { Position = UDim2.new(0.5, 0, 0, 9) })
-	return rotor, flapper, bulbs
-end
-
 -- One line of what was won (Prize): gems, coins, the part's name or the paint.
 local function prizeLine(parent: Instance, spin: any): Frame
 	local line = Ui.new("Frame", { Name = "PrizeLine", Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, LayoutOrder = 2, Parent = parent }, {
@@ -328,7 +219,14 @@ local function prizeCar(parent: Instance, spin: any, carsAt: { any }, paintUid: 
 	return v
 end
 
+-- The open shop's way out: only one Daily Spin at a time, so a new one first takes down any shop
+-- whose panel went without saying so.
+local current: (() -> ())? = nil
+
 function Wheel.open(ctx: any): Instance
+	if current then
+		current()
+	end
 	local s0 = store.useGame.getState()
 	-- Already spun today: nothing to show (the web closes the panel).
 	if s0.lastDaily == store.today() then
@@ -336,28 +234,32 @@ function Wheel.open(ctx: any): Instance
 		return Ui.new("Frame", { Name = "Panel", Visible = false, Parent = ctx.gui })
 	end
 	local level = s0.level
-	local overlay = Ui.new("Frame", { Name = "Panel", Active = true, ZIndex = 20, Size = UDim2.fromScale(1, 1), BackgroundColor3 = BG, BorderSizePixel = 0, Parent = ctx.gui })
-	local page = Ui.new("Frame", { Name = "DailySpin", Size = UDim2.fromScale(1, 1), BackgroundColor3 = BG, BorderSizePixel = 0, Parent = overlay }, {
-		Ui.new("UIGradient", { Rotation = 90, Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromHex("#1d1430")), ColorSequenceKeypoint.new(0.7, BG), ColorSequenceKeypoint.new(1, Color3.fromHex("#0c0814")) }) }),
-	})
-	-- The shop's neon sign over the wheel.
-	local sign = Ui.new("Frame", { Name = "Neon", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, -(DOCK_W + 32) / 2, 0, 66), Size = UDim2.fromOffset(300, 54), BackgroundColor3 = Color3.fromHex("#140c22"), ZIndex = 2, Parent = page }, {
-		Ui.corner(10),
-		Ui.stroke(3, Color3.fromHex("#ff4fd8"), 0.2),
-	})
-	Ui.text({ Text = "DAILY SPIN", TextSize = 34, TextColor3 = Color3.fromHex("#ffc400"), Size = UDim2.fromScale(1, 1), Stroke = 1, StrokeColor = Color3.fromHex("#ff8f00"), ZIndex = 2, Parent = sign })
-	local rotor, flapper, bulbs = drawWheel(page, level)
+	-- The HUD keeps a stand-in so it knows the panel is open; closing it closes the shop.
+	local overlay = Ui.new("Frame", { Name = "Panel", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = ctx.gui })
+
+	-- ── The shop takes the screen and the camera ────────────────────────────────────────────────
+	local shop = WheelShop.build(level)
+	local hudGui = (ctx.gui :: Instance):FindFirstAncestorOfClass("ScreenGui")
+	-- The screen is laid out in the web's CSS pixels, one to a Roblox pixel (the web's own sizes).
+	local gui = Ui.new("ScreenGui", { Name = "DailySpin", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 10, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = if hudGui then hudGui.Parent else ctx.gui })
+	local page = Ui.new("Frame", { Name = "Screen", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = gui })
+	if hudGui then
+		hudGui.Enabled = false
+	end
+	local cam, giveBack = Kit.takeCamera(WheelShop.FOV)
+	-- The shop's dark air (WheelScene's fog, 13 to 30 m) and its own light, not the town's sun.
+	DayNight.setRaceFog({ color = WheelShop.BG, near = 130, far = 300, room = { ambient = Color3.fromHex("#3c3a58") } })
 
 	-- ── The top bar: title, wallet, close ───────────────────────────────────────────────────────
 	local top = Ui.new("Frame", { Name = "Top", Size = UDim2.new(1, 0, 0, 64), BackgroundColor3 = Color3.fromHex("#0a1e3c"), BorderSizePixel = 0, ZIndex = 20, Parent = page }, {
 		Ui.new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 1) }) }),
 	})
-	Ui.text({ Name = "Title", Text = "🎡 Daily Spin", TextSize = 20, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(14, 8), Size = UDim2.new(1, -300, 0, 42), Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.65, ZIndex = 21, Parent = top })
+	local title = Ui.text({ Name = "Title", Text = "🎡 Daily Spin", TextSize = 20, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(14, 8), Size = UDim2.new(1, -300, 0, 42), Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.65, ZIndex = 21, Parent = top })
 	local wallet = Ui.new("Frame", { Name = "Wallet", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -66, 0, 16), Size = UDim2.fromOffset(240, 28), BackgroundTransparency = 1, ZIndex = 21, Parent = top }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	local function walletPill(order: number, gem: boolean): (Frame, TextLabel)
-		local pill = Ui.new("Frame", { Size = UDim2.fromOffset(80, 26), BackgroundColor3 = BG, BackgroundTransparency = 0.3, LayoutOrder = order, ZIndex = 21, Parent = wallet }, { Ui.corner(13), Ui.stroke(2, Ui.WHITE, 0.4) })
+		local pill = Ui.new("Frame", { Size = UDim2.fromOffset(80, 26), BackgroundColor3 = Color3.fromHex("#120c1c"), BackgroundTransparency = 0.3, LayoutOrder = order, ZIndex = 21, Parent = wallet }, { Ui.corner(13), Ui.stroke(2, Ui.WHITE, 0.4) })
 		if gem then
 			Ui.text({ Text = "💎", TextSize = 14, Position = UDim2.fromOffset(4, 3), Size = UDim2.fromOffset(18, 20), ZIndex = 21, Parent = pill })
 		else
@@ -380,63 +282,144 @@ function Wheel.open(ctx: any): Instance
 	Ui.closeButton({ Name = "Close", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 9), Size = UDim2.fromOffset(42, 42), ZIndex = 21, Parent = top }, ctx.close)
 
 	-- ── The dock: the odds and Spin ─────────────────────────────────────────────────────────────
-	local ROW_H = 34
-	local oddsH = 4 * ROW_H + 3 * 5 + 10
-	local dock = Ui.new("Frame", { Name = "Dock", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -16, 0.5, 0), Size = UDim2.fromOffset(DOCK_W, oddsH + 8 + 64), BackgroundTransparency = 1, ZIndex = 10, Parent = page })
-	local odds = Ui.new("Frame", { Name = "Odds", Size = UDim2.new(1, 0, 0, oddsH), BackgroundColor3 = DOCK, BackgroundTransparency = 0.18, ZIndex = 10, Parent = dock }, {
-		Ui.corner(14),
-		Ui.stroke(2, Ui.WHITE, 0.75),
-		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 5), PaddingRight = UDim.new(0, 5), PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5) }),
-		Ui.new("UIGridLayout", { CellSize = UDim2.new(0.5, -3, 0, ROW_H), CellPadding = UDim2.fromOffset(5, 5), SortOrder = Enum.SortOrder.LayoutOrder }),
-	})
-	for i, s in WHEEL do
-		local c = tierColor(s.tier)
-		local row = Ui.new("Frame", { Name = s.id, LayoutOrder = i, BackgroundColor3 = Ui.WHITE, ZIndex = 10, Parent = odds }, {
-			Ui.corner(10),
-			Ui.stroke(2, c),
-			Ui.new("UIGradient", { Rotation = 90, Color = ColorSequence.new(mix(c, Color3.fromHex("#1a1428"), 0.55), mix(c, Color3.fromHex("#120c1c"), 0.25)) }),
-		})
-		local icon = sliceIcon(row, s, 18, 11)
-		icon.AnchorPoint = Vector2.new(0, 0.5)
-		icon.Position = UDim2.new(0, 10, 0.5, 0)
-		local text = amount(s, level)
-		if text == "" then
-			text = if s.kind == "part" then "Part" else "Paint"
-		end
-		Ui.text({ Text = text, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(18 + icon.Size.X.Offset, 0), Size = UDim2.new(1, -70, 1, 0), Shadow = 1, ShadowColor = Ui.BLACK, ShadowTransparency = 0.5, ZIndex = 11, Parent = row })
-		Ui.text({ Text = pct(wheel.wheelPct(s)), TextSize = 12, TextColor3 = Ui.WHITE, TextTransparency = 0.2, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 0), Size = UDim2.new(0, 50, 1, 0), ZIndex = 11, Parent = row })
-	end
-	-- Spin: the depot's big green open button (.crate-open.wh-go).
-	local _, go = Ui.button({ Name = "Spin", Position = UDim2.fromOffset(0, oddsH + 12), Size = UDim2.new(1, 0, 0, 56), Parent = dock }, "green", nil, { radius = 16, stroke = 3, strokeColor = Ui.WHITE, drop = 4, dark = 0.4, text = "Spin", textSize = 26, textShadow = 2 })
-	local goGrad = go:FindFirstChildOfClass("UIGradient")
-	local goLabel = go:FindFirstChild("Label") :: TextLabel
+	local phase = "idle"
+	local wide = true
+	local dock: Frame? = nil
+	local go: TextButton? = nil
+	local goText = "Spin"
 	local function setGo(text: string, on: boolean)
-		Ui.setText(goLabel, text)
-		if goGrad then
-			goGrad.Color = if on then Ui.seq("#66bb6a", "#2e7d32") else Ui.seq("#6c9a6e", "#33573a")
+		goText = text
+		local b = go
+		if not b then
+			return
+		end
+		Ui.setText(b:FindFirstChild("Label") :: TextLabel, text)
+		local grad = b:FindFirstChildOfClass("UIGradient")
+		if grad then
+			grad.Color = if on then Ui.seq("#66bb6a", "#2e7d32") else Ui.seq("#6c9a6e", "#33573a")
 		end
 	end
-	setGo("Spin", true)
+	local spin: () -> ()
+
+	-- Wide: two columns of rows (icon, amount, odds at the end), right of the wheel. Tall: four
+	-- columns of tiles (icon over amount over odds) along the bottom.
+	local function buildDock(vp: Vector2)
+		if dock then
+			dock:Destroy()
+		end
+		local rowH = if wide then 34 else 64
+		local cols = if wide then 2 else 4
+		local oddsH = (N / cols) * rowH + (N / cols - 1) * 5 + 10
+		local w = if wide then 384 else math.min(520, vp.X - 16)
+		local f = Ui.new("Frame", {
+			Name = "Dock",
+			AnchorPoint = if wide then Vector2.new(1, 0.5) else Vector2.new(0.5, 1),
+			Position = if wide then UDim2.new(1, -16, 0.5, 0) else UDim2.new(0.5, 0, 1, -10),
+			Size = UDim2.fromOffset(w, oddsH + 8 + 60),
+			BackgroundTransparency = 1,
+			ZIndex = 10,
+			Parent = page,
+		})
+		local odds = Ui.new("Frame", { Name = "Odds", Size = UDim2.new(1, 0, 0, oddsH), BackgroundColor3 = DOCK, BackgroundTransparency = 0.18, ZIndex = 10, Parent = f }, {
+			Ui.corner(14),
+			Ui.stroke(2, Ui.WHITE, 0.75),
+			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 5), PaddingRight = UDim.new(0, 5), PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5) }),
+			Ui.new("UIGridLayout", { CellSize = UDim2.new(1 / cols, -5 * (cols - 1) / cols - 1, 0, rowH), CellPadding = UDim2.fromOffset(5, 5), SortOrder = Enum.SortOrder.LayoutOrder }),
+		})
+		for i, s in WHEEL do
+			local c = tierColor(s.tier)
+			local row = Ui.new("Frame", { Name = s.id, LayoutOrder = i, BackgroundColor3 = Ui.WHITE, ZIndex = 10, Parent = odds }, {
+				Ui.corner(10),
+				Ui.stroke(2, c),
+				Ui.new("UIGradient", { Rotation = 90, Color = ColorSequence.new(mix(c, Color3.fromHex("#1a1428"), 0.55), mix(c, Color3.fromHex("#120c1c"), 0.25)) }),
+			})
+			local text = amount(s, level)
+			if text == "" then
+				text = if s.kind == "part" then "Part" else "Paint"
+			end
+			local icon = sliceIcon(row, s, 18, 11)
+			if wide then
+				icon.AnchorPoint = Vector2.new(0, 0.5)
+				icon.Position = UDim2.new(0, 10, 0.5, 0)
+				Ui.text({ Text = text, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(18 + icon.Size.X.Offset, 0), Size = UDim2.new(1, -70, 1, 0), Shadow = 1, ShadowColor = Ui.BLACK, ShadowTransparency = 0.5, ZIndex = 11, Parent = row })
+				Ui.text({ Text = pct(wheel.wheelPct(s)), TextSize = 12, TextTransparency = 0.2, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 0), Size = UDim2.new(0, 50, 1, 0), ZIndex = 11, Parent = row })
+			else
+				local ih = icon.Size.Y.Offset
+				local top0 = (rowH - (ih + 2 + 15 + 3 + 12)) / 2
+				icon.AnchorPoint = Vector2.new(0.5, 0)
+				icon.Position = UDim2.new(0.5, 0, 0, top0)
+				Ui.text({ Text = text, TextSize = 15, Position = UDim2.fromOffset(0, top0 + ih + 2), Size = UDim2.new(1, 0, 0, 15), Shadow = 1, ShadowColor = Ui.BLACK, ShadowTransparency = 0.5, ZIndex = 11, Parent = row })
+				Ui.text({ Text = pct(wheel.wheelPct(s)), TextSize = 12, TextTransparency = 0.2, Position = UDim2.fromOffset(0, top0 + ih + 20), Size = UDim2.new(1, 0, 0, 12), ZIndex = 11, Parent = row })
+			end
+		end
+		-- Spin: the depot's big green open button (.crate-open.wh-go).
+		local _, b = Ui.button({ Name = "Spin", Position = UDim2.fromOffset(0, oddsH + 8), Size = UDim2.new(1, 0, 0, 56), Parent = f }, "green", nil, { radius = 16, stroke = 3, strokeColor = Ui.WHITE, drop = 4, dark = 0.4, text = "Spin", textSize = 26, textShadow = 2 })
+		b.Activated:Connect(function()
+			spin()
+		end)
+		dock, go = f, b
+		setGo(goText, phase == "idle")
+	end
+
+	-- ── The prize card ─────────────────────────────────────────────────────────────────────────
+	local prizeCard: Frame? = nil
+	local function placePrize(slide: boolean)
+		local glow = prizeCard
+		if not glow then
+			return
+		end
+		local vp = cam.ViewportSize
+		local h = glow.Size.Y.Offset
+		local w = if wide then 370 else math.min(530, vp.X - 6)
+		glow.Size = UDim2.fromOffset(w, h)
+		glow.AnchorPoint = if wide then Vector2.new(1, 0.5) else Vector2.new(0.5, 1)
+		local home = if wide then UDim2.new(1, -11, 0.5, 0) else UDim2.new(0.5, 0, 1, -7)
+		if slide then
+			-- Slides in from the side on a wide screen and up from the bottom on a phone (prize-in).
+			glow.Position = if wide then UDim2.new(1, w, 0.5, 0) else UDim2.new(0.5, 0, 1, h + 20)
+			TweenService:Create(glow, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = home }):Play()
+		else
+			glow.Position = home
+		end
+	end
+
+	-- ── Fitting the screen ─────────────────────────────────────────────────────────────────────
+	local function layout()
+		local vp = cam.ViewportSize
+		local cf, isWide = shop.camera(vp)
+		cam.CFrame = cf
+		local changed = isWide ~= wide or dock == nil
+		wide = isWide
+		shop.setWide(wide)
+		title.TextSize = if vp.Y < 500 then 16 elseif vp.X >= 900 then 24 else 20
+		if phase ~= "won" and changed then
+			buildDock(vp)
+		elseif dock then
+			local w = if wide then 384 else math.min(520, vp.X - 16)
+			dock.Size = UDim2.fromOffset(w, dock.Size.Y.Offset)
+		end
+		placePrize(false)
+	end
+	layout()
+	local conns: { RBXScriptConnection } = {}
+	table.insert(conns, cam:GetPropertyChangedSignal("ViewportSize"):Connect(layout))
+	-- The shop lives each frame: chase lights, the flapper, the winner's glow and the confetti; the
+	-- camera stays put (the town camera is paused, and nothing else may move it).
+	RunService:BindToRenderStep(SCENE_STEP, Enum.RenderPriority.Camera.Value + 1, function(dt: number)
+		shop.step(math.min(dt, 0.05))
+		cam.CFrame = (shop.camera(cam.ViewportSize))
+	end)
 
 	-- ── The spin ────────────────────────────────────────────────────────────────────────────────
-	local phase = "idle"
 	local angle = 0
-	local kickAt = -10
 	local clock = 0
 	local spinning = false
 	local carsAt = s0.cars
 
 	local function setAngle(a: number)
 		angle = a
-		rotor.Rotation = a % 360
+		shop.setAngle(a)
 	end
-	local function lights(on: Color3?)
-		for i, b in bulbs do
-			local lit = if on then true else (math.floor(clock * 12) + i) % 3 == 0
-			b.BackgroundColor3 = if on then on elseif lit then Color3.fromHex("#fff6c2") else Color3.fromHex("#8a6a1a")
-		end
-	end
-	lights(nil)
 	local function stop()
 		if spinning then
 			spinning = false
@@ -448,9 +431,11 @@ function Wheel.open(ctx: any): Instance
 		phase = "won"
 		local slice = wheel.wheelSlice(spin.slice)
 		local color = if slice then tierColor(slice.tier) else Color3.fromHex("#ffd54f")
-		lights(color)
-		flapper.Rotation = 0
-		dock.Visible = false
+		shop.won(if slice then table.find(WHEEL, slice) else nil, color)
+		Sfx.wheel.win(slice and slice.tier)
+		if dock then
+			dock.Visible = false
+		end
 		local s = store.useGame.getState()
 		local paintUid = s.selectedCar
 		local has = false
@@ -461,8 +446,8 @@ function Wheel.open(ctx: any): Instance
 			local rc = raceCar.raceCarOf(carsAt, s.raceCar)
 			paintUid = rc and rc.uid
 		end
-		-- The prize card: the render, one line, Collect.
-		local glow = Ui.new("Frame", { Name = "Prize", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -16, 0.5, 0), Size = UDim2.fromOffset(360, 10), BackgroundColor3 = color, BackgroundTransparency = 0.75, ZIndex = 12, Parent = page }, { Ui.corner(24) })
+		-- The prize card: the render, one line, Collect, edged and glowing in the tier's colour.
+		local glow = Ui.new("Frame", { Name = "Prize", Size = UDim2.fromOffset(370, 10), BackgroundColor3 = color, BackgroundTransparency = 0.75, ZIndex = 12, Parent = page }, { Ui.corner(24) })
 		local card = Ui.new("Frame", { Name = "Card", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, -10, 1, -10), BackgroundColor3 = Color3.fromHex("#140e20"), BackgroundTransparency = 0.08, ZIndex = 12, Parent = glow }, {
 			Ui.corner(18),
 			Ui.stroke(3, color),
@@ -475,6 +460,8 @@ function Wheel.open(ctx: any): Instance
 			h += 130 + 8
 		elseif slice then
 			local box = Ui.new("Frame", { Name = "PrizeIcon", LayoutOrder = 1, Size = UDim2.fromOffset(160, 64), BackgroundTransparency = 1, ZIndex = 13, Parent = card })
+			-- The icon's glow (drop-shadow 0 0 10px in the tier's colour).
+			Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(72, 60), BackgroundColor3 = color, BackgroundTransparency = 0.8, ZIndex = 12, Parent = box }, { Ui.round() })
 			local icon = sliceIcon(box, slice, 48, 13)
 			icon.AnchorPoint = Vector2.new(0.5, 0.5)
 			icon.Position = UDim2.fromScale(0.5, 0.5)
@@ -492,12 +479,11 @@ function Wheel.open(ctx: any): Instance
 		end
 		h += 50
 		glow.Size = UDim2.fromOffset(370, h + 10)
-		-- Slides in from the side (prize-in-side).
-		glow.Position = UDim2.new(1, 14, 0.5, 0)
-		TweenService:Create(glow, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.new(1, -16, 0.5, 0) }):Play()
+		prizeCard = glow
+		placePrize(true)
 	end
 
-	local function spin()
+	spin = function()
 		if phase ~= "idle" then
 			return
 		end
@@ -557,30 +543,47 @@ function Wheel.open(ctx: any): Instance
 				end
 			end
 			setAngle(a)
+			-- The flapper knocks as each peg passes.
 			local p = math.floor(a / STEP)
 			if p ~= peg then
 				peg = p
-				kickAt = clock
+				Sfx.wheel.tick(math.min(1, v / FULL_SPEED))
+				shop.kick()
 			end
-			-- The flapper kicks back as a peg passes, then springs down again.
-			local since = clock - kickAt
-			flapper.Rotation = -26 * math.min(1, v / FULL_SPEED + 0.35) * math.exp(-since * 14)
-			lights(nil)
 		end)
 	end
-	go.Activated:Connect(spin)
 
 	-- A save that says today's spin is taken (spun elsewhere) while nothing is spinning: close.
-	local changed = Remote.changed:Connect(function()
+	table.insert(conns, Remote.changed:Connect(function()
 		refreshWallet()
 		if phase == "idle" and store.useGame.getState().lastDaily == store.today() then
 			ctx.close()
 		end
-	end)
-	overlay.Destroying:Connect(function()
-		changed:Disconnect()
+	end))
+	local closed = false
+	local function closeShop()
+		if closed then
+			return
+		end
+		closed = true
+		if current == closeShop then
+			current = nil
+		end
+		for _, c in conns do
+			c:Disconnect()
+		end
 		stop()
-	end)
+		RunService:UnbindFromRenderStep(SCENE_STEP)
+		gui:Destroy()
+		shop.destroy()
+		DayNight.setRaceFog(nil)
+		giveBack()
+		if hudGui then
+			hudGui.Enabled = true
+		end
+	end
+	current = closeShop
+	overlay.Destroying:Connect(closeShop)
 	return overlay
 end
 

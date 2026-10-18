@@ -15,7 +15,7 @@ local Pictures = require(script.Parent.Pictures)
 
 local Splash = {}
 
-local function resolve(id: number)
+local function resolve(id: number?)
 	Pictures.resolve(id, true)
 end
 
@@ -28,18 +28,29 @@ function Splash.start()
 	local x = math.clamp((0.3 - d) / 0.2, 0, 1)
 	local n = x * x * (3 - 2 * x)
 	local now = if n > 0.7 then "night" elseif n > 0.08 then "dusk" else "day"
-	Pictures.resolve(Images.wordmark)
+	-- Ahead of the 3D shapes: this time of day's screen, then the other times of day's.
+	resolve(Images.wordmark)
+	resolve(Images.vignette)
+	resolve(Images.shadow)
+	local tiles = Images.tiles or {}
 	for _, time in { now, "day", "dusk", "night" } do
 		for _, kind in { Images.town, Images.sun } do
-			Pictures.resolve(kind[time].wide)
-			Pictures.resolve(kind[time].tall)
+			resolve(kind[time].wide)
+			resolve(kind[time].tall)
+		end
+		-- Big screens' sharper tiles of them.
+		for _, name in { "town", "sun" } do
+			for _, shape in { "wide", "tall" } do
+				for _, t in tiles[`{name}-{time}-{shape}`] or {} do
+					resolve(t.id)
+				end
+			end
 		end
 	end
-	Pictures.resolve(Images.vignette)
 	-- Then every texture: the ground's first, as each town is drawn on it.
 	local textures = Catalog.TEXTURES or {}
 	for _, key in { "grass", "meadow" } do
-		Pictures.resolve(textures[key] and textures[key].image)
+		resolve(textures[key] and textures[key].image)
 	end
 	for _, t in textures do
 		Pictures.resolve(t.image)

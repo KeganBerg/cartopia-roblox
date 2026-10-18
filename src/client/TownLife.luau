@@ -267,6 +267,12 @@ local PANTS = { "#37474f", "#1565c0", "#5d4037", "#212121", "#78909c", "#283593"
 local SKIN = { "#f5d0b5", "#e0ac8a", "#c68863", "#8d5a3b", "#5c3a24", "#f1c27d" }
 local HAIR = { "#3e2723", "#212121", "#6d4c41", "#fbc02d", "#bf360c", "#9e9e9e" }
 local BEANIES = { "#d32f2f", "#1976d2", "#388e3c", "#fbc02d", "#7b1fa2" }
+-- What they wear (the web draws one shirt over trousers; here there's more to see up close).
+local JACKETS = { "#455a64", "#6d4c41", "#1a237e", "#2e7d32", "#c62828", "#37474f", "#f9a825" }
+local SHOES = { "#2b2b2b", "#fafafa", "#5d4037", "#c62828", "#1565c0", "#2b2b2b" }
+local HATS = { "#d32f2f", "#1976d2", "#212121", "#fbc02d", "#2e7d32", "#fafafa" }
+local TOPS = { "tee", "tee", "stripe", "jacket", "hoodie", "polo" }
+local HAIRDOS = { "short", "short", "long", "ponytail", "bun", "cap", "curly", "buzz" }
 local DOG_COATS = { "#8d6e63", "#f5f5f5", "#5d4037", "#d4a056", "#a1887f", "#3a3a3a" }
 local DOG_SIZES = { 0.8, 0.9, 1, 1.1, 1.2 }
 local LEASHES = { "#d32f2f", "#1565c0", "#2e7d32", "#212121", "#f9a825", "#6a1b9a" }
@@ -322,7 +328,8 @@ end
 
 type Pt = { number }
 type Dest = { kind: string, key: string, def: string }
-type Figure = { model: Model, parts: { BasePart }, dog: { BasePart }, leash: BasePart, shown: boolean }
+type Bit = { part: BasePart, bone: number, off: CFrame, near: boolean }
+type Figure = { model: Model, bits: { Bit }, dog: { BasePart }, leash: BasePart, shown: boolean, near: boolean }
 type Person = {
 	id: string,
 	type: string,
@@ -348,6 +355,7 @@ type Person = {
 	dest: Dest?,
 	outings: number,
 	colors: { shirt: string, pants: string, skin: string, hair: string, dog: string },
+	look: { top: string, hair: string, shorts: boolean, coat: string, trim: string, shoes: string, hat: string },
 	fig: Figure?,
 }
 
@@ -388,6 +396,15 @@ local function person(id: string, home: string, pos: Pt): Person
 			skin = SKIN[(h // 64) % #SKIN + 1],
 			hair = (if Catalog.SEASON == "winter" then BEANIES else HAIR)[(h // 512) % 5 + 1],
 			dog = DOG_COATS[(h // 2048) % #DOG_COATS + 1],
+		},
+		look = {
+			top = if kind == "jogger" then "tee" else TOPS[(h // 4096) % #TOPS + 1],
+			hair = if Catalog.SEASON == "winter" then "beanie" else HAIRDOS[(h // 32768) % #HAIRDOS + 1],
+			shorts = Catalog.SEASON ~= "winter" and (kind == "jogger" or (h // 262144) % 4 == 0),
+			coat = JACKETS[(h // 1048576) % #JACKETS + 1],
+			trim = if (h // 4194304) % 2 == 0 then "#fafafa" else "#212121",
+			shoes = if kind == "jogger" then "#fafafa" else SHOES[(h // 16777216) % #SHOES + 1],
+			hat = HATS[(h // 67108864) % #HATS + 1],
 		},
 		fig = nil,
 	}
@@ -487,8 +504,8 @@ local function walkDog(p: Person, dt: number)
 	end
 	local sin, cos = math.sin(p.heading), math.cos(p.heading)
 	local still = p.state == "linger"
-	local back = if still then -0.1 else 0.4
-	local side = if still then 0.35 else 0.22
+	local back = (if still then -0.1 else 0.4) * FIT
+	local side = (if still then 0.35 else 0.22) * FIT
 	local tx = p.pos[1] - sin * back + cos * side
 	local tz = p.pos[2] - cos * back - sin * side
 	local dx, dz = tx - p.dogPos[1], tz - p.dogPos[2]
@@ -700,7 +717,9 @@ local function updatePerson(g: any, places: Places, p: Person, dt: number, night
 	p.waited = 0
 	local dx, dz = step.p[1] - p.pos[1], step.p[2] - p.pos[2]
 	local len = math.sqrt(dx * dx + dz * dz)
-	local move = p.speed * dt
+	-- The web's speeds suit its figures, which are 1/FIT times the size of ours: scaled the same, a
+	-- walk is an easy stroll for a 5.3-stud person (about 4.5 studs a second) and a jog a jog.
+	local move = p.speed * FIT * dt
 	if len <= move then
 		p.pos[1], p.pos[2] = step.p[1], step.p[2]
 		if cross then
@@ -712,12 +731,20 @@ local function updatePerson(g: any, places: Places, p: Person, dt: number, night
 		p.pos[2] += dz / len * move
 		turnTo(p, math.atan2(dx, dz), dt)
 	end
-	p.stride += dt * p.speed * (if p.type == "jogger" then 10 else 14)
+	-- Legs keep pace with the ground (about one stride a step's length), so feet don't skate.
+	p.stride += move * S / K * (if p.type == "jogger" then 10 else 14)
 	walkDog(p, dt)
 end
 
--- A figure (peopleGeo.ts at Townspeople's scale): legs and shoes, torso and belt, arms and hands,
--- head with eyes, hair; a walked dog and its leash. Parts in the order draw() places them.
+-- A figure (peopleGeo.ts at Townspeople's scale, with more to see up close): legs that bend at the
+-- knee, shoes, a rounded torso in the person's top (tee, striped, polo, jacket or hoodie) over
+-- trousers or shorts, arms that swing with sleeves and hands, and a head with eyes, brows, nose,
+-- smile and ears under one of several hairdos or hats; a walked dog and its leash.
+--
+-- Each part rides a bone (hips, torso, head, a thigh, a shin or an arm) at a fixed offset, so
+-- draw() works out nine bones and places every part from them. Parts marked `near` (the face's
+-- small features, collars and trims) only follow people close to the camera; far off they're
+-- parked out of sight, which keeps a phone's busy town to about 20 moving parts a person.
 local function ellipsoid(parent: Instance, size: Vector3, color: string): Part
 	local p = part(parent, Enum.PartType.Block, size, CFrame.new(), color)
 	local m = Instance.new("SpecialMesh")
@@ -725,34 +752,133 @@ local function ellipsoid(parent: Instance, size: Vector3, color: string): Part
 	m.Parent = p
 	return p
 end
+
+-- A hex colour `k` of the way to black (k < 0: to white).
+local function shade(hex: string, k: number): string
+	local out = "#"
+	for i = 0, 2 do
+		local v = tonumber(string.sub(hex, 2 + i * 2, 3 + i * 2), 16) :: number
+		v = if k >= 0 then v * (1 - k) else v + (255 - v) * -k
+		out ..= string.format("%02x", math.floor(v + 0.5))
+	end
+	return out
+end
+
+local HIPS, TORSO, HEAD, THIGH_L, THIGH_R, SHIN_L, SHIN_R, ARM_L, ARM_R = 1, 2, 3, 4, 5, 6, 7, 8, 9
+local THIGH, SHIN = 0.115, 0.1 -- leg lengths, hip to knee to ankle (LEG less the shoe)
+local SHOULDER = Vector3.new(0.105, 0.255, 0) -- from the hips, on the torso
+-- Where a seated person's hips go: the web seats its figures at 0.26 of its (1/FIT bigger) scale,
+-- which is where the bench's seat is.
+local SIT_HIP = 0.26 / FIT
+
 local function figure(p: Person, parent: Instance): Figure
 	local m = Instance.new("Model")
 	m.Name = p.id
-	local c = p.colors
-	local parts: { BasePart } = {}
-	local function add(x: BasePart)
+	local c, look = p.colors, p.look
+	local bits: { Bit } = {}
+	local function add(x: BasePart, bone: number, off: CFrame, near: boolean?)
 		x.CastShadow = false
-		table.insert(parts, x)
+		table.insert(bits, { part = x, bone = bone, off = off, near = near == true })
 	end
-	for _ = 1, 2 do
-		add(part(m, nil, Vector3.new(0.06, LEG, 0.07) * K, CFrame.new(), c.pants))
+	local function ball(bone: number, d: number, at: Vector3, color: string, near: boolean?)
+		add(part(m, Enum.PartType.Ball, Vector3.one * d * K, CFrame.new(), color), bone, CFrame.new(at * K), near)
 	end
-	for _ = 1, 2 do
-		add(part(m, nil, Vector3.new(0.066, 0.04, 0.105) * K, CFrame.new(), "#2b2b2b"))
+	local function egg(bone: number, size: Vector3, off: CFrame, color: string, near: boolean?)
+		add(ellipsoid(m, size * K, color), bone, off, near)
 	end
-	add(ellipsoid(m, Vector3.new(0.17, 0.33, 0.17) * K, c.shirt))
-	add(part(m, Enum.PartType.Cylinder, Vector3.new(0.022, 0.176, 0.176) * K, CFrame.new(), "#3a3a3a"))
-	for _ = 1, 2 do
-		add(ellipsoid(m, Vector3.new(0.056, 0.196, 0.056) * K, c.shirt))
+	local function ring(bone: number, d: number, h: number, y: number, color: string, near: boolean?)
+		add(part(m, Enum.PartType.Cylinder, Vector3.new(h, d, d) * K, CFrame.new(), color), bone, CFrame.new(0, y * K, 0) * UP, near)
 	end
-	for _ = 1, 2 do
-		add(part(m, Enum.PartType.Ball, Vector3.one * 0.052 * K, CFrame.new(), c.skin))
+	local function at(x: number, y: number, z: number): CFrame
+		return CFrame.new(x * K, y * K, z * K)
 	end
-	add(part(m, Enum.PartType.Ball, Vector3.one * 0.16 * K, CFrame.new(), c.skin))
-	for _ = 1, 2 do
-		add(part(m, Enum.PartType.Ball, Vector3.one * 0.022 * K, CFrame.new(), "#1a1a1a"))
+	local top = look.top
+	local covered = top == "jacket" or top == "hoodie"
+	local body = if covered then look.coat else c.shirt
+	-- Legs: trouser thighs, shins in trousers or bare under shorts, and shoes, toe forward.
+	for _, bone in { THIGH_L, THIGH_R } do
+		egg(bone, Vector3.new(0.072, THIGH + 0.05, 0.078), at(0, -THIGH / 2, 0), c.pants)
 	end
-	add(ellipsoid(m, Vector3.new(0.17, 0.1, 0.17) * K, c.hair))
+	for _, bone in { SHIN_L, SHIN_R } do
+		egg(bone, Vector3.new(0.06, SHIN + 0.04, 0.066), at(0, -SHIN / 2, 0), if look.shorts then c.skin else c.pants)
+	end
+	for _, bone in { SHIN_L, SHIN_R } do
+		egg(bone, Vector3.new(0.072, 0.05, 0.12), at(0, -SHIN - 0.008, 0.02), look.shoes)
+	end
+	-- Torso: a capsule (seat in the trousers, middle and shoulders in the top) and a belt.
+	ball(TORSO, 0.17, Vector3.new(0, 0.07, 0), c.pants)
+	ring(TORSO, 0.17, 0.16, 0.15, body)
+	ball(TORSO, 0.17, Vector3.new(0, 0.23, 0), body)
+	ring(TORSO, 0.176, 0.024, 0.07, "#3a3a3a")
+	-- Arms: a sleeve (short over a bare forearm, or long), and the hand.
+	for _, bone in { ARM_L, ARM_R } do
+		if covered then
+			egg(bone, Vector3.new(0.062, 0.2, 0.062), at(0, -0.09, 0), body)
+		else
+			egg(bone, Vector3.new(0.066, 0.11, 0.066), at(0, -0.045, 0), body)
+			egg(bone, Vector3.new(0.046, 0.13, 0.046), at(0, -0.125, 0), c.skin)
+		end
+		ball(bone, 0.054, Vector3.new(0, -0.205, 0.004), c.skin)
+	end
+	-- What sets each top apart, close up.
+	if top == "stripe" then
+		ring(TORSO, 0.174, 0.034, 0.19, look.trim, true)
+		ring(TORSO, 0.174, 0.034, 0.12, look.trim, true)
+	elseif top == "polo" then
+		ring(TORSO, 0.1, 0.03, 0.305, shade(c.shirt, 0.15), true)
+		egg(TORSO, Vector3.new(0.03, 0.06, 0.012), at(0, 0.27, 0.078) * CFrame.Angles(-0.5, 0, 0), shade(c.shirt, 0.25), true)
+	elseif top == "jacket" then
+		-- Open down the front over the shirt, with a zip each side.
+		add(part(m, nil, Vector3.new(0.05, 0.15, 0.012) * K, CFrame.new(), c.shirt), TORSO, at(0, 0.19, 0.081), true)
+		ring(TORSO, 0.105, 0.035, 0.31, shade(look.coat, 0.2), true)
+	elseif top == "hoodie" then
+		egg(TORSO, Vector3.new(0.15, 0.09, 0.09), at(0, 0.3, -0.06), shade(look.coat, 0.12), true)
+		add(part(m, nil, Vector3.new(0.1, 0.05, 0.012) * K, CFrame.new(), shade(look.coat, 0.12)), TORSO, at(0, 0.11, 0.083), true)
+	else
+		ring(TORSO, 0.1, 0.025, 0.305, shade(c.shirt, 0.12), true)
+	end
+	-- Head and face: eyes (always: they read from afar), then brows, nose, smile, ears and neck.
+	ball(HEAD, 0.16, Vector3.zero, c.skin)
+	for _, s in { -1, 1 } do
+		egg(HEAD, Vector3.new(0.022, 0.03, 0.016), at(s * 0.029, 0.012, 0.072), "#1a1a1a")
+	end
+	local brow = if look.hair == "beanie" then "#3e2723" else c.hair
+	for _, s in { -1, 1 } do
+		add(part(m, nil, Vector3.new(0.034, 0.009, 0.012) * K, CFrame.new(), brow), HEAD, at(s * 0.03, 0.036, 0.071) * CFrame.Angles(-0.45, 0, s * -0.12), true)
+	end
+	ball(HEAD, 0.028, Vector3.new(0, -0.006, 0.08), shade(c.skin, 0.06), true)
+	add(part(m, nil, Vector3.new(0.034, 0.008, 0.01) * K, CFrame.new(), "#8a4a4a"), HEAD, at(0, -0.033, 0.072) * CFrame.Angles(0.45, 0, 0), true)
+	for _, s in { -1, 1 } do
+		egg(HEAD, Vector3.new(0.022, 0.042, 0.032), at(s * 0.079, 0, -0.004), c.skin, true)
+	end
+	ring(TORSO, 0.066, 0.06, 0.29, c.skin, true)
+	-- Hair, or a hat over it.
+	local hd = look.hair
+	if hd == "cap" then
+		egg(HEAD, Vector3.new(0.172, 0.1, 0.172), at(0, 0.052, -0.016), look.hat)
+		add(part(m, nil, Vector3.new(0.12, 0.012, 0.075) * K, CFrame.new(), shade(look.hat, 0.15)), HEAD, at(0, 0.05, 0.088) * CFrame.Angles(-0.12, 0, 0))
+		egg(HEAD, Vector3.new(0.15, 0.08, 0.12), at(0, -0.01, -0.03), c.hair, true)
+	elseif hd == "beanie" then
+		egg(HEAD, Vector3.new(0.18, 0.12, 0.18), at(0, 0.062, -0.012), c.hair)
+		ball(HEAD, 0.05, Vector3.new(0, 0.125, -0.012), "#fafafa")
+		ring(TORSO, 0.11, 0.04, 0.3, shade(c.hair, -0.25), true) -- a scarf
+	elseif hd == "curly" then
+		ball(HEAD, 0.2, Vector3.new(0, 0.058, -0.034), c.hair)
+	elseif hd == "buzz" then
+		egg(HEAD, Vector3.new(0.166, 0.1, 0.166), at(0, 0.045, -0.012), c.hair)
+	else
+		egg(HEAD, Vector3.new(0.174, 0.1, 0.172), at(0, 0.05, -0.02), c.hair)
+		if hd == "long" then
+			egg(HEAD, Vector3.new(0.17, 0.2, 0.09), at(0, -0.045, -0.048), c.hair)
+		elseif hd == "ponytail" then
+			egg(HEAD, Vector3.new(0.052, 0.13, 0.052), at(0, -0.02, -0.1) * CFrame.Angles(-0.35, 0, 0), c.hair)
+		elseif hd == "bun" then
+			ball(HEAD, 0.075, Vector3.new(0, 0.095, -0.04), c.hair)
+		end
+	end
+	if p.type == "jogger" then
+		ring(HEAD, 0.168, 0.022, 0.042, look.hat, true) -- a sweatband
+	end
 	-- The dog (Dog Park proportions, at its own size) and the leash.
 	local dog: { BasePart } = {}
 	local leash = part(m, nil, Vector3.new(0.009, 0.009, 1) * S, CFrame.new(), LEASHES[(#p.name * 3 + #p.dogName) % #LEASHES + 1])
@@ -774,20 +900,24 @@ local function figure(p: Person, parent: Instance): Figure
 		leash.Transparency = 1
 	end
 	m.Parent = parent
-	return { model = m, parts = parts, dog = dog, leash = leash, shown = true }
+	return { model = m, bits = bits, dog = dog, leash = leash, shown = true, near = true }
 end
 
 local HIDDEN = CFrame.new(0, -10000, 0)
+-- How close (studs) the camera must be for a figure's small features to follow it.
+local NEAR = 90
 
--- Places a person's figure (Townspeople.tsx draw()) into the lists BulkMoveTo takes.
-local function draw(origin: Vector3, p: Person, wag: number, list: { BasePart }, cfs: { CFrame })
+-- Places a person's figure (Townspeople.tsx draw()) into the lists BulkMoveTo takes. `eye` is the
+-- camera's position, if there is one.
+local function draw(origin: Vector3, p: Person, wag: number, eye: Vector3?, list: { BasePart }, cfs: { CFrame })
 	local fig = p.fig :: Figure
 	local hide = p.state == "inside"
 	if hide then
 		if fig.shown then
 			fig.shown = false
-			for _, x in fig.parts do
-				table.insert(list, x)
+			fig.near = false
+			for _, b in fig.bits do
+				table.insert(list, b.part)
 				table.insert(cfs, HIDDEN)
 			end
 			for _, x in fig.dog do
@@ -804,41 +934,54 @@ local function draw(origin: Vector3, p: Person, wag: number, list: { BasePart },
 	local jog = p.type == "jogger"
 	local swing = if moving then math.sin(p.stride) * (if jog then 0.85 else 0.55) else 0
 	local bob = if moving then math.abs(math.cos(p.stride)) * (if jog then 0.05 else 0.025) else 0
-	local hip = (if p.sit then 0.26 else LEG) + bob
+	local hip = (if p.sit then SIT_HIP else LEG) + bob
 	local base = CFrame.new(origin + Vector3.new(p.pos[1], 0, p.pos[2]) * S) * CFrame.Angles(0, p.heading, 0)
-	local function at(x: number, y: number, z: number): CFrame
-		return base * CFrame.new(x * K, y * K, z * K)
+	local near = eye == nil or (eye - base.Position).Magnitude < NEAR
+	-- The bones. The torso leans into a jog and turns a little against the legs; legs swing from
+	-- the hips and bend at the knee as they come through (sitting, thighs forward and shins down);
+	-- arms swing against the legs (a dog walker's right one holds the leash out).
+	local hips = base * CFrame.new(0, hip * K, 0)
+	local lean = if moving then (if jog then 0.16 else 0.05) else 0
+	local torso = hips * CFrame.Angles(lean, swing * 0.12, 0)
+	local idle = if p.state == "linger" and not p.sit then math.sin(wag * 0.6 + #p.id) * 0.45 else 0
+	local head = torso * CFrame.new(0, 0.36 * K, 0) * CFrame.Angles(-lean * 0.6, idle - swing * 0.1, 0)
+	local bones = { hips, torso, head }
+	for i, s in { -1, 1 } do
+		local a, knee
+		if p.sit then
+			a, knee = -math.pi / 2, math.pi / 2
+		else
+			a = swing * s
+			knee = if moving then math.max(0, math.cos(p.stride) * s) * (if jog then 1.1 else 0.55) else 0
+		end
+		local thigh = hips * CFrame.new(s * 0.045 * K, 0, 0) * CFrame.Angles(a, 0, 0)
+		bones[3 + i] = thigh
+		bones[5 + i] = thigh * CFrame.new(0, -THIGH * K, 0) * CFrame.Angles(knee, 0, 0)
 	end
-	local i = 0
-	local function put(cf: CFrame)
-		i += 1
-		table.insert(list, fig.parts[i])
-		table.insert(cfs, cf)
+	for i, s in { -1, 1 } do
+		local a = if p.sit then -0.45 else -swing * s * (if jog then 1.1 else 0.8)
+		if p.type == "dog" and s == 1 and not p.sit then
+			a = -0.4 + a * 0.3
+		end
+		bones[7 + i] = torso * CFrame.new(s * SHOULDER.X * K, SHOULDER.Y * K, 0) * CFrame.Angles(a, 0, 0) * CFrame.Angles(0, 0, s * 0.1)
 	end
-	-- Legs swing from the hips (sitting folds them forward), each with its shoe.
-	local legs = {}
-	for _, side in { -1, 1 } do
-		local a = if p.sit then -math.pi / 2 else swing * side
-		legs[side] = at(side * 0.045, hip, 0) * CFrame.Angles(a, 0, 0) * CFrame.new(0, -LEG / 2 * K, 0)
+	if near then
+		for _, b in fig.bits do
+			table.insert(list, b.part)
+			table.insert(cfs, bones[b.bone] * b.off)
+		end
+	else
+		for _, b in fig.bits do
+			if not b.near then
+				table.insert(list, b.part)
+				table.insert(cfs, bones[b.bone] * b.off)
+			elseif fig.near then
+				table.insert(list, b.part)
+				table.insert(cfs, HIDDEN)
+			end
+		end
 	end
-	put(legs[-1])
-	put(legs[1])
-	put(legs[-1] * CFrame.new(0, (-LEG / 2 + 0.01) * K, 0.017 * K))
-	put(legs[1] * CFrame.new(0, (-LEG / 2 + 0.01) * K, 0.017 * K))
-	-- Body, belt and arms; hands; head, eyes and hair, stacked up from the hips.
-	put(at(0, hip + 0.15, 0))
-	put(at(0, hip + 0.065, 0) * UP)
-	for _, s in { -1, 1 } do
-		put(at(s * 0.107, hip + 0.18, 0) * CFrame.Angles(0, 0, s * 0.12))
-	end
-	for _, s in { -1, 1 } do
-		put(at(s * 0.118, hip + 0.075, 0.005))
-	end
-	put(at(0, hip + 0.36, 0))
-	for _, s in { -1, 1 } do
-		put(at(s * 0.028, hip + 0.374, 0.07))
-	end
-	put(at(0, hip + 0.4, -0.015))
+	fig.near = near
 	if p.type == "dog" then
 		local k = p.dogSize * FIT
 		local still = p.state == "linger"
@@ -870,7 +1013,7 @@ local function draw(origin: Vector3, p: Person, wag: number, list: { BasePart },
 			table.insert(cfs, dcf[j])
 		end
 		-- The leash, from the right hand to the collar.
-		local hand = (at(0.118, hip + 0.075, 0.005)).Position
+		local hand = (bones[ARM_R] * CFrame.new(0, -0.205 * K, 0.004 * K)).Position
 		local collar = dat(0, 0.17 + (if still then 0.03 else 0), 0.075).Position
 		local span = (collar - hand).Magnitude
 		fig.leash.Size = Vector3.new(0.009 * S, 0.009 * S, math.max(0.01, span))
@@ -878,7 +1021,6 @@ local function draw(origin: Vector3, p: Person, wag: number, list: { BasePart },
 		table.insert(cfs, CFrame.lookAt((hand + collar) / 2, collar))
 	end
 end
-
 ---------------------------------------------------------------------------------------------------
 
 local function smallScreen(): boolean
@@ -1079,12 +1221,14 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		if graph and places then
 			local night = clock.nightAmount(clock.dayPhase(DateTime.now().UnixTimestampMillis)) > 0.5
 			local wag = os.clock()
+			local cam = workspace.CurrentCamera
+			local eye = if cam then cam.CFrame.Position else nil
 			local parts: { BasePart } = {}
 			local cfs: { CFrame } = {}
 			for _, p in people do
 				updatePerson(graph, places, p, dt, night)
 				if p.fig and p.fig.model.Parent then
-					draw(origin, p, wag, parts, cfs)
+					draw(origin, p, wag, eye, parts, cfs)
 				end
 			end
 			if #parts > 0 then
@@ -1119,5 +1263,9 @@ end
 
 TownLife._traffic = traffic
 TownLife._crossingSignal = crossingSignal
+TownLife._person = person
+TownLife._figure = figure
+TownLife._draw = draw
+TownLife._updatePerson = updatePerson
 
 return TownLife

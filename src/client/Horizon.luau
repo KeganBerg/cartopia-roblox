@@ -8,16 +8,22 @@
 --
 -- The land is the web game's own, converted by tools/models/build.mjs ("horizon:land" in
 -- Shared.Models.Scenery), and drawn here on the client round this player's town only. Its meshes
--- load after everything else (Builder.loadLate), so it appears a little after the town does.
+-- load after everything else (Builder.loadLate), so it appears a little after the town does. The
+-- wind turbines' rotors and the balloons are left out of it and moved here (Horizon.movers).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local ContentProvider = game:GetService("ContentProvider")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Models = Shared:WaitForChild("Models")
 local Builder = require(Models:WaitForChild("Builder")) :: any
 local Scenery = require(Models:WaitForChild("Scenery")) :: any
 local SkyImages = require(Models:WaitForChild("SkyImages")) :: any
+local Game = Shared:WaitForChild("Game")
+local clock = require(Game:WaitForChild("clock")) :: any
+local weather = require(Game:WaitForChild("weather")) :: any
 
 local Horizon = {}
 
@@ -116,6 +122,131 @@ function Horizon.draw(origin: Vector3, parent: Instance): Model?
 	return land
 end
 
+-- ---- What moves: the wind farm's rotors and the hot-air balloons ------------------------------
+-- Built from plain parts here (Horizon.tsx's shapes, web units x 10) and moved every frame the
+-- way the web game moves them: about fifty anchored parts in one BulkMoveTo, cheap on phones.
+
+local TAU = 2 * math.pi
+local WHITE = Color3.fromHex("#f2f4f5")
+local BLADE = 300 -- studs, the web's 30
+
+-- Horizon.tsx BALLOONS: angle round the town, distance, height, colour, drift speed.
+local A_WOODS, A_LAKE = -math.pi / 4, 3 * math.pi / 4
+local BALLOONS = {
+	{ a = A_WOODS - 0.25, r = 3300, y = 950, c = "#e53935", v = 0.012 },
+	{ a = A_WOODS + 0.1, r = 4200, y = 1200, c = "#fdd835", v = -0.009 },
+	{ a = A_WOODS + 0.42, r = 3000, y = 800, c = "#1e88e5", v = 0.01 },
+	{ a = A_LAKE - 0.5, r = 3800, y = 1100, c = "#8e24aa", v = -0.011 },
+}
+
+local function part(parent: Instance, size: Vector3, color: Color3, shape: Enum.PartType?): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanTouch = false
+	p.CanQuery = false
+	p.CastShadow = false
+	p.Material = Enum.Material.SmoothPlastic
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Color = color
+	if shape then
+		p.Shape = shape
+	end
+	p.Size = size
+	p.Parent = parent
+	return p
+end
+
+type Piece = { part: BasePart, at: CFrame }
+
+-- Builds the rotors and balloons round a town whose middle is at origin, into parent, and
+-- returns a function that moves them on: dt seconds since the last call, t since they appeared.
+function Horizon.movers(origin: Vector3, parent: Instance): (dt: number, t: number) -> ()
+	local folder = Instance.new("Folder")
+	folder.Name = "HorizonMovers"
+	folder.Parent = parent
+	local turbines = Scenery.TURBINES or {}
+
+	-- Three blades round a hub, turning about the rotor's own z (Horizon.tsx WindFarm), each
+	-- rotor starting from its own angle.
+	local rotors: { { Piece } } = {}
+	local spins: { number } = {}
+	for i, t in turbines do
+		local pieces: { Piece } = {}
+		for b = 0, 2 do
+			table.insert(pieces, {
+				part = part(folder, Vector3.new(24, BLADE, 6), WHITE),
+				at = CFrame.Angles(0, 0, b / 3 * TAU) * CFrame.new(0, BLADE / 2 + 10, 0),
+			})
+		end
+		table.insert(pieces, { part = part(folder, Vector3.new(46, 46, 46), WHITE, Enum.PartType.Ball), at = CFrame.identity })
+		rotors[i] = pieces
+		spins[i] = t[5] * TAU
+	end
+
+	-- An envelope, a white band under it and a basket hanging below.
+	local balloons: { { Piece } } = {}
+	local flock = Instance.new("Folder")
+	flock.Name = "Balloons"
+	flock.Parent = folder
+	for i, b in BALLOONS do
+		local envelope = part(flock, Vector3.new(180, 220, 180), Color3.fromHex(b.c))
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Parent = envelope
+		balloons[i] = {
+			{ part = envelope, at = CFrame.identity },
+			{
+				part = part(flock, Vector3.new(40, 157, 157), Color3.new(1, 1, 1), Enum.PartType.Cylinder),
+				at = CFrame.new(0, -55, 0) * CFrame.Angles(0, 0, math.pi / 2),
+			},
+			{ part = part(flock, Vector3.new(32, 26, 32), Color3.fromHex("#8d6e63")), at = CFrame.new(0, -150, 0) },
+		}
+	end
+
+	local parts: { BasePart } = {}
+	local cframes: { CFrame } = {}
+	local flying = true
+	return function(dt: number, t: number)
+		local w = weather.weatherNow()
+		local n = 0
+		local function place(pieces: { Piece }, cf: CFrame)
+			for _, p in pieces do
+				n += 1
+				parts[n] = p.part
+				cframes[n] = cf * p.at
+			end
+		end
+		-- The rotors face the town together and turn faster in a breeze.
+		local speed = 0.9 + w.wind * 2.2
+		for i, tb in turbines do
+			spins[i] += math.min(dt, 0.1) * speed * (0.85 + tb[5] * 0.3)
+			place(rotors[i], CFrame.new(origin + Vector3.new(tb[1], tb[2], tb[3])) * CFrame.fromEulerAnglesYXZ(0, tb[4], spins[i]))
+		end
+		-- The balloons only fly in fair weather, by day.
+		local night = clock.nightAmount(clock.dayPhase(DateTime.now().UnixTimestampMillis))
+		local fly = night < 0.5 and w.rain < 0.2 and w.snow < 0.2 and w.wind < 0.6
+		if fly ~= flying then
+			flying = fly
+			flock.Parent = if fly then folder else nil
+		end
+		if fly then
+			for i, b in BALLOONS do
+				local k = i - 1
+				local a = b.a + math.sin(t * b.v * 3 + k) * 0.08 + t * b.v * 0.1
+				local at = origin + Vector3.new(math.cos(a) * b.r, b.y + math.sin(t * 0.3 + k * 2) * 40, math.sin(a) * b.r)
+				place(balloons[i], CFrame.new(at) * CFrame.Angles(0, t * 0.05 + k, 0))
+			end
+		end
+		for j = #parts, n + 1, -1 do
+			parts[j] = nil
+			cframes[j] = nil
+		end
+		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+end
+
 function Horizon.start()
 	local Town = require(script.Parent.Town)
 	task.spawn(function()
@@ -137,6 +268,12 @@ function Horizon.start()
 		if land then
 			land.Name = "Horizon"
 		end
+		local move = Horizon.movers((folder :: Folder):GetAttribute("Origin") :: any, workspace)
+		local t = 0
+		RunService.RenderStepped:Connect(function(dt)
+			t += dt
+			move(dt, t)
+		end)
 	end)
 end
 
@@ -144,6 +281,11 @@ end
 
 local FACES = { "Bk", "Dn", "Ft", "Lf", "Rt", "Up" }
 local shown: { [string]: string } = {}
+-- The step showing, and the steps whose six pictures have downloaded: the sky moves on to a new
+-- step only once all of it is in, so it never shows some faces of one time and some of another.
+local current: any = nil
+local ready: { [any]: boolean } = {}
+local loading: { [any]: boolean } = {}
 
 -- An uploaded picture's id as the sky should ask for it: the image inside the decal Open Cloud
 -- made, once the server has looked it up (server/Sky), else the id as it is.
@@ -167,6 +309,23 @@ function Horizon.sky(phase: number): Color3?
 	if not best or best.faces.Up == 0 then
 		return nil
 	end
+	if best ~= current then
+		if current == nil or ready[best] then
+			current = best
+		elseif not loading[best] then
+			loading[best] = true
+			local step = best
+			task.spawn(function()
+				local list = {}
+				for _, face in FACES do
+					table.insert(list, image(step.faces[face]))
+				end
+				pcall(ContentProvider.PreloadAsync, ContentProvider, list)
+				ready[step] = true
+			end)
+		end
+	end
+	best = current
 	local sky = Lighting:FindFirstChildWhichIsA("Sky")
 	if not sky then
 		sky = Instance.new("Sky")
