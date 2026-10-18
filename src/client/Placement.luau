@@ -21,6 +21,7 @@ local TownCamera = require(script.Parent.TownCamera)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Thumb = require(script.Parent.Thumb)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Placement = {}
 
@@ -452,7 +453,13 @@ local function rotateCurrent()
 			-- A merged block turns as one building (store rotateBlock).
 			Remote.act("rotateBlock", b.uid)
 		elseif b then
-			Remote.act("moveBuilding", b.uid, b.x, b.z, ((b.rot or 0) + 1) % 4)
+			-- placement.ts rotateSelected: a click when it turns, the error buzz when there's no room.
+			local ok, moved = Remote.act("moveBuilding", b.uid, b.x, b.z, ((b.rot or 0) + 1) % 4)
+			if ok and moved ~= false then
+				Sfx.click()
+			else
+				Sfx.error()
+			end
 		end
 	end
 end
@@ -728,6 +735,16 @@ local function changed(input: InputObject)
 	end
 end
 
+-- Drops a carried building: a click when it lands, the error buzz when it snaps back (World.tsx startDrag).
+local function move(uid: string, x: number, z: number, r: number?)
+	local ok, moved = Remote.act("moveBuilding", uid, x, z, r)
+	if ok and moved ~= false then
+		Sfx.click()
+	else
+		Sfx.error()
+	end
+end
+
 local function ended(input: InputObject)
 	if input ~= held and input.UserInputType ~= Enum.UserInputType.MouseButton1 then
 		return
@@ -743,15 +760,17 @@ local function ended(input: InputObject)
 			if c.x ~= c.block.x or c.z ~= c.block.z then
 				-- The anchor is the block's top-left building, so its spot is the block's.
 				if store.canPlaceBlock(state(), c.block, c.x, c.z) then
-					Remote.act("moveBuilding", b.uid, c.x, c.z, b.rot)
+					move(b.uid, c.x, c.z, b.rot)
 				else
+					Sfx.error()
 					ctx.toast("It doesn't fit there")
 				end
 			end
 		elseif b and (c.x ~= b.x or c.z ~= b.z) then
 			if store.canPlace(state(), b.def, c.x, c.z, b.rot, b.uid) then
-				Remote.act("moveBuilding", b.uid, c.x, c.z, b.rot)
+				move(b.uid, c.x, c.z, b.rot)
 			else
+				Sfx.error()
 				ctx.toast("It doesn't fit there")
 			end
 		end

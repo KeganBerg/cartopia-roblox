@@ -24,6 +24,7 @@ local Remote = require(Client.Remote)
 local Ui = require(Client.Ui)
 local Icons = require(Client.Icons)
 local Thumb = require(Client.Thumb)
+local Sfx = require(Client.Sounds.Sfx)
 
 local Wheel = {}
 Wheel.id = "daily"
@@ -449,6 +450,7 @@ function Wheel.open(ctx: any): Instance
 		local slice = wheel.wheelSlice(spin.slice)
 		local color = if slice then tierColor(slice.tier) else Color3.fromHex("#ffd54f")
 		lights(color)
+		Sfx.wheel.win(slice and slice.tier)
 		flapper.Rotation = 0
 		dock.Visible = false
 		local s = store.useGame.getState()
@@ -560,6 +562,7 @@ function Wheel.open(ctx: any): Instance
 			local p = math.floor(a / STEP)
 			if p ~= peg then
 				peg = p
+				Sfx.wheel.tick(math.min(1, v / FULL_SPEED))
 				kickAt = clock
 			end
 			-- The flapper kicks back as a peg passes, then springs down again.

@@ -6,7 +6,9 @@
 --   3. the player's own town, drawn by the server (their TownReady attribute), and the shop's
 --      model library
 --   4. the town's parts streamed to this client, and the countryside drawn round it
---   5. every mesh, texture and picture in view, downloaded (ContentProvider:PreloadAsync)
+--   5. every mesh, texture and picture in view, downloaded (ContentProvider:PreloadAsync). Only
+--      what's in view: the whole mesh library is thousands of meshes, most of them never seen
+--      from the town, and waiting for all of it kept phones on this screen for minutes.
 -- Then the player's car drives off and it fades away. If something never arrives it still lifts
 -- after MAX seconds.
 
@@ -25,8 +27,12 @@ local LoadingScreen = require(script.Parent:WaitForChild("LoadingScreen"))
 -- The server looks up each picture's own image id when the upload gave a decal's (see
 -- server/Splash) and shares it as a Workspace attribute.
 local screen = LoadingScreen.new(playerGui, {
-	content = function(id: number): string
-		return (workspace:GetAttribute(`Splash{id}`) :: string?) or `rbxassetid://{id}`
+	content = function(id: number): (string, boolean?)
+		local image = workspace:GetAttribute(`Splash{id}`) :: string?
+		if image then
+			return image, true
+		end
+		return `rbxassetid://{id}`, false
 	end,
 })
 ReplicatedFirst:RemoveDefaultLoadingScreen()
@@ -173,7 +179,6 @@ end
 local wanted: { [string]: boolean } = {}
 contentOf(myTown(), wanted)
 contentOf(workspace:FindFirstChild("Countryside"), wanted)
-contentOf(ReplicatedStorage:FindFirstChild("MeshLibrary"), wanted)
 contentOf(playerGui, wanted)
 local list: { string } = {}
 for id in wanted do

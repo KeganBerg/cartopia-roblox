@@ -3,168 +3,234 @@
  "skins": [
   {
    "n": 1,
+   "depth": 0.053,
    "base": "skin1-base.png",
-   "glow": "skin1-glow.png"
+   "glow": "skin1-glow.png",
+   "glow2": "skin1-glow2.png"
   },
   {
    "n": 2,
+   "depth": 0.06,
    "base": "skin2-base.png",
-   "glow": "skin2-glow.png"
+   "glow": "skin2-glow.png",
+   "glow2": "skin2-glow2.png"
   },
   {
    "n": 3,
+   "depth": 0.088,
    "base": "skin3-base.png",
-   "glow": "skin3-glow.png"
+   "glow": "skin3-glow.png",
+   "glow2": "skin3-glow2.png"
   },
   {
    "n": 4,
+   "depth": 0.045,
    "base": "skin4-base.png",
-   "glow": "skin4-glow.png"
+   "glow": "skin4-glow.png",
+   "glow2": "skin4-glow2.png"
   },
   {
    "n": 5,
+   "depth": 0.065,
    "base": "skin5-base.png",
-   "glow": "skin5-glow.png"
+   "glow": "skin5-glow.png",
+   "glow2": "skin5-glow2.png"
   },
   {
    "n": 6,
+   "depth": 0.125,
    "base": "skin6-base.png",
-   "glow": "skin6-glow.png"
+   "glow": "skin6-glow.png",
+   "glow2": "skin6-glow2.png"
   },
   {
    "n": 7,
+   "depth": 0.055,
    "base": "skin7-base.png",
-   "glow": "skin7-glow.png"
+   "glow": "skin7-glow.png",
+   "glow2": "skin7-glow2.png"
   },
   {
    "n": 8,
+   "depth": 0.036,
    "base": "skin8-base.png",
-   "glow": "skin8-glow.png"
+   "glow": "skin8-glow.png",
+   "glow2": "skin8-glow2.png"
   },
   {
    "n": 9,
+   "depth": 0.095,
    "base": "skin9-base.png",
-   "glow": "skin9-glow.png"
+   "glow": "skin9-glow.png",
+   "glow2": "skin9-glow2.png"
   },
   {
    "n": 10,
+   "depth": 0.035,
    "base": "skin10-base.png",
-   "glow": "skin10-glow.png"
+   "glow": "skin10-glow.png",
+   "glow2": "skin10-glow2.png"
   },
   {
    "n": 11,
+   "depth": 0,
    "base": "skin11-base.png",
-   "glow": "skin11-glow.png"
+   "glow": "skin11-glow.png",
+   "glow2": "skin11-glow2.png"
   },
   {
    "n": 12,
+   "depth": 0,
    "base": "skin12-base.png",
-   "glow": "skin12-glow.png"
+   "glow": "skin12-glow.png",
+   "glow2": "skin12-glow2.png"
   },
   {
    "n": 13,
+   "depth": 0.04,
    "base": "skin13-base.png",
-   "glow": "skin13-glow.png"
+   "glow": "skin13-glow.png",
+   "glow2": "skin13-glow2.png"
   },
   {
    "n": 14,
+   "depth": 0.04,
    "base": "skin14-base.png",
-   "glow": "skin14-glow.png"
+   "glow": "skin14-glow.png",
+   "glow2": "skin14-glow2.png"
   },
   {
    "n": 15,
+   "depth": 0.083,
    "base": "skin15-base.png",
-   "glow": "skin15-glow.png"
+   "glow": "skin15-glow.png",
+   "glow2": "skin15-glow2.png"
   },
   {
    "n": 16,
+   "depth": 0.02,
    "base": "skin16-base.png",
-   "glow": "skin16-glow.png"
+   "glow": "skin16-glow.png",
+   "glow2": "skin16-glow2.png"
   },
   {
    "n": 17,
+   "depth": 0.02,
    "base": "skin17-base.png",
-   "glow": "skin17-glow.png"
+   "glow": "skin17-glow.png",
+   "glow2": "skin17-glow2.png"
   },
   {
    "n": 18,
+   "depth": 0.09,
    "base": "skin18-base.png",
-   "glow": "skin18-glow.png"
+   "glow": "skin18-glow.png",
+   "glow2": "skin18-glow2.png"
   },
   {
    "n": 19,
+   "depth": 0.06,
    "base": "skin19-base.png",
-   "glow": "skin19-glow.png"
+   "glow": "skin19-glow.png",
+   "glow2": "skin19-glow2.png"
   },
   {
    "n": 20,
+   "depth": 0.038,
    "base": "skin20-base.png",
-   "glow": "skin20-glow.png"
+   "glow": "skin20-glow.png",
+   "glow2": "skin20-glow2.png"
   },
   {
    "n": 21,
+   "depth": 0.05,
    "base": "skin21-base.png",
-   "glow": "skin21-glow.png"
+   "glow": "skin21-glow.png",
+   "glow2": "skin21-glow2.png"
   },
   {
    "n": 22,
+   "depth": 0.1,
    "base": "skin22-base.png",
-   "glow": "skin22-glow.png"
+   "glow": "skin22-glow.png",
+   "glow2": "skin22-glow2.png"
   },
   {
    "n": 23,
+   "depth": 0.1,
    "base": "skin23-base.png",
-   "glow": "skin23-glow.png"
+   "glow": "skin23-glow.png",
+   "glow2": "skin23-glow2.png"
   },
   {
    "n": 24,
+   "depth": 0,
    "base": "skin24-base.png",
-   "glow": "skin24-glow.png"
+   "glow": "skin24-glow.png",
+   "glow2": "skin24-glow2.png"
   },
   {
    "n": 25,
+   "depth": 0,
    "base": "skin25-base.png",
-   "glow": "skin25-glow.png"
+   "glow": "skin25-glow.png",
+   "glow2": "skin25-glow2.png"
   },
   {
    "n": 26,
+   "depth": 0.042,
    "base": "skin26-base.png",
-   "glow": "skin26-glow.png"
+   "glow": "skin26-glow.png",
+   "glow2": "skin26-glow2.png"
   },
   {
    "n": 27,
+   "depth": 0.04,
    "base": "skin27-base.png",
-   "glow": "skin27-glow.png"
+   "glow": "skin27-glow.png",
+   "glow2": "skin27-glow2.png"
   },
   {
    "n": 28,
+   "depth": 0.073,
    "base": "skin28-base.png",
-   "glow": "skin28-glow.png"
+   "glow": "skin28-glow.png",
+   "glow2": "skin28-glow2.png"
   },
   {
    "n": 29,
+   "depth": 0.063,
    "base": "skin29-base.png",
-   "glow": "skin29-glow.png"
+   "glow": "skin29-glow.png",
+   "glow2": "skin29-glow2.png"
   },
   {
    "n": 30,
+   "depth": 0.07,
    "base": "skin30-base.png",
-   "glow": "skin30-glow.png"
+   "glow": "skin30-glow.png",
+   "glow2": "skin30-glow2.png"
   },
   {
    "n": 31,
+   "depth": 0.13,
    "base": "skin31-base.png",
-   "glow": "skin31-glow.png"
+   "glow": "skin31-glow.png",
+   "glow2": "skin31-glow2.png"
   },
   {
    "n": 32,
+   "depth": 0.085,
    "base": "skin32-base.png",
-   "glow": "skin32-glow.png"
+   "glow": "skin32-glow.png",
+   "glow2": "skin32-glow2.png"
   },
   {
    "n": 33,
+   "depth": 0.075,
    "base": "skin33-base.png",
-   "glow": "skin33-glow.png"
+   "glow": "skin33-glow.png",
+   "glow2": "skin33-glow2.png"
   }
  ]
 }

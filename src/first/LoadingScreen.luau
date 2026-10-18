@@ -19,6 +19,7 @@ local INK = Color3.fromHex("#14213d")
 local FONT = Font.fromEnum(Enum.Font.FredokaOne)
 local HERO_W = 572 -- the Hot Shot's render width; other cars scale against it, as on the web
 local WORDMARK_AR = 1150 / 4070 -- height over width of the wordmark's picture
+local SETTLE = 2 -- seconds before the layout stays as it is (see LoadingScreen.centred)
 
 -- The page colour and the stand-in sun's colours by time of day (the web's --s1..--s4).
 local LOOKS = {
@@ -80,8 +81,9 @@ end
 
 export type Options = {
 	-- The content string for an uploaded image id (the server may have found its image's own id;
-	-- see Loading.client). Defaults to rbxassetid://<id>.
-	content: ((id: number) -> string)?,
+	-- see Loading.client), and whether it's surely an image's (not a decal's, which shows nothing).
+	-- Defaults to rbxassetid://<id>.
+	content: ((id: number) -> (string, boolean?))?,
 	-- Whether an image has downloaded. Defaults to ImageLabel.IsLoaded.
 	isLoaded: ((image: ImageLabel) -> boolean)?,
 	-- The screen's size in pixels, for previews outside Roblox. Defaults to the ScreenGui's.
@@ -109,6 +111,15 @@ export type LoadingScreen = typeof(setmetatable(
 		box: { [string]: Rect },
 		tagY: { number },
 		fading: boolean,
+		-- Each picture's content string: whether it has downloaded (false while it's on its way),
+		-- and the ones that are surely images.
+		fetched: { [string]: boolean },
+		sure: { [string]: boolean },
+		-- A wide screen whose town picture isn't in yet stacks everything down the middle instead
+		-- of in the web's left panel, which looked broken beside a bare background. Settled
+		-- (locked) once the town arrives or after a moment, so the screen doesn't jump about later.
+		centred: boolean,
+		locked: boolean,
 	},
 	LoadingScreen
 ))
@@ -328,6 +339,10 @@ function LoadingScreen.new(parent: Instance, opts: Options?): LoadingScreen
 		box = {},
 		tagY = {},
 		fading = false,
+		fetched = {},
+		sure = {},
+		centred = true,
+		locked = false,
 	}, LoadingScreen)
 	self:setTime("day")
 	self:set(self.text, self.progress)
@@ -339,7 +354,14 @@ function LoadingScreen._content(self: LoadingScreen, id: number): string
 	if id == 0 then
 		return ""
 	end
-	return if self.opts.content then self.opts.content(id) else `rbxassetid://{id}`
+	if self.opts.content then
+		local content, sure = self.opts.content(id)
+		if sure then
+			self.sure[content] = true
+		end
+		return content
+	end
+	return `rbxassetid://{id}`
 end
 
 function LoadingScreen._loaded(self: LoadingScreen, image: ImageLabel): boolean
@@ -349,7 +371,30 @@ function LoadingScreen._loaded(self: LoadingScreen, image: ImageLabel): boolean
 	if self.opts.isLoaded then
 		return self.opts.isLoaded(image)
 	end
-	return image.IsLoaded
+	local content = image.Image
+	return image.IsLoaded or (self.fetched[content] == true and self.sure[content] == true)
+end
+
+-- Downloads a picture, noting when it's in. ImageLabel.IsLoaded alone wasn't enough: a picture
+-- waiting unseen (fully transparent) may never be fetched, and its content changes when the
+-- server finds the image inside an uploaded decal.
+function LoadingScreen._fetch(self: LoadingScreen, content: string)
+	if content == "" or self.fetched[content] ~= nil or self.opts.isLoaded then
+		return
+	end
+	self.fetched[content] = false
+	task.spawn(function()
+		local ContentProvider = game:GetService("ContentProvider")
+		pcall(ContentProvider.PreloadAsync, ContentProvider, { content }, function(_, status)
+			if status == Enum.AssetFetchStatus.Success then
+				self.fetched[content] = true
+			end
+		end)
+		if self.fetched[content] ~= true then
+			-- Try again when it's asked for next (refreshImages).
+			self.fetched[content] = nil
+		end
+	end)
 end
 
 -- Points every picture at its image (again, after the server finds an image's own id).
@@ -361,6 +406,7 @@ function LoadingScreen.refreshImages(self: LoadingScreen)
 		if image.Image ~= content then
 			image.Image = content
 		end
+		self:_fetch(content)
 		-- Which picture it is, for the preview tools (tools/emulate/render.mjs).
 		image:SetAttribute("Key", key)
 	end
@@ -433,14 +479,18 @@ end
 -- Lays everything out for a w by h screen, as the web's CSS does for wide and tall screens.
 function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 	local p = self.parts
-	local wide = w >= h
-	local kindChanged = (self.w >= self.h) ~= wide
+	local kindChanged = (self.w >= self.h) ~= (w >= h)
+	-- Centred: a wide screen laid out down the middle (see LoadingScreen.centred).
+	local centred = w >= h and self.centred
+	local wide = w >= h and not centred
 	self.w, self.h = w, h
 	local box: { [string]: Rect } = {}
 
 	-- The sun panel, and its picture with the margin round it for the rim and glow.
 	local sx, sy, sw, sh
-	if wide then
+	if centred then
+		sx, sy, sw, sh = -0.1 * w, -0.45 * h, 1.2 * w, 1.05 * h
+	elseif wide then
 		sx, sy, sw, sh = -0.24 * w, -0.3 * h, 0.7 * w, 1.6 * h
 	else
 		sx, sy, sw, sh = -0.3 * w, -0.24 * h, 1.6 * w, 0.7 * h
@@ -457,14 +507,20 @@ function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 	end
 
 	-- Wordmark, tag line and pill, stacked.
-	local wmw = if wide then math.min(0.36 * w, 520) else math.min(0.8 * w, 560)
-	local fs = if wide then clamp(0.021 * w, 18, 30) else clamp(0.046 * w, 15, 24)
+	local wmw = if centred
+		then math.min(0.4 * w, 520, 0.22 * h / WORDMARK_AR)
+		elseif wide then math.min(0.36 * w, 520)
+		else math.min(0.8 * w, 560)
+	local fs = if centred
+		then clamp(0.03 * h, 15, 26)
+		elseif wide then clamp(0.021 * w, 18, 30)
+		else clamp(0.046 * w, 15, 24)
 	local cx = if wide then 0.23 * w else 0.5 * w
-	local top = if wide then 0.15 * h else 0.06 * h
+	local top = if centred then 0.07 * h elseif wide then 0.15 * h else 0.06 * h
 	local wmh = wmw * WORDMARK_AR
 	box.wordmark = Rect.new(cx - wmw / 2, top, cx + wmw / 2, top + wmh)
-	local tagTop = top + wmw * (if wide then 0.32 else 0.3)
-	local tagHidden = (wide and h <= 520) or (not wide and h <= 640)
+	local tagTop = if centred then top + wmh + 0.02 * h else top + wmw * (if wide then 0.32 else 0.3)
+	local tagHidden = (w >= h and h <= 520) or (w < h and h <= 640)
 	local tagW = if wide then 0.46 * w else w
 	local tagCx = tagW / 2
 	for i, pair in p.tag do
@@ -484,7 +540,7 @@ function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 		pillTop = if tagHidden then tagTop + 12 else tagTop + fs * 4.6
 		box.pill = Rect.new(cx - pw / 2, pillTop, cx + pw / 2, pillTop + ph)
 	else
-		pillTop = h - 0.06 * h - ph
+		pillTop = h - (if centred then 0.07 else 0.06) * h - ph
 		box.pill = Rect.new(w / 2 - pw / 2, pillTop, w / 2 + pw / 2, pillTop + ph)
 	end
 	p.pill.Position = UDim2.fromOffset(box.pill.Min.X, box.pill.Min.Y)
@@ -501,7 +557,14 @@ function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 	local k = clamp(cw0 / HERO_W, 0.8, 1.25)
 	local ar = ch0 / cw0
 	local cw, ctop, ccx
-	if wide then
+	if centred then
+		-- In the gap between the tag line and the pill.
+		local above = if tagHidden then top + wmh + 0.04 * h else tagTop + fs * 3.75 + 0.03 * h
+		local below = pillTop - 0.04 * h
+		cw = math.min(math.min(0.36 * w, 460) * k, (below - above) / ar)
+		ctop = above + (below - above - cw * ar) / 2
+		ccx = 0.5 * w
+	elseif wide then
 		local ldb = if tagHidden then top + wmw * 0.32 + 76 else tagTop + fs * 4.6 + 64
 		local cmax = if tagHidden then math.min(0.22 * w, 300) else math.min(0.3 * w, 460)
 		cw = math.min(cmax * k, (h - ldb - 0.08 * h) / ar)
@@ -530,6 +593,18 @@ function LoadingScreen.step(self: LoadingScreen, dt: number)
 		local cam = workspace.CurrentCamera
 		w, h = if cam then cam.ViewportSize.X else 1280, if cam then cam.ViewportSize.Y else 800
 	end
+	-- The web's layout once the town picture is in; down the middle until then, settled after a
+	-- moment either way.
+	if not self.locked then
+		local townIn = self:_loaded(p.town)
+		if townIn or self.clock > SETTLE then
+			self.locked = true
+		end
+		if self.centred == townIn then
+			self.centred = not townIn
+			self.box = {}
+		end
+	end
 	if w ~= self.w or h ~= self.h or not self.box.pill or not self.box.car then
 		self:_layout(w, h)
 	end
@@ -545,7 +620,12 @@ function LoadingScreen.step(self: LoadingScreen, dt: number)
 	local fading = self.fading
 	if not fading then
 		show(p.vignette)
-		show(p.sun)
+		if self.centred and w >= h then
+			-- The sun picture is drawn for the web's shapes; the stand-in fits this one.
+			p.sun.ImageTransparency = 1
+		else
+			show(p.sun)
+		end
 		p.sunStandIn.BackgroundTransparency = math.clamp(1 - p.sun.ImageTransparency, 0, 1)
 		show(p.town)
 	end

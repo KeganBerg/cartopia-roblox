@@ -5,6 +5,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local UserInputService = game:GetService("UserInputService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -14,6 +15,8 @@ local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Bank = require(script.Parent.Bank)
+local Mixer = require(script.Parent.Sounds.Mixer)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Menu = {}
 
@@ -272,7 +275,110 @@ local function switch(row: Frame, on: boolean, onChange: (boolean) -> ())
 	end)
 end
 
-local function settingsTab(list: Instance): number
+-- The web's volume slider (Menu > Settings > Sound): 0 to 100 in steps of 5, green up to the knob,
+-- faded while its sound is off. Drag or tap along it.
+local function slider(row: Frame, value: number, enabled: boolean, onChange: (number) -> ())
+	local track = Ui.new("TextButton", { Text = "", AutoButtonColor = false, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 116, 0.5, 0), Size = UDim2.new(1, -116 - 62, 0, 28), BackgroundTransparency = 1, Parent = row })
+	local bar = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5), Size = UDim2.new(1, 0, 0, 8), BackgroundColor3 = Color3.fromHex("#e0e6ee"), BorderSizePixel = 0, Parent = track }, { Ui.round() })
+	local fill = Ui.new("Frame", { Size = UDim2.fromScale(value, 1), BackgroundColor3 = Color3.fromHex("#43a047"), BorderSizePixel = 0, Parent = bar }, { Ui.round() })
+	local knob = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(value, 0.5), Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Ui.WHITE, Parent = bar }, {
+		Ui.round(),
+		Ui.stroke(2),
+	})
+	local v = value
+	local function paint()
+		fill.Size = UDim2.fromScale(v, 1)
+		knob.Position = UDim2.fromScale(v, 0.5)
+		local fade = if enabled then 0 else 0.6
+		fill.BackgroundTransparency = fade
+		knob.BackgroundTransparency = fade
+		bar.BackgroundTransparency = fade
+	end
+	paint()
+	local function at(x: number)
+		local w = math.max(1, bar.AbsoluteSize.X)
+		local next = math.clamp(math.round((x - bar.AbsolutePosition.X) / w * 20) / 20, 0, 1)
+		if next ~= v then
+			v = next
+			paint()
+			onChange(v)
+		end
+	end
+	local dragging: InputObject? = nil
+	track.InputBegan:Connect(function(input)
+		if not enabled then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = input
+			at(input.Position.X)
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input == dragging) then
+			at(input.Position.X)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input == dragging or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = nil
+		end
+	end)
+end
+
+-- The web's round on/off button at the end of a sound row (🎵 / 🔕).
+local function toggle(row: Frame, on: boolean, glyph: string, onChange: (boolean) -> ())
+	local b = Ui.new("TextButton", { Text = if on then glyph else "🔕", TextSize = 17, Font = Enum.Font.GothamBold, AutoButtonColor = true, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(38, 34), BackgroundColor3 = Ui.WHITE, Parent = row }, {
+		Ui.corner(10),
+		Ui.stroke(2, Color3.fromHex("#e0e0e0")),
+	})
+	b.Activated:Connect(function()
+		on = not on
+		b.Text = if on then glyph else "🔕"
+		onChange(on)
+	end)
+end
+
+-- Music, Effects and Town sounds rows (the web's MusicControl, EffectsControl, AmbienceControl).
+local lastEffects = 1
+local function soundRows(row: (number) -> Frame, redraw: () -> ())
+	local set = Mixer.settings()
+	local r = row(48)
+	label(r, "Music")
+	slider(r, set.music.volume, set.music.on, function(v)
+		Mixer.set({ music = { volume = v } })
+	end)
+	toggle(r, set.music.on, "🎵", function(on)
+		Mixer.set({ music = { on = on } })
+		redraw()
+	end)
+	r = row(48)
+	label(r, "Effects")
+	slider(r, set.effects, true, function(v)
+		Mixer.set({ effects = v })
+		Sfx.click()
+	end)
+	toggle(r, set.effects > 0, "💥", function(on)
+		if on then
+			Mixer.set({ effects = lastEffects })
+		else
+			lastEffects = math.max(0.05, Mixer.settings().effects)
+			Mixer.set({ effects = 0 })
+		end
+		redraw()
+	end)
+	r = row(48)
+	label(r, "Town sounds")
+	slider(r, set.town.volume, set.town.on, function(v)
+		Mixer.set({ town = { volume = v } })
+	end)
+	toggle(r, set.town.on, "🌳", function(on)
+		Mixer.set({ town = { on = on } })
+		redraw()
+	end)
+end
+
+local function settingsTab(list: Instance, redraw: () -> ()): number
 	local sound = SoundService:FindFirstChild("Cartopia") :: SoundGroup?
 	local g1, row1 = group(list, 1, "🔊", "Sound")
 	local r = row1(48)
@@ -283,6 +389,7 @@ local function settingsTab(list: Instance): number
 			sg.Volume = if on then 1 else 0
 		end
 	end)
+	soundRows(row1, redraw)
 	local g2, row2 = group(list, 2, "✨", "Graphics")
 	label(row2(52), "Graphics quality", "Roblox sets this: open its menu (Esc) > Settings")
 	return g1.Size.Y.Offset + g2.Size.Y.Offset + GAP * 2
@@ -325,7 +432,7 @@ function Menu.open(ctx: any): Instance
 	local function show()
 		clear(list)
 		local s = store.useGame.getState()
-		local h = if tab == "town" then townTab(ctx, list, s) elseif tab == "settings" then settingsTab(list) elseif tab == "account" then accountTab(list) else helpTab(list)
+		local h = if tab == "town" then townTab(ctx, list, s) elseif tab == "settings" then settingsTab(list, show) elseif tab == "account" then accountTab(list) else helpTab(list)
 		limit.MaxSize = Vector2.new(W, 61 + 64 + h + 22)
 	end
 	Ui.tabs(body, TABS, tab, function(id)

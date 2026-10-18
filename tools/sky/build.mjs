@@ -14,9 +14,11 @@
 // src/shared/Models/SkyImages.luau with the uploaded ids from tools/models/assets.json. Run it again
 // after uploading to fill the ids in.
 //
-// Faces follow Roblox's skybox layout (create.roblox.com/docs/environment/skybox): Left, Back,
-// Right, Front side by side as one strip, Up folded over Left's top edge and Down under its bottom
-// edge. Baked that way the faces meet edge to edge whichever world direction Roblox calls Front.
+// Faces follow Roblox's skybox layout: Left, Back, Right, Front side by side as one upright strip
+// (a cubemap's nx, pz, px, nz). Up and Down are a cubemap's py and ny turned a quarter turn, py
+// clockwise and ny anticlockwise (Roblox's "Custom Skyboxes 101"), so Left meets Up's top edge and
+// Down's bottom edge, Right meets Up's bottom and Down's top. (Up folded straight over Left's top,
+// as the docs' unfolded picture looks, put both half a turn out: hard-edged squares overhead.)
 
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -90,8 +92,8 @@ async function bake() {
     Bk: { look: [0, 0, 1], up: [0, 1, 0] },
     Rt: { look: [-1, 0, 0], up: [0, 1, 0] },
     Ft: { look: [0, 0, -1], up: [0, 1, 0] },
-    Up: { look: [0, 1, 0], up: [-1, 0, 0] },
-    Dn: { look: [0, -1, 0], up: [1, 0, 0] },
+    Up: { look: [0, 1, 0], up: [1, 0, 0] },
+    Dn: { look: [0, -1, 0], up: [-1, 0, 0] },
   }
 
   const req = createRequire(join(web, 'package.json'))

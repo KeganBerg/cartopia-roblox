@@ -81,6 +81,8 @@ jobs:
           node tools/models/build.mjs --json build/models.json
           node tools/splash/build.mjs web
           node tools/sky/build.mjs --ids
+          # The music and sounds (audio/, built by tools/audio/build.mjs) with their uploaded ids.
+          node tools/audio/build.mjs --ids
 
       - name: Install Luau 0.700 (newer releases flag type errors in the port)
         run: |
@@ -91,7 +93,7 @@ jobs:
       - name: See whether the web game changed
         id: diff
         run: |
-          git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau tests/Golden.luau tests/StoreGolden.luau tests/SpeedwayGolden.luau
+          git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau src/shared/AudioAssets.luau tests/Golden.luau tests/StoreGolden.luau tests/SpeedwayGolden.luau
           if [ -f tools/models/assets.json ]; then git add tools/models/assets.json; fi
           if [ -f tools/models/images.json ]; then git add tools/models/images.json; fi
           if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi

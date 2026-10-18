@@ -15,6 +15,7 @@ local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local data = require(Game.data) :: any
 local Builder = require(ReplicatedStorage.Shared.Models.Builder) :: any
 local DayNight = require(script.Parent.DayNight)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local RescueLot = {}
 
@@ -249,6 +250,7 @@ type SpotView = {
 	stage: string, -- "shut", "opening", "open"
 	t0: number,
 	hit: boolean,
+	rumbled: boolean?,
 	told: boolean,
 	item: Model?,
 	itemBase: { [BasePart]: { size: Vector3, rel: CFrame } }?,
@@ -536,6 +538,7 @@ function RescueLot.open(q: any, magnet: boolean, cb: Callbacks): Lot
 		if s.mode == "idle" then
 			s.mode = "drive"
 		end
+		Sfx.rescue.go()
 	end
 
 	function self.spotAt(_, i: number): Vector3
@@ -778,6 +781,7 @@ function RescueLot.open(q: any, magnet: boolean, cb: Callbacks): Lot
 			if u >= 0.7 and not g.held then
 				g.held = true
 				self.holding = g.i
+				Sfx.rescue.clunk()
 			end
 			local v = self.spots[g.i]
 			local item = v.item
@@ -805,6 +809,7 @@ function RescueLot.open(q: any, magnet: boolean, cb: Callbacks): Lot
 				end
 			end
 			if u >= 1.7 then
+				Sfx.rescue.land(isCar)
 				self.grab = nil
 				self.holding = nil
 				if item then
@@ -864,9 +869,14 @@ function RescueLot.open(q: any, magnet: boolean, cb: Callbacks): Lot
 			local raw = if v.stage == "opening" then (now - v.t0) * speed elseif v.stage == "open" then 99 else -1
 			local t = if raw < 0 then -1 else raw - pre
 			local build = if raw < 0 then 0 else clamp01(raw / pre)
+			if v.stage == "opening" and not v.rumbled then
+				v.rumbled = true
+				Sfx.rescue.rumble(tier, pre / speed)
+			end
 			if v.stage == "opening" and t >= 0.12 and not v.hit then
 				v.hit = true
 				self.punch = { at = now, tier = tier }
+				Sfx.rescue.reveal(tier)
 			end
 			local fadeK = if raw < 0 then 1 else clamp01(1 - t / 0.3)
 			local rate = 3.2 + build * build * 22
