@@ -1,0 +1,22 @@
+# Manual check of what Roblox says about uploaded pictures (tools/check/assets.mjs).
+name: Check uploaded pictures
+
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: Only assets whose name contains this
+        required: false
+        default: ''
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node tools/check/assets.mjs "${{ inputs.filter }}"
+        env:
+          API_KEY: ${{ secrets.ROBLOX_API_KEY }}
