@@ -470,6 +470,7 @@ function Hud.start()
 			openPanel(snap.panel, snap.upgrading)
 		end
 	end)
+	Remote.failed:Connect(toast)
 	Placement.onChange(function()
 		refresh()
 		Jobs.refresh()

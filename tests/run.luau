@@ -2,7 +2,7 @@
 -- Runs every test file: `luau tests/run.luau` from the project root (see README).
 -- A tiny runner so the shared modules can be tested outside Studio, with plain Luau.
 
-local files = { "./parity", "./store", "./server" }
+local files = { "./parity", "./store", "./server", "./race" }
 
 local passed, failed = 0, 0
 local function test(name: string, fn: () -> ())

@@ -1,0 +1,238 @@
+--!strict
+-- One drag race, run the way the web game's race screen runs it (ui/Race.tsx DragRace): the
+-- countdown, revving on the line, the launch at GO, shifts, the boost and an AI rival, stepped at
+-- the web game's fixed RACE_DT with its own physics (Shared.Game.race).
+--
+-- The client runs it live and records every press with the step it landed on. The server runs the
+-- same race again from those presses (DragRace.replay) and pays what that run earns, so the result
+-- can't be made up: the same Luau code on both sides gives the same times to the last digit.
+--
+-- The rival's driving comes from a seeded random stream the server picks, so the replay drives
+-- the rival the same way too.
+
+-- String requires, as the converted game code uses, so tests can run it with plain Luau too.
+local race = require("./Game/race") :: any
+local data = require("./Game/data") :: any
+
+local DragRace = {}
+
+DragRace.DT = race.RACE_DT :: number
+-- The countdown: 3, 2, 1, GO, 700 ms a step (Race.tsx).
+DragRace.COUNT_STEP = 0.7
+DragRace.GO_TICK = math.round(3 * 0.7 / race.RACE_DT)
+-- A race that hasn't finished after this long is over (the car never got going).
+DragRace.MAX_SECONDS = 60
+DragRace.MAX_TICKS = DragRace.GO_TICK + math.round(60 / race.RACE_DT)
+-- At most this many presses count (nobody needs more; it keeps a replay cheap).
+DragRace.MAX_EVENTS = 300
+
+export type Rival = { pi: number, shift: number, skill: string? }
+-- What both sides agree on before the race: the cars and the rival's driving.
+export type Spec = { myPi: number, mySkill: string?, rival: Rival, seed: number, track: number }
+-- A press: "down" (pedal down: revs before GO, a shift after), "up" (pedal up), "boost".
+export type Event = { tick: number, kind: string }
+
+-- A small seeded random stream (Park-Miller, as the web game's venues use).
+local function stream(seed: number): () -> number
+	local s = seed % 2147483646 + 1
+	return function()
+		s = (s * 16807) % 2147483647
+		return (s - 1) / 2147483646
+	end
+end
+
+export type Race = {
+	spec: Spec,
+	tick: number,
+	me: any,
+	them: any,
+	held: boolean,
+	rpm: number, -- revs on the line, before GO
+	aiShift: { number },
+	aiReaction: number,
+	events: { Event },
+	-- What happened, for the screen: the last call ("PERFECT LAUNCH!", "Good", ...) and when.
+	call: string?,
+	callTick: number,
+	launch: string?,
+	perfect: number,
+	shifts: number,
+	top: number,
+	theirBoostAt: number?,
+	done: boolean,
+}
+
+function DragRace.new(spec: Spec): Race
+	local r = stream(spec.seed)
+	local cleanness = spec.rival.shift
+	-- The rival's shift point in each gear: a clean driver shifts inside the perfect band, a sloppy
+	-- one too early (Race.tsx).
+	local aiShift = {}
+	for g = 0, race.TOP_GEAR - 1 do
+		local b = race.shiftBand(g, nil, nil, race.AI_BAND)
+		aiShift[g + 1] = b.lo + (b.hi - b.lo) * (0.25 + 0.6 * r()) - (1 - cleanness) * (0.06 + 0.1 * r())
+	end
+	return {
+		spec = spec,
+		tick = 0,
+		me = race.freshRacer(false),
+		them = race.freshRacer(false),
+		held = false,
+		rpm = race.IDLE,
+		aiShift = aiShift,
+		aiReaction = race.aiReaction(cleanness, r()),
+		events = {},
+		call = nil,
+		callTick = 0,
+		launch = nil,
+		perfect = 0,
+		shifts = 0,
+		top = 0,
+		theirBoostAt = nil,
+		done = false,
+	}
+end
+
+-- Seconds since GO (negative during the countdown).
+function DragRace.time(r: Race): number
+	return (r.tick - DragRace.GO_TICK) * DragRace.DT
+end
+
+local function say(r: Race, call: string)
+	r.call = call
+	r.callTick = r.tick
+end
+
+-- A press, applied before the next step. Returns false when it doesn't count (too many, or after
+-- the finish).
+function DragRace.input(r: Race, kind: string): boolean
+	if r.done or #r.events >= DragRace.MAX_EVENTS then
+		return false
+	end
+	local me = r.me
+	if kind == "down" then
+		if not me.launched then
+			r.held = true
+		elseif me.finished == nil and me.gear < race.TOP_GEAR then
+			local band = race.shiftBand(me.gear)
+			local s = race.shiftQuality(me.rpm, band.lo, band.hi)
+			local q, label = s.q, s.label
+			if data.smoothShift(r.spec.mySkill) and label == "Good" then
+				q, label = 1.08, "SMOOTH!"
+			end
+			race.shiftRacer(me, q)
+			r.shifts += 1
+			if q >= 1 then
+				r.perfect += 1
+				say(r, if me.streak >= 2 then `Perfect shift x{me.streak}!` else label)
+			else
+				say(r, label)
+			end
+		else
+			return false
+		end
+	elseif kind == "up" then
+		r.held = false
+	elseif kind == "boost" then
+		if not race.fireBoost(me) then
+			return false
+		end
+		say(r, "BOOST!")
+	else
+		return false
+	end
+	table.insert(r.events, { tick = r.tick, kind = kind })
+	return true
+end
+
+-- One step of RACE_DT.
+function DragRace.step(r: Race)
+	if r.done then
+		return
+	end
+	local spec = r.spec
+	local me, th = r.me, r.them
+	local dt = DragRace.DT
+	if r.tick < DragRace.GO_TICK then
+		-- Holding the pedal revs the engine; inside the launch band the needle climbs slower.
+		local band = race.LAUNCH_BAND
+		local inBand = r.rpm >= band.lo and r.rpm <= band.hi
+		local rate = if r.held then race.REV_UP * (if inBand then race.REV_HOLD else 1) else -race.REV_DOWN
+		r.rpm = math.clamp(r.rpm + rate * dt, race.IDLE, 1.02)
+		me.rpm = r.rpm
+		r.tick += 1
+		return
+	end
+	if not me.launched then
+		-- Off the line at GO, on whatever revs the driver is holding.
+		r.launch = race.revLaunch(me, r.rpm)
+		say(r, r.launch :: string)
+		r.held = false
+	end
+	r.tick += 1
+	local t = DragRace.time(r)
+	local mine = data.skillBoost(spec.mySkill, me, th) * data.skillDrag(spec.rival.skill, me, t)
+	race.stepRacer(me, spec.myPi, dt, t, mine, spec.track)
+	r.top = math.max(r.top, me.speed)
+	-- The rival: off the line after its reaction, shifting at its shift points, boost in fourth.
+	if not th.launched and t >= r.aiReaction then
+		race.launchRacer(th, r.aiReaction)
+	end
+	if th.launched and th.gear < race.TOP_GEAR and th.rpm >= r.aiShift[th.gear + 1] then
+		local band = race.shiftBand(th.gear, nil, nil, race.AI_BAND)
+		local q = race.shiftQuality(th.rpm, band.lo, band.hi, false)
+		race.shiftRacer(th, if data.smoothShift(spec.rival.skill) and q.label == "Good" then 1.08 else q.q)
+	end
+	if th.gear >= race.AI_BOOST_GEAR and race.fireBoost(th) then
+		r.theirBoostAt = r.tick
+	end
+	local theirs = data.skillBoost(spec.rival.skill, th, me) * data.skillDrag(spec.mySkill, th, t)
+	race.stepRacer(th, spec.rival.pi, dt, t, theirs, spec.track)
+	if (me.finished ~= nil and th.finished ~= nil) or r.tick >= DragRace.MAX_TICKS then
+		r.done = true
+	end
+end
+
+-- The finish times (math.huge for a car that never finished).
+function DragRace.times(r: Race): (number, number)
+	return r.me.finished or math.huge, r.them.finished or math.huge
+end
+
+-- Checks a list of presses from a client: in order, inside the race, known kinds, not too many.
+function DragRace.valid(events: any): boolean
+	if type(events) ~= "table" or #events > DragRace.MAX_EVENTS then
+		return false
+	end
+	local last = 0
+	for i, e in events do
+		if type(i) ~= "number" or type(e) ~= "table" then
+			return false
+		end
+		local tick, kind = e.tick, e.kind
+		if type(tick) ~= "number" or tick ~= math.floor(tick) or tick < last or tick > DragRace.MAX_TICKS then
+			return false
+		end
+		if kind ~= "down" and kind ~= "up" and kind ~= "boost" then
+			return false
+		end
+		last = tick
+	end
+	return true
+end
+
+-- Runs a whole race from its presses (as the server does). Presses that don't count are skipped,
+-- just as they were on the client.
+function DragRace.replay(spec: Spec, events: { Event }): Race
+	local r = DragRace.new(spec)
+	local i = 1
+	while not r.done do
+		while events[i] and events[i].tick <= r.tick do
+			DragRace.input(r, events[i].kind)
+			i += 1
+		end
+		DragRace.step(r)
+	end
+	return r
+end
+
+return DragRace
