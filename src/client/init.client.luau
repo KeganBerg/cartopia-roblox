@@ -19,5 +19,8 @@ require(script.GetIn).start()
 require(script.SpeedwayLife).start()
 require(script.SkinMotion).start()
 require(script.Hud).start()
+-- The town's weather and Rave Mode, over what DayNight and the HUD draw.
+require(script.TownWeather).start()
+require(script.Rave).start()
 require(script.RescueBadge).start()
 require(script.Sounds).start()

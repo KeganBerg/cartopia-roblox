@@ -247,6 +247,8 @@ socialRemote.Parent = remotes
 local prefsRemote = Instance.new("RemoteEvent")
 prefsRemote.Name = "Prefs"
 prefsRemote.Parent = remotes
+-- Rave Mode's button (the DJ only), shared with every server.
+require(script.Rave).start(remotes)
 remotes.Parent = ReplicatedStorage
 Prefs.start(DataStoreService:GetDataStore("Prefs_v1"), prefsRemote, Players)
 GetIn.start(towns)
