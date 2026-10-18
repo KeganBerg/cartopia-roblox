@@ -17,10 +17,19 @@ local Kit = require(script.Parent.Kit)
 local Fly = {}
 
 local FLIGHT = 0.9
+local FALLBACK = { coins = Vector2.new(140, 26), bucks = Vector2.new(140, 59), parts = Vector2.new(140, 92), xp = Vector2.new(54, 54) }
 local FACE = { coins = "$", parts = "⚙", xp = "★", bucks = "💎" }
 
 local function now(): number
 	return workspace:GetServerTimeNow() * 1000
+end
+
+-- The HUD's size in its own coordinates.
+local function rootSize(root: GuiObject, scale: number): Vector2
+	local ok, size = pcall(function()
+		return root.AbsoluteSize / scale
+	end)
+	return if ok then size else Vector2.new(root.Size.X.Offset, root.Size.Y.Offset)
 end
 
 -- Where a building is on screen, in the HUD's own (scaled) coordinates.
@@ -37,9 +46,9 @@ local function source(root: GuiObject, scale: number, uid: string): Vector2?
 			if not on then
 				return nil
 			end
-			local size = root.AbsoluteSize
+			local size = rootSize(root, scale)
 			local m = 30
-			return Vector2.new(math.clamp(p.X / scale, m, size.X / scale - m), math.clamp(p.Y / scale, m, size.Y / scale - m))
+			return Vector2.new(math.clamp(p.X / scale, m, size.X - m), math.clamp(p.Y / scale, m, size.Y - m))
 		end
 	end
 	return nil
@@ -65,9 +74,13 @@ local function target(root: GuiObject, scale: number, res: string): Vector2?
 	if not el then
 		return nil
 	end
-	local at = (el.AbsolutePosition - root.AbsolutePosition) / scale
-	-- The speedometer's middle, or the icon at a pill's left end.
-	return at + (if res == "xp" then el.AbsoluteSize / scale / 2 else Vector2.new(14, 12))
+	local ok, at = pcall(function()
+		-- The speedometer's middle, or the icon at a pill's left end.
+		local p = (el.AbsolutePosition - root.AbsolutePosition) / scale
+		return p + (if res == "xp" then el.AbsoluteSize / scale / 2 else Vector2.new(14, 12))
+	end)
+	-- Where the HUD lays them out, when the layout isn't measured yet.
+	return if ok then at else (FALLBACK :: any)[res]
 end
 
 local function piece(layer: Instance, res: string): GuiObject
@@ -120,7 +133,7 @@ function Fly.burst(ctx: any, froms: { Vector2 }, e: { coins: number?, bucks: num
 	local scale = if s then s.Scale else 1
 	local layer = root:FindFirstChild("Fly") or Ui.new("Frame", { Name = "Fly", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 45, Parent = root })
 	if #froms == 0 then
-		table.insert(froms, root.AbsoluteSize / scale / 2)
+		table.insert(froms, rootSize(root, scale) / 2)
 	end
 	-- Fewer coins each when many buildings pay out at once.
 	local each = math.max(2, math.floor(8 / math.sqrt(#froms) + 0.5))

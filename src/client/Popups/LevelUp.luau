@@ -180,6 +180,9 @@ local function show(ctx: any, lu: any, done: () -> ())
 	})
 	local num = Ui.text({ Name = "Level", Text = tostring(from), TextSize = 54, Size = UDim2.fromScale(1, 1), ZIndex = 4, Shadow = 3, ShadowColor = Ui.BLACK, ShadowTransparency = 0.7, Parent = badge })
 	task.delay(0.8, function()
+		if overlay.Parent == nil then
+			return
+		end
 		Ui.setText(num, tostring(to))
 	end)
 	local y = 58

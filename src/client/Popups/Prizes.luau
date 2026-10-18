@@ -197,7 +197,7 @@ SHOW.tunerPrize = function(ctx, id, close)
 	if own then
 		table.insert(list, { text = "🖌️ Paint it", go = function()
 			close()
-			ctx.open("garage", { car = own.uid, paint = own.color })
+			ctx.open("garage", { car = own.uid, tab = "custom" })
 		end })
 	end
 	Kit.buttons(card, y, list)

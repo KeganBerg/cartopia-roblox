@@ -1325,3 +1325,153 @@ modePage("flair", "Flair", "frost", true)
 local flairSave = towns:snapshot(1).save
 print(`flair: trail {flairSave.trail}, seen {flairSave.flairSeen}`)
 assert(flairSave.trail == "frost", "Frost wasn't picked")
+
+-- Pop-ups (client/Popups): the level-up splash and the prize cards a race leaves, one at a time;
+-- the end-of-tutorial goal screen; the welcome back; coins flying to the counters.
+do
+	closeRace()
+	hud.ctx.close()
+	Emu.resumeWaits()
+	local function popup()
+		return hud.root:FindFirstChild("Popup")
+	end
+	local CLOSE = { Continue = true, ["Nice!"] = true, ["Awesome!"] = true, Later = true, ["Let's go!"] = true }
+	local function closer(p)
+		return find(p, function(d)
+			return d:IsA("TextButton") and d.Name == "Face" and CLOSE[label(d)] == true
+		end)
+	end
+	-- Anything a race earlier left showing: close it the way a player would.
+	local leftover = 0
+	while popup() and leftover < 10 do
+		leftover += 1
+		local b = closer(popup())
+		assert(b, "a pop-up with no close button")
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	print(`pop-ups left from races: {leftover}`)
+	calls = {}
+	handlerErrors = {}
+	towns:_with(1, function(s)
+		local cars = s.cars
+		store.useGame.setState({
+			levelUp = { from = s.level, to = s.level + 1, coins = 1200, bucks = 5 },
+			campaignPrize = { chapter = "c1", coins = 1000, bucks = 15, trophies = 3, cleared = true, perfect = true },
+			paintPrize = "sunny",
+			tunerPrize = "downforce",
+			masteryPrize = { model = cars[1].model, tier = 1, classes = {}, galaxy = false, first = { "compact" }, xp = 250 },
+			cupPrize = "compact-1",
+		})
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	local seen = {}
+	for _ = 1, 8 do
+		local p = popup()
+		if not p then
+			break
+		end
+		local title = find(p, function(d)
+			return d:IsA("TextLabel") and d.Name == "Title"
+		end)
+		local name = title and title.Text or "?"
+		table.insert(seen, name)
+		shot(`popup-{#seen}`, nil)
+		-- Every button on it must be wired; then close it.
+		for _, d in p:GetDescendants() do
+			if d:IsA("GuiButton") and d.Name == "Face" and d.Parent and d.Parent.Name ~= "Item" and d.Parent.Name ~= "Card" and d.Parent.Name ~= "Prize" and next(signalFor(d, "Activated").fns) == nil then
+				print(`popup {name}: not wired: {label(d)}`)
+				bad += 1
+			end
+		end
+		local b = closer(p)
+		assert(b, `pop-up {name} has no close button`)
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	print(`pop-ups in turn: {table.concat(seen, " | ")}`)
+	assert(#seen == 6, `expected 6 pop-ups, saw {#seen}`)
+	assert(#handlerErrors == 0, table.concat(handlerErrors, "; "))
+	local s = store.useGame.getState()
+	assert(s.levelUp == nil and s.paintPrize == nil and s.cupPrize == nil, "a pop-up's news wasn't cleared")
+
+	-- A pop-up waits while the race screen hides the HUD.
+	local hudGui = hud.gui
+	hudGui.Enabled = false
+	towns:_with(1, function()
+		store.useGame.setState({ cupPrize = "compact-1" })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	local during = popup() ~= nil
+	hudGui.Enabled = true
+	Emu.resumeWaits()
+	print(`cup prize during a race: {during}; after: {popup() ~= nil}`)
+	assert(not during and popup(), "the pop-up didn't wait for the race screen")
+	local open = find(popup(), function(d)
+		return d:IsA("TextButton") and label(d) == "Open it"
+	end)
+	signalFor(open, "Activated"):Fire()
+	Emu.resumeWaits()
+	print(`open it: crates menu {hud.root:FindFirstChild("Panel") ~= nil}`)
+	hud.ctx.close()
+
+	-- The goal screen after the tutorial's last step; Let's go! finishes the tutorial.
+	calls = {}
+	towns:_with(1, function()
+		store.useGame.setState({ tutorial = 9 })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	assert(popup(), "no goal screen after the tutorial")
+	shot("popup-goal", nil)
+	local go = closer(popup())
+	signalFor(go, "Activated"):Fire()
+	Emu.resumeWaits()
+	print(`goal screen: {table.concat(calls, ", ")}; tutorial now {towns:snapshot(1).save.tutorial}`)
+	assert(towns:snapshot(1).save.tutorial == 99, "Let's go! didn't finish the tutorial")
+
+	-- Welcome back: three hours away with jobs finished.
+	calls = {}
+	local gameData = emu.require(G.data)
+	towns:_with(1, function(st)
+		local b = {}
+		for i, x in st.buildings do
+			b[i] = table.clone(x)
+			local d = gameData.buildingDef(x.def)
+			if d.jobSeconds and d.kind ~= "obstacle" then
+				b[i].jobEndsAt = NOW - 60000
+			end
+		end
+		store.useGame.setState({ buildings = b })
+	end)
+	player:SetAttribute("AwayMs", 3 * 3600000 + 20 * 60000)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	Emu.resumeWaits()
+	local panel = hud.root:FindFirstChild("Panel")
+	local away = panel and find(panel, function(d)
+		return d:IsA("TextLabel") and string.find(d.Text, "Away", 1, true) ~= nil
+	end)
+	print(`welcome: {away and away.Text or "not shown"}`)
+	assert(away, "no welcome back")
+	shot("panel-welcome", nil)
+	local before = towns:snapshot(1).save.coins
+	local collect = find(panel, function(d)
+		return d:IsA("TextButton") and label(d) == "Collect all"
+	end)
+	signalFor(collect, "Activated"):Fire()
+	-- The "+N" label shows at once; the coins pop out a moment later.
+	Emu.resumeWaits()
+	local fly = hud.root:FindFirstChild("Fly")
+	print(`welcome collect: {table.concat(calls, ", ")}; coins {before} -> {towns:snapshot(1).save.coins}; flying {fly and #fly:GetChildren() or 0} {table.concat(handlerErrors, "; ")}`)
+	assert(towns:snapshot(1).save.coins > before, "Collect all paid nothing")
+	assert(fly and #fly:GetChildren() > 0, "no coins flew to the counter")
+	shot("fly", nil)
+	for _ = 1, 4 do
+		Emu.resumeWaits()
+	end
+	hud.ctx.close()
+	print(`pop-ups: {bad} problems`)
+end

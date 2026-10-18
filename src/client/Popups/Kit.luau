@@ -101,7 +101,8 @@ function Kit.push(ctx: any, key: string, rank: number, show: (done: () -> ()) ->
 	end
 	pushes += 1
 	table.insert(items, { key = key, rank = rank, n = pushes, show = show, when = when })
-	pump()
+	-- A moment later, so everything one snapshot brought is queued and the first in rank shows.
+	task.delay(0, pump)
 	return true
 end
 
@@ -116,7 +117,7 @@ function Kit.pump()
 end
 
 Remote.changed:Connect(function()
-	pump()
+	task.delay(0, pump)
 end)
 
 -- Runs once with the HUD: keeps the HUD's ctx so the queue can find its ScreenGui, and looks
