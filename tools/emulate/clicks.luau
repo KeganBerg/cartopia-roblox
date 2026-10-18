@@ -60,7 +60,7 @@ local function signalFor(inst, name)
 	signals[key] = s
 	return s
 end
-for _, pair in { { "GuiButton", "Activated" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputEnded" } } do
+for _, pair in { { "GuiButton", "Activated" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputEnded" } } do
 	roblox.implementProperty(pair[1], pair[2], function(inst)
 		return signalFor(inst, pair[2])
 	end)
@@ -385,10 +385,53 @@ local function raceScreen()
 	return g and g:FindFirstChild("RaceScreen")
 end
 
+-- Whether anything listens for presses on a button.
+local function hears(b)
+	-- (MouseButton1Down/Up alone is only the press-in look, not a handler.)
+	for _, ev in { "Activated", "InputBegan" } do
+		if next(signalFor(b, ev).fns) ~= nil then
+			return true
+		end
+	end
+	return false
+end
+-- The listening button a button sits inside, if any: a press on the inner one never reaches it.
+local function coveredOf(b)
+	local p = b.Parent
+	while p do
+		if p:IsA("GuiButton") and hears(p) then
+			return p
+		end
+		if p:GetAttribute("SinkTaps") then
+			return nil
+		end
+		p = p.Parent
+	end
+	return nil
+end
+
 local bad, total, silent = 0, 0, 0
+-- Buttons that do nothing but sit inside one that does. In Roblox a tap stops at the topmost
+-- button, so a tap there is lost: the shop's price buttons were this, on every card.
+local deadSeen = {}
+local function scanDead(label)
+	for _, b in buttons(hud.gui) do
+		-- SinkTaps: a button there on purpose to stop taps (a menu's sheet over its backdrop).
+		local cover = not hears(b) and not b:GetAttribute("SinkTaps") and coveredOf(b)
+		if cover then
+			local key = `{path(b, hud.gui)} in {path(cover, hud.gui)}`
+			if not deadSeen[key] then
+				deadSeen[key] = true
+				bad += 1
+				print(`[{label}] DEAD SPOT {key}: a tap there does nothing`)
+			end
+		end
+	end
+end
 local function clickAll(label, open)
 	open()
 	local n = #buttons(hud.gui)
+	scanDead(label)
 	for i = 1, n do
 		hud.ctx.close()
 		open()
@@ -400,7 +443,7 @@ local function clickAll(label, open)
 		local where = path(b, hud.gui)
 		calls = {}
 		handlerErrors = {}
-		local wired = next(signalFor(b, "Activated").fns) ~= nil
+		local wired = hears(b)
 		local shape = {}
 		for _, d in hud.gui:GetDescendants() do
 			if d:IsA("GuiObject") and d.Visible then
@@ -422,6 +465,8 @@ local function clickAll(label, open)
 		if not ok then
 			bad += 1
 			print(`[{label}] ERROR {where}: {err}`)
+		elseif not wired and coveredOf(b) then
+			-- Counted by scanDead.
 		elseif not wired then
 			silent += 1
 			print(`[{label}] not wired: {where}`)
@@ -436,6 +481,7 @@ local function clickAll(label, open)
 			local changed = #hud.gui:GetDescendants() ~= beforeN or table.concat(afterText, "|") ~= table.concat(beforeText, "|")
 			print(`[{label}] {if changed or #calls > 0 then "does something" else "NO VISIBLE EFFECT"}: {where} {table.concat(calls, ", ")}`)
 		end
+		scanDead(label)
 		-- A race a click started: leave it, so the next click starts from the menu again.
 		local raceScreen = raceScreen()
 		if raceScreen then
@@ -525,6 +571,52 @@ clickAll("paint", function()
 		signalFor(b, "Activated"):Fire()
 	end
 end)
+-- The shop's price buttons, tapped the way a player taps them: each must start building (an
+-- affordable one) or open the "you need" popup (a locked or too dear one), never nothing.
+do
+	local Placement = emu.require(client.Placement)
+	local tabs = { "cars", "business", "homes", "services", "rec" }
+	local tried, dead = 0, 0
+	for _, tab in tabs do
+		local n = 1
+		while true do
+			hud.ctx.close()
+			Placement.cancel()
+			hud.openPanel("shop")
+			local tabFace = hud.gui:FindFirstChild(tab, true)
+			if tabFace then
+				signalFor(tabFace:FindFirstChild("Face") or tabFace, "Activated"):Fire()
+			end
+			local prices = {}
+			for _, d in hud.gui:GetDescendants() do
+				-- A price button: a button inside a card in the shop's grid.
+				if d:IsA("GuiButton") and d.Parent and d.Parent.Parent and d.Parent.Parent:IsA("GuiButton") and d:FindFirstAncestor("Grid") then
+					table.insert(prices, d)
+				end
+			end
+			local b = prices[n]
+			if not b then
+				break
+			end
+			local l = b:FindFirstChildWhichIsA("TextLabel", true)
+			local text = if l then l.Text else ""
+			local before = #hud.gui:GetDescendants()
+			signalFor(b, "Activated"):Fire()
+			tried += 1
+			local building = Placement.active()
+			local popup = hud.gui:FindFirstChild("Need", true) ~= nil or #hud.gui:GetDescendants() ~= before
+			if not building and not popup and text ~= "✔ Built" then
+				dead += 1
+				bad += 1
+				print(`[shop prices] tapping "{text}" on the {tab} tab did nothing`)
+			end
+			n += 1
+		end
+	end
+	hud.ctx.close()
+	Placement.cancel()
+	print(`shop prices: {tried} tapped, {dead} did nothing`)
+end
 print(`{total} buttons pressed, {bad} problems, {silent} not wired`)
 
 local fs = require("@lune/fs")

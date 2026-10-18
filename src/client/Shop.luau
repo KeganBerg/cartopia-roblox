@@ -246,8 +246,7 @@ function Shop.open(ctx: any, focus: string?): Instance
 			else
 				label, kind = `${Ui.commas(r.sale.coins)}`, if r.broke then "broke" else "green"
 			end
-			Ui.buy({ AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 8, 1, -8), Size = UDim2.new(1, -16, 0, 32), Parent = face }, label, kind, nil, 17)
-			face.Activated:Connect(function()
+			local function pick()
 				if r.owned then
 					return
 				elseif r.locked then
@@ -260,7 +259,11 @@ function Shop.open(ctx: any, focus: string?): Instance
 					ctx.close()
 					Placement.place(b.id, ctx.gui, ctx)
 				end
-			end)
+			end
+			-- The price button sits on top of the card and takes the taps there, so it runs the
+			-- same thing as the rest of the card.
+			Ui.buy({ AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 8, 1, -8), Size = UDim2.new(1, -16, 0, 32), Parent = face }, label, kind, pick, 17)
+			face.Activated:Connect(pick)
 		end
 	end
 
@@ -302,10 +305,11 @@ function Shop.open(ctx: any, focus: string?): Instance
 			Ui.text({ Text = if u.max then "⭐" else tostring(u.lvl), TextSize = 15, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = lv })
 			Ui.text({ Text = u.name, TextSize = 17, TextColor3 = LINE, TextWrapped = true, Position = UDim2.fromOffset(6, 125), Size = UDim2.new(1, -12, 0, 38), Parent = face })
 			local label = if u.max then "⭐ Max" else `⬆ ${Ui.compact(u.cost.coins)}` .. (if u.cost.parts > 0 then ` ⚙{Ui.compact(u.cost.parts)}` else "")
-			Ui.buy({ AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 8, 1, -8), Size = UDim2.new(1, -16, 0, 32), Parent = face }, label, if u.max then "grey" elseif afford then "green" else "broke", nil, 17)
-			face.Activated:Connect(function()
+			local function pick()
 				ctx.open("upgrade", u.b.uid)
-			end)
+			end
+			Ui.buy({ AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 8, 1, -8), Size = UDim2.new(1, -16, 0, 32), Parent = face }, label, if u.max then "grey" elseif afford then "green" else "broke", pick, 17)
+			face.Activated:Connect(pick)
 		end
 	end
 

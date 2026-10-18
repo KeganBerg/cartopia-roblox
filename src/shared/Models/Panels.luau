@@ -9,6 +9,7 @@
 -- black, white or fire colour the shader mixes into the panel's colour.
 
 local Catalog = require(script.Parent.Catalog)
+local Pictures = require(script.Parent.Parent.Pictures)
 local Paint = require(script.Parent.Paint)
 
 local Panels = {}
@@ -71,7 +72,7 @@ local function lay(part: BasePart, pattern: string?, faces: { Enum.NormalId })
 	for _, face in faces do
 		local tex = Instance.new("Texture")
 		tex.Name = "Pattern"
-		tex.Texture = `rbxassetid://{t.image}`
+		Pictures.set(tex, "Texture", t.image)
 		tex.Face = face
 		tex.StudsPerTileU = t.span
 		tex.StudsPerTileV = t.span
