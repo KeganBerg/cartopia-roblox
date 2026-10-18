@@ -7,6 +7,7 @@
 -- smaller displays (Hud.luau), so these stay as they are on the web.
 
 local Icons = require(script.Parent.Icons)
+local Motion = require(script.Parent.Motion)
 
 local Ui = {}
 
@@ -238,19 +239,10 @@ function Ui.bevel(face: GuiObject, radius: number, top: number?, bottom: number?
 	}, { Ui.round() })
 end
 
--- Presses a button down onto its shadow while it's held (the web's :active translateY).
+-- Presses a button down onto its shadow while it's held (the web's :active translateY), and
+-- bounces it back up.
 local function press(face: GuiButton, drop: number)
-	local down = UDim2.fromOffset(0, -math.max(0, drop - 2))
-	local up = UDim2.fromOffset(0, -drop)
-	face.MouseButton1Down:Connect(function()
-		face.Position = down
-	end)
-	face.MouseButton1Up:Connect(function()
-		face.Position = up
-	end)
-	face.MouseLeave:Connect(function()
-		face.Position = up
-	end)
+	Motion.pressFace(face, drop)
 end
 
 -- A bevelled colour button. colors: a gradient name. Returns the laid-out frame and the face (a
@@ -324,6 +316,8 @@ function Ui.toast(parent: Instance, text: string, order: number): Frame
 	Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16), Parent = shadow })
 	Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16), Parent = face })
 	Ui.text({ Text = text, TextSize = 16, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, Shadow = 2, Parent = face })
+	-- It pops in (the web's .toast animation: pop).
+	Motion.pop(shadow)
 	return shadow
 end
 
@@ -355,6 +349,7 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 	-- The sheet takes taps so they don't fall through to the overlay and close it.
 	sheet.Selectable = false
 	sheet:SetAttribute("SinkTaps", true)
+	shadow:SetAttribute("MotionSheet", true)
 	Ui.new("UISizeConstraint", { MaxSize = Vector2.new(w, h), Parent = shadow })
 	-- Keep the sheet clear of Roblox's own buttons in the top bar.
 	local function clearTopbar()
@@ -380,12 +375,14 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 	Ui.new("Frame", { Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 1, -3), BorderSizePixel = 0, BackgroundColor3 = Ui.LINE, ZIndex = 2, Parent = head })
 	Ui.new("Frame", { ZIndex = 0, BorderSizePixel = 0, BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.65, Position = UDim2.fromOffset(16, 1), Size = UDim2.new(1, -32, 0, 3), Parent = head }, { Ui.round() })
 	local long = #title > 14
-	Ui.text({
+	-- Anchored 60% down its height, where the web's title grows from when it pops in.
+	local titleLabel = Ui.text({
 		Name = "Title",
 		Text = title,
 		TextSize = if long then 25 else 32,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		Position = UDim2.fromOffset(18, 6),
+		AnchorPoint = Vector2.new(0, 0.6),
+		Position = UDim2.new(0, 18, 0.6, -1.2),
 		Size = UDim2.new(1, -170, 1, -12),
 		Stroke = if long then 2.5 else 3,
 		Shadow = 4,
@@ -409,6 +406,14 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 		Size = UDim2.new(1, -pad * 2, 1, -61 - (opts.bodyTop or 10) - 14),
 		Parent = sheet,
 	})
+	-- Every button put in the menu presses down and bounces back; then the menu rises in.
+	overlay.DescendantAdded:Connect(function(d)
+		if d:IsA("GuiButton") then
+			-- Once its maker has finished it (Ui.button gives its own press).
+			task.defer(Motion.pressable, d)
+		end
+	end)
+	Motion.panelIn(overlay, shadow, titleLabel)
 	return overlay, sheet, body, extras
 end
 

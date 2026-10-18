@@ -20,6 +20,7 @@ local store = require(Game.store) :: any
 local data = require(Game.data) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Motion = require(script.Parent.Motion)
 local Icons = require(script.Parent.Icons)
 local Shop = require(script.Parent.Shop)
 local Cars = require(script.Parent.Cars)
@@ -116,12 +117,18 @@ function Hud.start()
 		end)
 	end
 
-	-- One menu at a time.
+	-- One menu at a time. Closing drops the menu away (Motion.panelOut); opening another in its
+	-- place swaps them at once.
 	local open: Instance? = nil
-	local function close()
+	local function close(instant: boolean?)
 		if open then
-			open:Destroy()
+			local o = open
 			open = nil
+			if instant then
+				o:Destroy()
+			else
+				Motion.panelOut(o)
+			end
 		end
 	end
 
@@ -130,7 +137,9 @@ function Hud.start()
 		-- The town being visited (Popups/Visit sets it): { townName, ... }, or nil at home.
 		visiting = nil :: any,
 		gui = root,
-		close = close,
+		close = function()
+			close()
+		end,
 		toast = toast,
 		open = function(name: string, arg: any?)
 			openPanel(name, arg)
@@ -459,7 +468,7 @@ function Hud.start()
 		if panel ~= "shop" and panel ~= "inventory" and panel ~= "upgrade" and panel ~= "need" then
 			Placement.cancel()
 		end
-		close()
+		close(true)
 		if panel == "edit" then
 			Placement.edit(root, ctx, arg)
 		elseif panel == "inventory" then
