@@ -5,7 +5,8 @@
 --
 --   node tools/splash/build.mjs <web repo> && rojo build -o build/place.rbxl
 --   lune run tools/emulate/loading.luau build/place.rbxl [car] [#paint] [seconds] [standin|go]
--- "standin" draws it before any picture has downloaded; "go" half way through the car driving off.
+-- "standin" draws it before any picture has downloaded; "late" with the pictures arriving after
+-- the layout has settled; "go" half way through the car driving off.
 --   node tools/emulate/render.mjs <web repo> build/empty.json out.png build/loading-day-wide-gui.json
 
 local fs = require("@lune/fs")
@@ -41,8 +42,12 @@ local LoadingScreen = emu.require(folder.LoadingScreen)
 fs.writeFile("build/empty.json", "{\"parts\": []}")
 for _, size in { { "wide", 1280, 800 }, { "phone", 390, 844 }, { "landscape", 932, 430 } } do
 	for _, tod in { "day", "dusk", "night" } do
-		local screen = LoadingScreen.new(roblox.Instance.new("Folder"), {
+		local screen
+		screen = LoadingScreen.new(roblox.Instance.new("Folder"), {
 			isLoaded = function()
+				if mode == "late" then
+					return screen.clock > 3
+				end
 				return mode ~= "standin"
 			end,
 			size = roblox.Vector2.new(size[2], size[3]),

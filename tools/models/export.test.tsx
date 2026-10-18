@@ -12,8 +12,8 @@ import { deflateSync } from 'zlib'
 import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
-  Color, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
-  type BufferGeometry, type Material, type MeshStandardMaterial, type Object3D,
+  Color, Euler, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
+  type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D,
 } from 'three'
 import { BUILDINGS, CARS } from './game/data'
 
@@ -27,9 +27,29 @@ vi.mock('./scene/Batch', async (load) => {
   const Plain = (p: { children?: React.ReactNode }) => React.createElement('group', null, p.children)
   return { ...real, Batch: (p: Record<string, unknown>) => React.createElement((batching.off ? Plain : real.Batch) as React.FC, p) }
 })
+// Every hand-drawn texture (scene/textures.ts) is tagged with the name of the function that made it,
+// so build.mjs can give the surface the nearest Roblox material (brick walls as Brick, shingles as
+// RoofShingles): seen up close in walk mode, a flat colour reads as an untextured wall.
+vi.mock('./scene/textures', async (load) => {
+  const real = (await load()) as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const [name, f] of Object.entries(real)) {
+    out[name] = typeof f === 'function' && name.endsWith('Tex')
+      ? (...args: unknown[]) => {
+          const t = (f as (...a: unknown[]) => unknown)(...args) as { userData?: Record<string, unknown> } | null
+          if (t && typeof t === 'object' && t.userData) t.userData.rbxTex = name
+          return t
+        }
+      : f
+  }
+  return out
+})
 // Screen effects and the sky's reflections need a real renderer and draw no shapes.
 vi.mock('./scene/PostFx', async (load) => ({ ...((await load()) as object), PostFx: () => null }))
 vi.mock('./scene/SkyEnv', async (load) => ({ ...((await load()) as object), SkyEnv: () => null }))
+// The Speedway's race and crowd (SpeedwayLife.tsx) move every frame, so the game draws them on each
+// player's own screen (client/SpeedwayLife.luau) instead of baking one still frame into the model.
+vi.mock('./scene/SpeedwayLife', async (load) => ({ ...((await load()) as object), SpeedwayLife: () => null }))
 
 // --- A canvas that remembers what was painted on it ---------------------------------------
 // Signs and other painted textures are drawn on 2D canvases. jsdom has none, so this records
@@ -205,6 +225,7 @@ type Look = {
   rough?: number
   basic?: boolean // unlit
   text?: { text: string; fg: string; bg: string }
+  tex?: string // the texture's maker in scene/textures.ts (brickTex, sidingTex...)
 }
 
 function cssColor(s: string): string | null {
@@ -261,6 +282,8 @@ function lookOf(m: Material, tint?: Color): Look | null {
   if (sm.emissive && (sm.emissiveIntensity ?? 1) > 0 && sm.emissive.getHex() !== 0) {
     look.e = hex(sm.emissive.clone().multiplyScalar(Math.min(1, sm.emissiveIntensity ?? 1)))
   }
+  const tex = sm.map?.userData?.rbxTex
+  if (typeof tex === 'string') look.tex = tex
   if ('metalness' in sm) look.met = r4(sm.metalness)
   if ('roughness' in sm) look.rough = r4(sm.roughness)
   if ((m as { type: string }).type === 'MeshBasicMaterial') look.basic = true
@@ -446,6 +469,8 @@ it('exports every building and car', async () => {
   const geos = new Map<BufferGeometry, number>()
   const geoList: Geo[] = []
   const models: { id: string; kind: string; level?: number; pieces: Piece[]; paint?: number[] }[] = []
+  // The far land's wind turbines, for the rotors client/Horizon spins: [x, y, z, yaw, tint].
+  const turbines: number[][] = []
   const { BuildingModel } = await import('./scene/BuildingModel')
   const { CarModel } = await import('./scene/CarModel')
   const render = async (el: React.ReactElement) => {
@@ -494,8 +519,11 @@ it('exports every building and car', async () => {
   // RBX_ONLY=outskirts skips the buildings, cars and street pieces (a quicker run while working on
   // the countryside).
   const only = process.env.RBX_ONLY
+  // The Speedway grows with its level (taller glass, a canopy from 4, the upper deck from 7 that
+  // the fans in client/SpeedwayLife.luau stand on), so it's drawn at every level.
+  const levelsOf = (id: string) => (id === 'stadium' ? [...new Set([...LEVELS, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])].sort((a, b) => a - b) : LEVELS)
   if (!only) for (const d of BUILDINGS) {
-    for (const level of LEVELS) models.push({ id: d.id, kind: 'building', level, pieces: await render(<BuildingModel def={d} level={level} />) })
+    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, lot: [d.w * TILE, d.h * TILE], pieces: await render(<BuildingModel def={d} level={level} />) })
   }
   // Mods (CarMods.tsx, the Rims and Stance looks): each car drawn with one part fitted at a time
   // and compared with the stock car. The pieces the part adds are its model ("mod:<car>:<part>"),
@@ -698,6 +726,13 @@ it('exports every building and car', async () => {
   for (const kind of PROPS) await piece(`prop:${kind}`, <StreetProp kind={kind} side="s" x={0} z={0} />)
   await piece('prop:hydrant', <Hydrant side="s" x={0} z={0} />)
   await piece('prop:lamp', <StreetLamp side="s" x={0} z={0} />)
+  // The landmarks merged level 10 houses become (merge.ts isLandmark, isGlobe): the Vanguard Tower
+  // fills a 2x2 lot, the Globe Tower a 2x4 (long side along x). TownView draws them in place of
+  // the scaled-up house.
+  const { VanguardTower } = await import('./scene/Landmark')
+  const { GlobeTower } = await import('./scene/GlobeTower')
+  await piece('landmark:vanguard', <VanguardTower />)
+  await piece('landmark:globe', <GlobeTower />)
   // Lawn detail (Tufts.tsx): one of each shape, in each of the season's tints it comes in.
   const { Scatter } = await import('./scene/Outskirts')
   const { PAL, SEASON } = await import('./scene/season')
@@ -746,6 +781,90 @@ it('exports every building and car', async () => {
   if (!only || only === 'outskirts') {
     await outskirts('outskirts:forest', plots, true)
     for (const key of plots) await outskirts(`wilds:${key}`, plots.filter((k) => k !== key), false)
+  }
+  // The world past the countryside (Horizon.tsx, the web's free view): land rolling out to the
+  // horizon with its mountains and wind farm, the lake, farms and railway, the highway and the far
+  // city, and balloons. One still frame of it at noon in fair weather; the sky is baked into
+  // skybox pictures separately (tools/sky/build.mjs).
+  if (!only || only === 'outskirts' || only === 'horizon') await horizon()
+  async function horizon() {
+    const { Horizon } = await import('./scene/Horizon')
+    const { useThree } = await import('@react-three/fiber')
+    const { DAY_MS } = await import('./game/clock')
+    const { weatherNow } = await import('./game/weather')
+    const st: { state?: { internal: { subscribers: { ref: { current: (s: unknown, dt: number) => void } }[] } } } = {}
+    const Grab = () => {
+      st.state = useThree() as never
+      return null
+    }
+    // Noon on the first fair day from a fixed date, so lamps stay off and the balloons fly.
+    let noon = Math.ceil(Date.UTC(2026, 0, 1) / DAY_MS) * DAY_MS
+    for (let i = 0; i < 500 && weatherNow(noon).kind !== 'clear'; i++) noon += DAY_MS
+    const realNow = Date.now
+    Date.now = () => noon
+    try {
+      const r = await ReactThreeTestRenderer.create(
+        <>
+          <Grab />
+          <Horizon />
+        </>,
+        { width: 1280, height: 800 },
+      )
+      for (let i = 0; i < 3; i++) for (const sub of st.state!.internal.subscribers) sub.ref.current(st.state, 1 / 60)
+      const root = r.scene.instance as Object3D
+      const dimmed: [MeshStandardMaterial, number][] = []
+      root.traverse((o) => {
+        const m = (o as Mesh).material as (MeshBasicMaterial & MeshStandardMaterial) | undefined
+        if (!m || Array.isArray(m)) return
+        // Unlit pieces: lamps and blinking aircraft lights, shown only after dark or now and then,
+        // and the flocks of birds, which would hang still in the air.
+        if (m.isMeshBasicMaterial) o.visible = false
+        // The city's lit windows are for the night (a faint glow by day would read as Neon).
+        // Materials can be shared with what's exported after, so each is put back below.
+        if (m.isMeshStandardMaterial && m.emissiveIntensity) {
+          dimmed.push([m, m.emissiveIntensity])
+          m.emissiveIntensity = 0
+        }
+      })
+      // The wind farm's rotors and the hot-air balloons move, so they stay out of the still land:
+      // client/Horizon builds and moves them itself, the rotors round the hubs kept here (the
+      // middle of each rotor, its heading, and its tint, which the web starts its spin from).
+      root.traverse((o) => {
+        const im = o as InstancedMesh
+        if (!im.isInstancedMesh || im.frustumCulled) return
+        const g = im.geometry as BufferGeometry & { parameters?: Record<string, number> }
+        const prm = g.parameters ?? {}
+        const color = (im.material as MeshStandardMaterial).color?.getHexString()
+        const rotor = g.type === 'BufferGeometry' && color === 'f2f4f5'
+        const balloon =
+          (g.type === 'SphereGeometry' && prm.radius === 1) ||
+          (g.type === 'CylinderGeometry' && prm.radiusTop === 9.15) ||
+          (g.type === 'BoxGeometry' && prm.width === 3.2 && prm.height === 2.6)
+        if (!rotor && !balloon) return
+        im.visible = false
+        if (!rotor) return
+        const m = new Matrix4(), at = new Vector3(), q = new Quaternion(), s = new Vector3()
+        for (let i = 0; i < im.count; i++) {
+          im.getMatrixAt(i, m)
+          m.decompose(at, q, s)
+          const e = new Euler().setFromQuaternion(q, 'YXZ')
+          const spin = ((e.z % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+          turbines.push([r4(at.x), r4(at.y), r4(at.z), r4(e.y), r4(spin / (2 * Math.PI))])
+        }
+      })
+      if (!turbines.length) throw new Error('horizon: no wind turbine rotors found')
+      // The sky dome (a shader sphere): Roblox shows the baked skybox instead.
+      const pieces = walk(root, geos, geoList).filter((p) => {
+        const g = geoList[p.g]
+        return !(g.type === 'SphereGeometry' && (g.params.radius as number) >= 1000)
+      })
+      for (const [m, v] of dimmed) m.emissiveIntensity = v
+      models.push({ id: 'horizon:land', kind: 'scenery', pieces })
+      console.log(`horizon:land: ${pieces.length} pieces`)
+      await r.unmount()
+    } finally {
+      Date.now = realNow
+    }
   }
   // The drag strip at each venue (RaceScene.tsx), everything but the cars: the road and its
   // markings, the sidewalks or shoulders, lamps, banners, barriers, bunting, the crowd, and the
@@ -847,7 +966,7 @@ it('exports every building and car', async () => {
   const fd = openSync(`${OUT}.geos`, 'w')
   for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
   closeSync(fd)
-  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, turbines, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

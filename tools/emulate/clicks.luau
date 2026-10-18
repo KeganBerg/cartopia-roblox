@@ -60,7 +60,7 @@ local function signalFor(inst, name)
 	signals[key] = s
 	return s
 end
-for _, pair in { { "GuiButton", "Activated" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputEnded" } } do
+for _, pair in { { "GuiButton", "Activated" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputChanged" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
 	roblox.implementProperty(pair[1], pair[2], function(inst)
 		return signalFor(inst, pair[2])
 	end)
@@ -103,6 +103,11 @@ towns:open(1, nil)
 -- A town with a car shop and a car, so the garage and upgrade screens have something in them.
 towns:run(1, "placeBuilding", "rescue", 12, 12)
 towns:run(1, "buyCar", "pip", "#c62828")
+-- Today's Daily Spin taken, so it doesn't open itself at the start (client/Popups/DailySpin); the
+-- wheel is spun on purpose further down.
+towns:_with(1, function()
+	store.useGame.setState({ lastDaily = store.today() })
+end)
 
 local player = Instance.new("Player")
 player.Name = "Player1"
@@ -144,6 +149,9 @@ meshRemote.Parent = remotes
 local socialRemote = Instance.new("RemoteFunction")
 socialRemote.Name = "Social"
 socialRemote.Parent = remotes
+local bankRemote = Instance.new("RemoteFunction")
+bankRemote.Name = "Bank"
+bankRemote.Parent = remotes
 -- The race desk, as init.server.luau makes it (a seeded stand-in for Random).
 local seed = 7
 local G = RS.Shared.Game
@@ -189,7 +197,23 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 			return raceClock
 		end),
 	},
+	ghosts = emu.require(SSS.Server.Ghosts).new(nil, function()
+		return NOW // 1000 + raceClock
+	end),
+	-- Two other players to race: one here with a time, a friend with only a par.
+	people = function()
+		return { { userId = 2, name = "Mika", here = true }, { userId = 3, name = "Juno" } }
+	end,
 })
+do
+	local g = races.mods.ghosts
+	g:card(2, { car = "Pip", model = "pip", color = "#1e88e5", pi = 14, town = "Gearville" })
+	g:record(2, 14.212, 14, "Pip", "pip", "#1e88e5")
+	g:card(3, { car = "Pip", model = "pip", color = "#43a047", pi = 12, town = "Nitro Bay" })
+	-- Mika left a taunt after beating Player1's ghost.
+	g:finished(2, 1, 13.9, 14.4, true)
+	g:taunt(2, 0, "Gearville")
+end
 -- Render steps, run by hand.
 local renderSteps = {}
 roblox.implementMethod("RunService", "BindToRenderStep", function(_, name, _, fn)
@@ -230,6 +254,13 @@ if SHOTS then
 		local m = name and Builder.build(name)
 		if m then
 			m.Name = def.id
+			m.Parent = lib.Buildings
+		end
+	end
+	for _, name in { "landmark:vanguard", "landmark:globe" } do
+		local m = Builder.build(name)
+		if m then
+			m.Name = name
 			m.Parent = lib.Buildings
 		end
 	end
@@ -372,6 +403,7 @@ local function socialDesk(op, arg)
 			player:SetAttribute("Helped", table.concat(social:helped(1, 2), ","))
 			return social:townInfo(1, 2), nil
 		elseif op == "home" then
+			player:SetAttribute("Driving", nil)
 			player:SetAttribute("Visiting", nil)
 			player:SetAttribute("Helped", nil)
 			return true, nil
@@ -381,6 +413,11 @@ local function socialDesk(op, arg)
 				player:SetAttribute("Helped", table.concat(r.helped, ","))
 			end
 			return r, w
+		elseif op == "drive" then
+			player:SetAttribute("Driving", true)
+			return true, nil
+		elseif op == "claim" then
+			return 0, nil
 		elseif op == "join" then
 			return { here = false }, nil
 		end
@@ -399,6 +436,19 @@ local function socialDesk(op, arg)
 	table.insert(calls, `ok social {op}`)
 	return true, result
 end
+
+-- The server end of Cartopia.Bank (server/Purchases), with every product made.
+local bankDesk = emu.require(SSS.Server.Purchases).new(towns, store, emu.require(G.bucksPacks), function()
+	return true
+end)
+do
+	local list = {}
+	for i, p in emu.require(G.bucksPacks).ALL_PACKS do
+		table.insert(list, { name = p.name, product = i, robux = math.floor(p.price * 80 + 0.5) })
+	end
+	bankDesk:setProducts(list)
+	bankDesk:load(1, {})
+end
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
 	if remote.Name == "Social" then
 		return socialDesk(name, ...)
@@ -407,6 +457,17 @@ roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, 
 	elseif remote.Name == "Meshes" then
 		-- Every mesh is already here in the previews.
 		return true
+	elseif remote.Name == "Bank" then
+		-- The Bank: every pack's product made at a made-up price, so the cards show prices.
+		if name == "shop" then
+			local shop = bankDesk:shop(1)
+			checkSend("bank shop", shop)
+			table.insert(calls, "ok bank shop")
+			return true, shop
+		end
+		local product, why = bankDesk:canBuy(1, ...)
+		table.insert(calls, if product then `ok bank buy {...}` else `bank buy refused: {why}`)
+		return product ~= nil, why
 	elseif remote.Name == "Crate" then
 		local ran, result, why = pcall(crateDesk.open, crateDesk, 1, name, ...)
 		if not ran then
@@ -626,11 +687,24 @@ local function rustyTown()
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 end
 rustyTown()
-for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue", "friends" } do
+for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue", "season", "deals", "friends" } do
 	clickAll(p, function()
 		hud.openPanel(p)
 	end)
 end
+-- The HUD again at level 30: the Star Pass and Daily Deals buttons are up.
+clickAll("hud30", function() end)
+-- The Daily Spin, with today's spin still to take each time (Spin spins it on the server).
+local function unspun()
+	towns:_with(1, function()
+		store.useGame.setState({ lastDaily = "2000-01-01" })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+end
+clickAll("daily", function()
+	unspun()
+	hud.openPanel("daily")
+end)
 clickAll("cards", function()
 	hud.openPanel("cars", "cards")
 end)
@@ -669,6 +743,28 @@ clickAll("paint", function()
 		signalFor(b, "Activated"):Fire()
 	end
 end)
+-- A car stuck on a job (a flat tire, or out of gas): its fix-it sheet, opened as Goals' Go › does.
+local function stuckCar(how)
+	local uid
+	towns:_with(1, function()
+		local cars = {}
+		for i, c in store.useGame.getState().cars do
+			cars[i] = table.clone(c)
+			cars[i].flat = if i == 1 and how == "flat" then true else nil
+			cars[i].lowFuel = if i == 1 and how == "gas" then true else nil
+		end
+		uid = cars[1].uid
+		store.useGame.setState({ cars = cars })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	return uid
+end
+for _, how in { "flat", "gas" } do
+	clickAll(how, function()
+		hud.openPanel("flat", stuckCar(how))
+	end)
+end
+stuckCar(nil)
 -- The shop's price buttons, tapped the way a player taps them: each must start building (an
 -- affordable one) or open the "you need" popup (a locked or too dear one), never nothing.
 do
@@ -720,7 +816,7 @@ print(`{total} buttons pressed, {bad} problems, {silent} not wired`)
 local fs = require("@lune/fs")
 local serde = require("@lune/serde")
 local Gui = require("./gui")
-local function shot(name, world)
+local function shot(name, world, w, h)
 	if not SHOTS then
 		return
 	end
@@ -747,7 +843,7 @@ local function shot(name, world)
 		end
 	end
 	local raceGui = player.PlayerGui:FindFirstChild("Race")
-	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, 1280, 800), bubbles = {} }))
+	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, w or 1280, h or 800), bubbles = {} }))
 	local cam = game.Workspace.CurrentCamera
 	local cf = cam.CFrame
 	local at = cf.Position + cf.LookVector * 50
@@ -766,12 +862,294 @@ do
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Scriptable, "the town view didn't come back")
 	print("walk: on and off")
 end
+-- Merged buildings: a town of merged blocks drawn by the server's TownView (each block once, grown
+-- to fill it; level 10 houses as the Vanguard and Globe Towers; colour themes), Merge mode's
+-- badges (merge, turn, split), a merged block turned in Move, the Upgrade sheet of a block that
+-- becomes a landmark, and Shop > Upgrades with its merged and stacked cards.
+do
+	hud.ctx.close()
+	local TownView = emu.require(SSS.Server.TownView)
+	local Placement = emu.require(client.Placement)
+	local kept
+	towns:_with(1, function(s)
+		kept = s.buildings
+		local list = {}
+		local n = 0
+		local rusty = false
+		local function put(def, x, z, extra)
+			n += 1
+			local b = { uid = `m{n}`, def = def, x = x, z = z, jobEndsAt = nil }
+			for k, v in extra or {} do
+				b[k] = v
+			end
+			table.insert(list, b)
+			return b
+		end
+		for _, b in kept do
+			if b.def == "showroom" or b.def == "garage" or b.def == "gas" or b.def == "tree" then
+				table.insert(list, b)
+			elseif b.def == "rescue" and not rusty then
+				rusty = true
+				-- Kept (the Shop wants Rusty's), out of the blocks' way.
+				local r = table.clone(b)
+				r.x, r.z, r.rot = 16, 17, nil
+				table.insert(list, r)
+			end
+		end
+		-- Four level 10 houses: the Vanguard Tower. Eight: the Globe Tower.
+		for j = 0, 1 do
+			for i = 0, 1 do
+				put("house", 5 + i, 5 + j, { level = 10, merge = if i == 0 and j == 0 then 2 else nil })
+			end
+		end
+		for j = 0, 1 do
+			for i = 0, 3 do
+				put("house", 5 + i, 12 + j, { level = 10, merge = if i == 0 and j == 0 then 42 elseif i == 2 and j == 0 then 2 else nil })
+			end
+		end
+		-- A 2x2 of pizza places with a driver and a job running, a pair of burger joints in mint.
+		for j = 0, 1 do
+			for i = 0, 1 do
+				put("pizza", 8 + i, 5 + j, { merge = if i == 0 and j == 0 then 2 else nil, jobEndsAt = if i == 0 then NOW + 20000 else nil })
+			end
+		end
+		put("burger", 11, 5, { merge = 21, tint = "mint" })
+		put("burger", 12, 5, { tint = "mint" })
+		-- A 4x4 block of pizza places.
+		for j = 0, 3 do
+			for i = 0, 3 do
+				put("pizza", 10 + i, 13 + j, { merge = if i == 0 and j == 0 then 4 else nil })
+			end
+		end
+		-- Loose ones that could merge: four rose houses in a square, and two pizza places.
+		for j = 0, 1 do
+			for i = 0, 1 do
+				put("house", 14 + i, 5 + j, { level = 3, tint = "rose" })
+			end
+		end
+		put("pizza", 17, 5)
+		put("pizza", 18, 5)
+		-- Flower beds merged along z (decor: no lot).
+		put("flowers", 16, 13, { merge = 12 })
+		put("flowers", 16, 14)
+		s.buildings = list
+		s.coins = 5000000
+		s.parts = 5000
+		s.level = 40
+		-- In the town's own colours (pressing every City look button above left it all white).
+		s.cityTheme = nil
+		-- A driver at the pizza block.
+		if s.cars[1] then
+			for _, b in list do
+				b.car = if b.uid == "m13" then s.cars[1].uid elseif b.car == s.cars[1].uid then nil else b.car
+			end
+		end
+	end)
+	local snap = towns:snapshot(1)
+	signalFor(townEvent, "OnClientEvent"):Fire(snap)
+	local townsFolder = Instance.new("Folder")
+	townsFolder.Name = "Towns"
+	townsFolder.Parent = game.Workspace
+	local view = TownView.new(townsFolder, "Player1", roblox.Vector3.new(0, 0, 0), 1, function(uid)
+		towns:run(1, "tapBuilding", uid)
+	end)
+	-- Drawn without the cars' mods, whose meshes the emulator can't load.
+	local function draw(save)
+		for _, c in save.cars do
+			c.mods, c.panels = nil, nil
+		end
+		view:render(save)
+	end
+	draw(snap.save)
+	local drawn = view.folder.Buildings
+	-- Each block draws once, from its top-left building.
+	assert(drawn:FindFirstChild("m1") and not drawn:FindFirstChild("m2"), "the Vanguard block didn't draw as one building")
+	assert(drawn:FindFirstChild("m5") and not drawn:FindFirstChild("m6") and not drawn:FindFirstChild("m7"), "the Globe block didn't draw as one building")
+	assert(drawn.m1:GetAttribute("Name") == "Vanguard Tower", `the Vanguard block is named {drawn.m1:GetAttribute("Name")}`)
+	assert(drawn.m5:GetAttribute("Name") == "Globe Tower", `the Globe block is named {drawn.m5:GetAttribute("Name")}`)
+	assert(drawn:FindFirstChild("m19") and not drawn:FindFirstChild("m20"), "the 4x4 block didn't draw as one building")
+	assert(drawn.m19.Hit.Size.X > 70, "the 4x4 block's tap box doesn't cover it")
+	assert(drawn:FindFirstChild("m35") and drawn:FindFirstChild("m36"), "loose houses went missing")
+	local function setCamera(from, at)
+		game.Workspace.CurrentCamera.CFrame = roblox.CFrame.lookAt(from, at)
+	end
+	-- Every building answers a tap, houses too (they open their Upgrade sheet).
+	calls = {}
+	local click = drawn.m35.Hit:FindFirstChildOfClass("ClickDetector")
+	assert(click, "a house has no ClickDetector")
+	print(`merges: {#drawn:GetChildren()} buildings drawn for {#snap.save.buildings} in the save`)
+	setCamera(roblox.Vector3.new(170, 260, 300), roblox.Vector3.new(0, 0, 0))
+	Emu.resumeWaits()
+	shot("merges-town", view.folder)
+	-- Merge mode: a Merge badge on every block that could merge, and turn / split on merged ones.
+	hud.openPanel("edit", "merge")
+	local marks = player.PlayerGui:FindFirstChild("EditMarks", true)
+	assert(marks, "Merge mode drew no badges")
+	local merges, splits = {}, {}
+	for _, d in marks:GetChildren() do
+		if d:IsA("BillboardGui") and d.Name == "Merge" then
+			local l = d:FindFirstChildWhichIsA("TextLabel", true)
+			table.insert(merges, `{l and l.Text or "?"} at {d:GetAttribute("Anchor")}`)
+		elseif d:IsA("BillboardGui") and d.Name == "Split" then
+			table.insert(splits, d)
+		end
+	end
+	print(`merge mode: {table.concat(merges, ", ")}; {#splits} merged blocks`)
+	assert(#splits == 6, `{#splits} split badges for 6 merged blocks`)
+	local fours = 0
+	for _, t in merges do
+		if string.find(t, "×4", 1, true) then
+			fours += 1
+		end
+	end
+	assert(fours >= 1 and #merges >= 2, "the four rose houses and the pizza pair have no Merge badges")
+	shot("merges-mode", view.folder)
+	local function pressIn(gui, text)
+		for _, d in gui:GetDescendants() do
+			if d:IsA("TextButton") then
+				local l = d:FindFirstChildWhichIsA("TextLabel", true)
+				if l and string.find(l.Text, text, 1, true) then
+					calls = {}
+					handlerErrors = {}
+					signalFor(d, "Activated"):Fire()
+					assert(#handlerErrors == 0, table.concat(handlerErrors, "; "))
+					return calls[1] or "nothing"
+				end
+			end
+		end
+		return "no button"
+	end
+	-- Merge the four rose houses (×4), turn the burger pair, split the flower beds.
+	local mergeBadge
+	for _, d in marks:GetChildren() do
+		local l = d:IsA("BillboardGui") and d.Name == "Merge" and d:FindFirstChildWhichIsA("TextLabel", true)
+		if l and string.find(l.Text, "×4", 1, true) then
+			mergeBadge = d
+		end
+	end
+	local r = pressIn(mergeBadge, "Merge")
+	assert(r == "ok mergeBlock", `Merge ×4: {r}`)
+	draw(towns:snapshot(1).save)
+	assert(drawn:FindFirstChild("m35") and not drawn:FindFirstChild("m36"), "the merged rose houses still draw apart")
+	marks = player.PlayerGui:FindFirstChild("EditMarks", true)
+	local burgerTools
+	for _, d in marks:GetChildren() do
+		if d:IsA("BillboardGui") and d.Name == "Split" and d.Adornee then
+			local p = d.Adornee.CFrame.Position
+			-- The burger pair's middle: tiles 11.5, 5.
+			if math.abs(p.X - (11.5 - 11.5) * 20) < 1 and math.abs(p.Z - (5 - 11.5) * 20) < 1 then
+				burgerTools = d
+			end
+		end
+	end
+	assert(burgerTools, "no turn and split badges over the burger pair")
+	r = pressIn(burgerTools, "🔄")
+	assert(r == "ok rotateBlock", `turning the burger pair: {r}`)
+	local turned = towns:snapshot(1).save
+	draw(turned)
+	marks = player.PlayerGui:FindFirstChild("EditMarks", true)
+	r = pressIn(marks, "Split")
+	assert(r == "ok splitBlock", `splitting a block: {r}`)
+	print("merge mode: merge, turn and split ok")
+	hud.ctx.close()
+	Placement.cancel()
+	-- The rose block's Upgrade sheet, and a Vanguard block's (at max level).
+	hud.openPanel("upgrade", "m35")
+	shot("merges-upgrade", nil)
+	hud.ctx.close()
+	hud.openPanel("upgrade", "m1")
+	shot("merges-upgrade-landmark", nil)
+	hud.ctx.close()
+	-- Four level 9 houses: the upgrade makes them the Vanguard Tower, and the sheet says so.
+	towns:_with(1, function(s)
+		for _, b in s.buildings do
+			if b.uid == "m35" or b.uid == "m36" or b.uid == "m37" or b.uid == "m38" then
+				b.level = 9
+			end
+		end
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.openPanel("upgrade", "m35")
+	local saysTower = false
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "Vanguard Tower" then
+			saysTower = true
+		end
+	end
+	assert(saysTower, "the Upgrade sheet doesn't say four level 9 houses become the Vanguard Tower")
+	shot("merges-upgrade-becomes", nil)
+	hud.ctx.close()
+	hud.openPanel("shop", "upgrades")
+	local k4 = false
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "🧩×4" then
+			k4 = true
+		end
+	end
+	assert(k4, "Shop > Upgrades has no 🧩×4 card")
+	shot("merges-shop", nil)
+	-- Scrolled down to the maxed ones.
+	local shopGrid = hud.gui:FindFirstChild("Grid", true)
+	if shopGrid then
+		shopGrid.CanvasPosition = roblox.Vector2.new(0, 520)
+	end
+	shot("merges-shop-max", nil)
+	hud.ctx.close()
+	-- Play mode again, with the job badges' merge chips.
+	draw(towns:snapshot(1).save)
+	emu.require(client.Jobs).refresh()
+	shot("merges-play", view.folder)
+	-- Put the town back for what follows.
+	towns:_with(1, function(s)
+		s.buildings = kept
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	townsFolder:Destroy()
+	print("merges: drawn, merged, turned, upgraded")
+end
 if SHOTS then
 	for _, p in { "shop", "goals", "menu", "cars" } do
 		hud.ctx.close()
 		hud.openPanel(p)
 		shot(`panel-{p}`, nil)
 	end
+	-- Goals: each tab, then the story done (the 📖 ✔ chip, endless goals with their pictures).
+	local function goalsTab(id)
+		hud.ctx.close()
+		hud.openPanel("goals")
+		local t = hud.gui:FindFirstChild(id, true)
+		assert(t, `no {id} tab`)
+		signalFor(t:FindFirstChild("Face") or t, "Activated"):Fire()
+	end
+	for _, id in { "story", "daily", "weekly" } do
+		goalsTab(id)
+		shot(`goals-{id}`, nil)
+	end
+	local before
+	towns:_with(1, function()
+		local s = store.useGame.getState()
+		before = { claimedGoals = s.claimedGoals, tutorial = s.tutorial, endless = s.endless }
+		local all = {}
+		for _, g in emu.require(G.data).GOALS do
+			if not g.event then
+				table.insert(all, g.id)
+			end
+		end
+		store.useGame.setState({ claimedGoals = all, tutorial = 99, endless = { n = 7, day = "", today = 0, drawn = 3, goals = { { k = 1, kind = "bldgUp", def = "pizza", n = 3, base = 0 }, { k = 2, kind = "carUp", def = s.cars[1].uid, n = 2, base = 0 }, { k = 3, kind = "wins", n = 5, base = 0 } } } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	goalsTab("story")
+	shot("goals-endless", nil)
+	towns:_with(1, function()
+		store.useGame.setState(before)
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	for _, how in { "flat", "gas" } do
+		hud.ctx.close()
+		hud.openPanel("flat", stuckCar(how))
+		shot(`flat-{how}`, nil)
+	end
+	stuckCar(nil)
 	for _, t in { "hub", "quick", "campaign", "rivals" } do
 		hud.ctx.close()
 		hud.openPanel("race", t)
@@ -802,6 +1180,18 @@ if SHOTS then
 	signalFor(home, "Activated"):Fire()
 	assert(hud.ctx.visiting == nil, "going home didn't end the visit")
 	print("social: friends, visit, help, home")
+	-- The Bank, wide and on a phone: an 844 x 390 screen scales the HUD by 0.55, so it lays out at
+	-- 1535 x 709 (render at that size, then shrink the picture to 844 x 390).
+	local root = hud.gui:FindFirstChild("Root")
+	for _, size in { { 1280, 800, "" }, { 1535, 709, "-phone" } } do
+		root.Size = roblox.UDim2.fromOffset(size[1], size[2])
+		for _, p in { "bank", "carpacks" } do
+			hud.ctx.close()
+			hud.openPanel(p)
+			shot(`panel-{p}{size[3]}`, nil, size[1], size[2])
+		end
+	end
+	root.Size = roblox.UDim2.fromOffset(1280, 800)
 	-- Paint: try chrome with white stripes on the first car, look at a locked colour, then buy.
 	towns:_with(1, function()
 		-- Gems and stock cars again: pressing every Mods button above spent them and fitted parts.
@@ -1092,7 +1482,43 @@ if SHOTS then
 	shot("rescue-lot", nil)
 	tabTo("find")
 	shot("rescue-find", nil)
+	-- A full lot: its count goes red and the lots fade.
+	do
+		local data = emu.require(RS.Shared.Game.data)
+		towns:_with(1, function()
+			local junk = {}
+			for i = 1, data.STORAGE_MAX do
+				table.insert(junk, { uid = `f{i}`, model = if i % 2 == 0 then "woodie" else "pip", rarity = if i == 1 then "rare" else "common" })
+			end
+			store.useGame.setState({ junkyard = junk })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		hud.ctx.close()
+		hud.openPanel("rescue")
+		tabTo("find")
+		local holder = hud.gui:FindFirstChild("Rescue", true)
+		assert(holder and holder:FindFirstChild("Dim", true), "a full lot doesn't fade the lots")
+		shot("rescue-full", nil)
+		rustyTown()
+		hud.ctx.close()
+		hud.openPanel("rescue")
+	end
+	-- An empty bay brings the picked car's Restore button into view.
+	towns:_with(1, function()
+		store.useGame.setState({ restoring = nil })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	tabTo("storage")
+	do
+		local holder = hud.gui:FindFirstChild("Rescue", true)
+		assert(holder and holder:FindFirstChild("LotPick", true), "no picked car on the lot")
+	end
+	shot("rescue-bay-free", nil)
+	rustyTown()
+	tabTo("find")
 	press("suburbs")
+	assert(hud.gui:FindFirstChild("Coach", true), "no coach on a fresh search")
+	shot("rescue-search-start", nil)
 	for i = 1, 3 do
 		local q = towns:snapshot(1).search
 		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
@@ -1101,11 +1527,77 @@ if SHOTS then
 		end
 	end
 	shot("rescue-search", nil)
+	-- The next find pops up over the lot (before time moves on and it fades).
+	do
+		local q = towns:snapshot(1).search
+		if q and not q.flat then
+			for i, r in q.revealed do
+				if not r then
+					local t = hud.gui:FindFirstChild(`Tarp{i}`, true)
+					signalFor(t, "Activated"):Fire()
+					break
+				end
+			end
+			if not towns:snapshot(1).search.flat then
+				assert(hud.gui:FindFirstChild("Found", true), "no find pop-up")
+				shot("rescue-found", nil)
+			end
+		end
+	end
+	-- Leave with a haul aboard asks first; Cancel keeps the search going.
+	do
+		local q = towns:snapshot(1).search
+		if q and q.flat then
+			press("FixTruck")
+		end
+		local leave = hud.gui:FindFirstChild("Leave", true)
+		signalFor(leave:FindFirstChild("Face") or leave, "Activated"):Fire()
+		local ask = hud.gui:FindFirstChild("Confirm", true)
+		assert(ask, "Leave with a haul didn't ask")
+		shot("rescue-leave", nil)
+		press("Cancel")
+		assert(towns:snapshot(1).search, "Cancel left the lot")
+		assert(not hud.gui:FindFirstChild("Confirm", true), "Cancel didn't close the question")
+	end
+	-- Search all turns into Stop while it runs.
+	do
+		local all = hud.gui:FindFirstChild("SearchAll", true)
+		if all then
+			signalFor(all, "Activated"):Fire()
+			local again = hud.gui:FindFirstChild("SearchAll", true)
+			local l = again and again:FindFirstChildWhichIsA("TextLabel", true)
+			assert(not again or (l and l.Text:find("Stop")), "Search all didn't turn into Stop")
+			if again then
+				signalFor(again, "Activated"):Fire()
+			end
+		end
+	end
 	if towns:snapshot(1).search and towns:snapshot(1).search.flat then
 		press("FixTruck")
 	end
+	-- A resto-mod piece aboard, so the haul shows its puzzle.
+	do
+		local resto = emu.require(RS.Shared.Game.resto)
+		local car = resto.restoCars()[1]
+		towns:_with(1, function(s)
+			-- And two cars, so the haul has cars to lay out.
+			local q = table.clone(s.search)
+			q.pins, q.revealed = table.clone(q.pins), table.clone(q.revealed)
+			q.pins[1], q.revealed[1] = { kind = "car", model = "woodie", rarity = "scarce" }, true
+			q.pins[2], q.revealed[2] = { kind = "car", model = "miata", rarity = "rare" }, true
+			q.piece = { model = car.id, piece = 2 }
+			store.useGame.setState({ search = q, restoParts = { `{car.id}:0` } })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	end
 	press("TowHome")
+	-- The finds land one at a time and their counts roll up: let them all land.
+	require("@lune/task").wait(0.7)
+	Emu.resumeWaits()
+	Emu.resumeWaits()
+	assert(hud.gui:FindFirstChild("BuildArt", true), "no resto-mod puzzle in the haul")
 	shot("rescue-haul", nil)
+	press("HaulDone")
 	towns:_with(1, function(s)
 		store.useGame.setState({ restoring = { uid = "r1", model = "bug", rarity = "common", minutes = 5, endsAt = 0 } })
 	end)
@@ -1115,6 +1607,18 @@ if SHOTS then
 	tabTo("storage")
 	press("Collect")
 	shot("rescue-plate", nil)
+	-- Adding it opens the garage on the new car.
+	press("AddToGarage")
+	do
+		local name = emu.require(RS.Shared.Game.data).carDef("bug").name
+		local detail = hud.gui:FindFirstChild("Detail", true)
+		local shown = false
+		for _, d in (detail and detail:GetDescendants() or {}) do
+			shown = shown or (d:IsA("TextLabel") and d.Text == name)
+		end
+		assert(shown, "the garage didn't open on the restored car")
+		shot("rescue-garage", nil)
+	end
 end
 
 -- A whole Quick Race, driven through the race screen's own buttons like a player would.
@@ -1378,7 +1882,7 @@ print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; 
 
 -- A race from one of the other modes' pages (client/RacePages): opens the page from the front
 -- page's small button, presses the first button whose words match `go`, and races.
-local function modeRace(tag, mini, go, shotAt)
+local function modeRace(tag, mini, go, shotAt, keep)
 	topUp()
 	hud.ctx.close()
 	local f, _, res = runRace(tag, shotAt or { [60] = true }, function()
@@ -1399,7 +1903,9 @@ local function modeRace(tag, mini, go, shotAt)
 	end)
 	print(`{tag}: {f} frames; card: {cardText(res)}`)
 	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
-	closeRace()
+	if not keep then
+		closeRace()
+	end
 	return res
 end
 
@@ -1569,6 +2075,27 @@ local function modePage(tag, mini, press, byName)
 	hud.ctx.close()
 end
 
+-- Ghost races: the page (players here, friends, a taunt left for you), a run against Mika's
+-- best, and a taunt sent back from the result card.
+do
+	local gres = modeRace("ghost", "Ghosts", "👻 Best", { [60] = true }, true)
+	assert(gres, "no ghost race result card")
+	local chip = find(gres, function(d)
+		return d:IsA("TextButton") and string.sub(d.Name, 1, 5) == "Taunt"
+	end)
+	assert(chip, "no taunt chips on the ghost result card")
+	calls = {}
+	signalFor(chip, "Activated"):Fire()
+	Emu.resumeWaits()
+	print(`ghost taunt calls: {table.concat(calls, ", ")}`)
+	if SHOTS then
+		shot("ghost-taunted", nil)
+	end
+	local inbox = races.mods.ghosts:inbox(2)
+	assert(#inbox == 1 and inbox[1].from == 1, "the taunt didn't reach Mika")
+	closeRace()
+end
+
 -- The Trophy Road: claim every stop the trophies reach.
 local roadBefore = towns:snapshot(1).save.road or 0
 modePage("road", "Trophy Road", "Claim")
@@ -1580,3 +2107,266 @@ modePage("flair", "Flair", "frost", true)
 local flairSave = towns:snapshot(1).save
 print(`flair: trail {flairSave.trail}, seen {flairSave.flairSeen}`)
 assert(flairSave.trail == "frost", "Frost wasn't picked")
+-- Class Cups: the race car's own class opens first; race its first cup race.
+modeRace("cup", "Class Cups", "🏁 %$")
+print(`class cups won: {(function()
+	local n = 0
+	for _, w in towns:snapshot(1).save.cups or {} do
+		n += w
+	end
+	return n
+end)()}`)
+
+-- The Daily Spin: Spin, run the wheel round until it lands, and see the prize was paid once.
+do
+	closeRace()
+	hud.ctx.close()
+	unspun()
+	local before = towns:snapshot(1).save
+	hud.openPanel("daily")
+	if SHOTS then
+		shot("wheel", nil)
+	end
+	local spinBtn = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Name == "Face" and d.Parent and d.Parent.Name == "Spin"
+	end)
+	assert(spinBtn, "no Spin button")
+	calls = {}
+	handlerErrors = {}
+	signalFor(spinBtn, "Activated"):Fire()
+	local frames = 0
+	while renderSteps.DailySpin and frames < 60 * 12 do
+		frames += 1
+		renderSteps.DailySpin(1 / 60)
+		if frames == 40 and SHOTS then
+			shot("wheel-spin", nil)
+		end
+	end
+	local rotor = find(hud.gui, function(d)
+		return d.Name == "Rotor"
+	end)
+	local prize = find(hud.gui, function(d)
+		return d.Name == "PrizeLine"
+	end)
+	local words = {}
+	if prize then
+		for _, d in prize:GetDescendants() do
+			if d:IsA("TextLabel") and d.Name ~= "Face" then
+				table.insert(words, d.Text)
+			end
+		end
+	end
+	local after = towns:snapshot(1).save
+	print(`daily spin: {frames} frames, wheel at {rotor and math.floor(rotor.Rotation) or "?"}°, prize "{table.concat(words, " ")}"; coins {before.coins} -> {after.coins}, gems {before.bucks} -> {after.bucks}, spun {after.lastDaily}`)
+	print(`daily spin calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	if SHOTS then
+		shot("wheel-won", nil)
+	end
+	local again = Remote.spin()
+	print(`daily spin again the same day: {if again then "SPUN AGAIN" else "refused"}`)
+	hud.ctx.close()
+end
+
+-- The Star Pass: 45 stars, two tiers already claimed; Collect takes the other three.
+do
+	hud.ctx.close()
+	local data = emu.require(RS.Shared.Game.data)
+	towns:_with(1, function()
+		store.useGame.setState({ season = { n = data.seasonNumber(NOW), stars = 45, claimed = { 0, 1 } } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.openPanel("season")
+	if SHOTS then
+		shot("season", nil)
+	end
+	local collect = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "Collect", 1, true) ~= nil
+	end)
+	assert(collect, "no Collect on the Star Pass")
+	local coins = towns:snapshot(1).save.coins
+	calls = {}
+	signalFor(collect, "Activated"):Fire()
+	local season = towns:snapshot(1).save.season
+	print(`star pass: claimed {table.concat(season.claimed, ",")}, coins {coins} -> {towns:snapshot(1).save.coins}; calls {table.concat(calls, ", ")}`)
+	if SHOTS then
+		shot("season-collected", nil)
+	end
+	hud.ctx.close()
+end
+
+-- Daily Deals: buy today's supplies deal.
+do
+	hud.ctx.close()
+	towns:_with(1, function()
+		store.useGame.setState({ coins = 1000000, bucks = 1000, fuel = 0, deals = { day = "2000-01-01", used = {} } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.openPanel("deals")
+	if SHOTS then
+		shot("deals", nil)
+	end
+	local buy = find(hud.gui, function(d)
+		return d:IsA("TextButton") and label(d) == "Buy"
+	end)
+	local before = towns:snapshot(1).save
+	calls = {}
+	if buy then
+		signalFor(buy, "Activated"):Fire()
+	end
+	local after = towns:snapshot(1).save
+	print(`deals: bought {if buy then "the supplies deal" else "nothing (no Buy)"}; coins {before.coins} -> {after.coins}, gems {before.bucks} -> {after.bucks}, parts {before.parts} -> {after.parts}, fuel {before.fuel} -> {after.fuel}, used {after.deals and table.concat(after.deals.used, ",") or "-"}; calls {table.concat(calls, ", ")}`)
+	if SHOTS then
+		shot("deals-bought", nil)
+	end
+	hud.ctx.close()
+end
+
+-- Pop-ups (client/Popups): the level-up splash and the prize cards a race leaves, one at a time;
+-- the end-of-tutorial goal screen; the welcome back; coins flying to the counters.
+do
+	closeRace()
+	hud.ctx.close()
+	Emu.resumeWaits()
+	local function popup()
+		return hud.root:FindFirstChild("Popup")
+	end
+	local CLOSE = { Continue = true, ["Nice!"] = true, ["Awesome!"] = true, Later = true, ["Let's go!"] = true }
+	local function closer(p)
+		return find(p, function(d)
+			return d:IsA("TextButton") and d.Name == "Face" and CLOSE[label(d)] == true
+		end)
+	end
+	-- Anything a race earlier left showing: close it the way a player would.
+	local leftover = 0
+	while popup() and leftover < 10 do
+		leftover += 1
+		local b = closer(popup())
+		assert(b, "a pop-up with no close button")
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	print(`pop-ups left from races: {leftover}`)
+	calls = {}
+	handlerErrors = {}
+	towns:_with(1, function(s)
+		local cars = s.cars
+		store.useGame.setState({
+			levelUp = { from = s.level, to = s.level + 1, coins = 1200, bucks = 5 },
+			campaignPrize = { chapter = "c1", coins = 1000, bucks = 15, trophies = 3, cleared = true, perfect = true },
+			paintPrize = "sunny",
+			tunerPrize = "downforce",
+			masteryPrize = { model = cars[1].model, tier = 1, classes = {}, galaxy = false, first = { "compact" }, xp = 250 },
+			cupPrize = "compact-1",
+		})
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	local seen = {}
+	for _ = 1, 8 do
+		local p = popup()
+		if not p then
+			break
+		end
+		local title = find(p, function(d)
+			return d:IsA("TextLabel") and d.Name == "Title"
+		end)
+		local name = title and title.Text or "?"
+		table.insert(seen, name)
+		shot(`popup-{#seen}`, nil)
+		-- Every button on it must be wired; then close it.
+		for _, d in p:GetDescendants() do
+			if d:IsA("GuiButton") and d.Name == "Face" and d.Parent and d.Parent.Name ~= "Item" and d.Parent.Name ~= "Card" and d.Parent.Name ~= "Prize" and next(signalFor(d, "Activated").fns) == nil then
+				print(`popup {name}: not wired: {label(d)}`)
+				bad += 1
+			end
+		end
+		local b = closer(p)
+		assert(b, `pop-up {name} has no close button`)
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	print(`pop-ups in turn: {table.concat(seen, " | ")}`)
+	assert(#seen == 6, `expected 6 pop-ups, saw {#seen}`)
+	assert(#handlerErrors == 0, table.concat(handlerErrors, "; "))
+	local s = store.useGame.getState()
+	assert(s.levelUp == nil and s.paintPrize == nil and s.cupPrize == nil, "a pop-up's news wasn't cleared")
+
+	-- A pop-up waits while the race screen hides the HUD.
+	local hudGui = hud.gui
+	hudGui.Enabled = false
+	towns:_with(1, function()
+		store.useGame.setState({ cupPrize = "compact-1" })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	local during = popup() ~= nil
+	hudGui.Enabled = true
+	Emu.resumeWaits()
+	print(`cup prize during a race: {during}; after: {popup() ~= nil}`)
+	assert(not during and popup(), "the pop-up didn't wait for the race screen")
+	local open = find(popup(), function(d)
+		return d:IsA("TextButton") and label(d) == "Open it"
+	end)
+	signalFor(open, "Activated"):Fire()
+	Emu.resumeWaits()
+	print(`open it: crates menu {hud.root:FindFirstChild("Panel") ~= nil}`)
+	hud.ctx.close()
+
+	-- The goal screen after the tutorial's last step; Let's go! finishes the tutorial.
+	calls = {}
+	towns:_with(1, function()
+		store.useGame.setState({ tutorial = 9 })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	assert(popup(), "no goal screen after the tutorial")
+	shot("popup-goal", nil)
+	local go = closer(popup())
+	signalFor(go, "Activated"):Fire()
+	Emu.resumeWaits()
+	print(`goal screen: {table.concat(calls, ", ")}; tutorial now {towns:snapshot(1).save.tutorial}`)
+	assert(towns:snapshot(1).save.tutorial == 99, "Let's go! didn't finish the tutorial")
+
+	-- Welcome back: three hours away with jobs finished.
+	calls = {}
+	local gameData = emu.require(G.data)
+	towns:_with(1, function(st)
+		local b = {}
+		for i, x in st.buildings do
+			b[i] = table.clone(x)
+			local d = gameData.buildingDef(x.def)
+			if d.jobSeconds and d.kind ~= "obstacle" then
+				b[i].jobEndsAt = NOW - 60000
+			end
+		end
+		store.useGame.setState({ buildings = b })
+	end)
+	player:SetAttribute("AwayMs", 3 * 3600000 + 20 * 60000)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	Emu.resumeWaits()
+	local panel = hud.root:FindFirstChild("Panel")
+	local away = panel and find(panel, function(d)
+		return d:IsA("TextLabel") and string.find(d.Text, "Away", 1, true) ~= nil
+	end)
+	print(`welcome: {away and away.Text or "not shown"}`)
+	assert(away, "no welcome back")
+	shot("panel-welcome", nil)
+	local before = towns:snapshot(1).save.coins
+	local collect = find(panel, function(d)
+		return d:IsA("TextButton") and label(d) == "Collect all"
+	end)
+	signalFor(collect, "Activated"):Fire()
+	-- The "+N" label shows at once; the coins pop out a moment later.
+	Emu.resumeWaits()
+	local fly = hud.root:FindFirstChild("Fly")
+	print(`welcome collect: {table.concat(calls, ", ")}; coins {before} -> {towns:snapshot(1).save.coins}; flying {fly and #fly:GetChildren() or 0} {table.concat(handlerErrors, "; ")}`)
+	assert(towns:snapshot(1).save.coins > before, "Collect all paid nothing")
+	assert(fly and #fly:GetChildren() > 0, "no coins flew to the counter")
+	shot("fly", nil)
+	for _ = 1, 4 do
+		Emu.resumeWaits()
+	end
+	hud.ctx.close()
+	print(`pop-ups: {bad} problems`)
+end

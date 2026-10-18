@@ -12,6 +12,7 @@ local Catalog = require(script.Parent.Catalog)
 local Meshes = require(script.Parent.Meshes)
 local Scenery = require(script.Parent.Scenery)
 local RaceScenery = require(script.Parent.RaceScenery)
+local Insert = require(script.Parent.Insert)
 
 local Builder = {}
 
@@ -26,12 +27,11 @@ local meshParts: { [string]: MeshPart } = {}
 
 -- Loads mesh packs (server only) and shares a copy of each mesh with the clients through
 -- ReplicatedStorage.MeshLibrary once that exists. Calls back after each pack.
-local function loadPacks(assets: { number }, each: (() -> ())?)
-	local InsertService = game:GetService("InsertService")
+local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert.Priority?)
 	for _, asset in assets do
 		task.spawn(function()
-			local ok, model = pcall(InsertService.LoadAsset, InsertService, asset)
-			if ok and model then
+			local model, err = Insert.load(asset, priority)
+			if model then
 				local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
 				for _, d in model:GetDescendants() do
 					if d:IsA("MeshPart") and not meshParts[d.Name] then
@@ -43,7 +43,7 @@ local function loadPacks(assets: { number }, each: (() -> ())?)
 					end
 				end
 			else
-				warn(`[Cartopia] mesh pack {asset} didn't load: {model}`)
+				warn(`[Cartopia] mesh pack {asset} didn't load: {err}`)
 			end
 			if each then
 				each()
@@ -57,8 +57,9 @@ end
 function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: number) -> ())?)
 	local byAsset: { [number]: boolean } = {}
 	for _, m in Meshes.MESHES do
-		-- A car's mod pack waits until that car needs it (Builder.loadFor).
-		if m.asset ~= 0 and not (m :: any).lazy then
+		-- A car's mod pack waits until that car needs it (Builder.loadFor), the far land until the
+		-- rest is in (Builder.loadLate).
+		if m.asset ~= 0 and not (m :: any).lazy and not (m :: any).late then
 			byAsset[m.asset] = true
 		end
 	end
@@ -100,6 +101,20 @@ end
 
 -- On a client: takes the meshes the server shares (see loadMeshes), waiting up to timeout seconds
 -- for them. Returns whether they arrived.
+-- Loads the far land's mesh packs (server only), after Builder.loadMeshes: the clients draw it
+-- (client/Horizon) once every one of its meshes is in the library.
+function Builder.loadLate()
+	local seen: { [number]: boolean } = {}
+	local list = {}
+	for _, m in Meshes.MESHES do
+		if m.asset ~= 0 and (m :: any).late and not seen[m.asset] then
+			seen[m.asset] = true
+			table.insert(list, m.asset)
+		end
+	end
+	loadPacks(list, nil, "last")
+end
+
 function Builder.useLibrary(timeout: number?): boolean
 	local library = game:GetService("ReplicatedStorage"):WaitForChild("MeshLibrary", timeout or 60)
 	if not library then
@@ -166,7 +181,7 @@ function Builder.loadFor(car: string, timeout: number?)
 			packState[a] = "loading"
 			loadPacks({ a }, function()
 				packState[a] = "done"
-			end)
+			end, "first")
 		end
 	end
 	local start = os.clock()

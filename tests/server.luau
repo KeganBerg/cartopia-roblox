@@ -62,6 +62,20 @@ return function(test)
 		expectEq(a:load(1).coins, 5, "second load")
 	end)
 
+	test("saves: remembers when the save was last written, for the welcome back", function()
+		local store = fakeStore()
+		local a = saves(store, "A")
+		a:load(1)
+		expectEq(a:lastSeen(1), nil, "a new player")
+		clock = 5000
+		a:write(1, { coins = 1 }, true)
+		clock = 9000
+		local b = saves(store, "B")
+		b:load(1)
+		expectEq(b:lastSeen(1), 5000, "last written")
+		clock = 1000
+	end)
+
 	test("saves: another server can't load or write a locked town", function()
 		local store = fakeStore()
 		local a, b = saves(store, "A"), saves(store, "B")

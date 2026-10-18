@@ -21,6 +21,7 @@ local TownCamera = require(script.Parent.TownCamera)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Thumb = require(script.Parent.Thumb)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Placement = {}
 
@@ -53,7 +54,7 @@ local onChange: (() -> ())? = nil
 -- A drag in progress: laying road / bulldozing tiles, or carrying a building.
 local held: InputObject? = nil
 local lastTile = ""
-local carry: { uid: string, x: number, z: number }? = nil
+local carry: { uid: string, x: number, z: number, block: any? }? = nil
 
 local TOUCH = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 
@@ -68,6 +69,14 @@ local function findBuilding(uid: string?): any?
 		end
 	end
 	return nil
+end
+
+-- The merged block a building belongs to, if any (game/merge.ts groupOf).
+local function blockOf(uid: string?): any?
+	if not uid then
+		return nil
+	end
+	return merge.groupOf(state().buildings, uid)
 end
 
 local function modelOf(uid: string): Model?
@@ -128,6 +137,8 @@ local function hintText(): string
 end
 
 -- ── The plate under the pointer, the ghost, the marks ───────────────────────────────────────
+
+local drawMergeBadges: (Instance, any) -> ()
 
 local function clearMarks()
 	if marks then
@@ -209,6 +220,120 @@ local function outline()
 	end
 end
 
+-- Merge mode's badges (ui/Badges.tsx MergeBadges), over the middle of each block: a purple
+-- "🧩 Merge ×n" with the gain it brings on every block that could merge (×2 and ×4 at one corner
+-- each get their own), and 🔄, the gain chip and ✂️ Split on every merged one.
+local MERGE_PURPLE = Color3.fromHex("#7e57c2")
+local PAIR_PURPLE = Color3.fromHex("#9575cd")
+local SPLIT_INK = Color3.fromHex("#4527a0")
+local SPLIT_EDGE = Color3.fromHex("#b39ddb")
+local GAIN_INK = Color3.fromHex("#4e342e")
+local GAIN_GOLD = Color3.fromHex("#ffd54f")
+
+-- The merge bonus as a chip (Badges.tsx Gain): 💰+25% for a business, ⛽+25% for houses and gas
+-- stations, nothing for decor.
+local function gainText(def: string, n: number): string?
+	local icon = data.mergeGain(data.buildingDef(def))
+	if not icon then
+		return nil
+	end
+	return `{icon}+{math.round(data.mergeBonus(n) * 100)}%`
+end
+
+-- Badge height over a block: as tall as its model grows (Badges.tsx lift).
+local function lift(g: any): number
+	return if g.cols == g.rows then g.cols else math.min(g.cols, g.rows)
+end
+
+-- An invisible spot over a block's middle for its badges to hang on.
+local function spotOver(folder: Instance, g: any, y: number): BasePart?
+	local c = Town.tileToWorld(g.x + (g.w - 1) / 2, g.z + (g.h - 1) / 2)
+	if not c then
+		return nil
+	end
+	return Ui.new("Part", { Name = "MergeSpot", Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false, Transparency = 1, Size = Vector3.new(1, 1, 1), CFrame = CFrame.new(c + Vector3.new(0, y, 0)), Parent = folder })
+end
+
+-- A small white badge button (.badge-split); returns its width.
+local function splitButton(parent: Instance, x: number, text: string, onClick: () -> ()): number
+	local w = Ui.textWidth(text, 13) + 18
+	local _, face = Ui.shadowed({ Position = UDim2.fromOffset(x, 7), Size = UDim2.fromOffset(w, 30), Parent = parent }, { radius = 15, stroke = 2, drop = 3, dark = 0.3, class = "TextButton", color = Ui.WHITE, strokeColor = SPLIT_EDGE })
+	Ui.text({ Text = text, TextSize = 13, TextColor3 = SPLIT_INK, Size = UDim2.fromScale(1, 1), Parent = face })
+	face.Activated:Connect(onClick)
+	return w
+end
+
+-- The yellow gain chip (.merge-gain); returns its width.
+local function gainChip(parent: Instance, x: number, y: number, text: string, h: number, edge: Color3?): number
+	local w = Ui.textWidth(text, 13) + 12
+	local chip = Ui.new("Frame", { Name = "Gain", Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, h), BackgroundColor3 = GAIN_GOLD, Parent = parent }, {
+		Ui.corner(h // 2),
+		Ui.text({ Text = text, TextSize = 13, TextColor3 = GAIN_INK, Size = UDim2.fromScale(1, 1) }),
+	})
+	if edge then
+		Ui.stroke(2, edge).Parent = chip
+	end
+	return w
+end
+
+drawMergeBadges = function(folder: Instance, s: any)
+	local merges = merge.mergeGroups(s.buildings)
+	local n = 0
+	for _, c in merge.mergeCandidates(s.buildings, merges) do
+		if n >= 16 then
+			break
+		end
+		local spot = spotOver(folder, c, 12 * lift(c) + 4)
+		if not spot then
+			continue
+		end
+		n += 1
+		local count = #c.members
+		local label = `🧩 Merge ×{count}`
+		local gain = gainText(c.anchor.def, count)
+		local size = if count == 2 then 13 else 15
+		local lw = Ui.textWidth(label, size)
+		local gw = if gain then Ui.textWidth(gain, 13) + 12 else 0
+		local w = lw + 20 + (if gain then gw + 6 else 0)
+		local sign = Ui.new("BillboardGui", { Name = "Merge", Adornee = spot, AlwaysOnTop = true, Active = true, Size = UDim2.fromOffset(w, 40), MaxDistance = 2000, Parent = folder })
+		local uid, code = c.anchor.uid, c.code
+		sign:SetAttribute("Anchor", uid)
+		sign:SetAttribute("Code", code)
+		local _, face = Ui.shadowed({ Size = UDim2.new(1, 0, 0, 32), Position = UDim2.fromOffset(0, 4), Parent = sign }, { radius = 16, stroke = 2, drop = 3, dark = 0.3, class = "TextButton", color = if count == 2 then PAIR_PURPLE else MERGE_PURPLE, strokeColor = Ui.WHITE })
+		Ui.text({ Text = label, TextSize = size, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(0, lw, 1, 0), Shadow = 1, ShadowColor = Ui.BLACK, ShadowTransparency = 0.65, Parent = face })
+		if gain then
+			gainChip(face, lw + 16, 6, gain, 20)
+		end
+		face.Activated:Connect(function()
+			Remote.act("mergeBlock", uid, code)
+		end)
+	end
+	local k = 0
+	merges.groups:forEach(function(_, g: any)
+		if k >= 16 then
+			return
+		end
+		local spot = spotOver(folder, g, 6 * lift(g) + 4)
+		if not spot then
+			return
+		end
+		k += 1
+		local uid = g.anchor.uid
+		local gain = gainText(g.anchor.def, #g.members)
+		local w = Ui.textWidth("🔄", 13) + 18 + 6 + Ui.textWidth("✂️ Split", 13) + 18 + (if gain then Ui.textWidth(gain, 13) + 12 + 6 else 0)
+		local sign = Ui.new("BillboardGui", { Name = "Split", Adornee = spot, AlwaysOnTop = true, Active = true, Size = UDim2.fromOffset(w, 40), MaxDistance = 2000, Parent = folder })
+		local x = splitButton(sign, 0, "🔄", function()
+			Remote.act("rotateBlock", uid)
+		end) + 6
+		if gain then
+			x += gainChip(sign, x, 5, gain, 28, Ui.WHITE) + 6
+		end
+		splitButton(sign, x, "✂️ Split", function()
+			Remote.act("splitBlock", uid)
+		end)
+	end)
+end
+
 -- For Sale signs on the plots next to the town, and Merge badges over buildings that line up.
 -- Both lists are short (the plots around the town; a handful of matches), so they stay bounded.
 local function drawMarks()
@@ -253,24 +378,7 @@ local function drawMarks()
 			local _ = face
 		end
 	else
-		local seen: { [string]: boolean } = {}
-		local n = 0
-		for _, c in merge.mergeCandidates(s.buildings) do
-			local uid = c.anchor.uid
-			if seen[uid] or n >= 12 then
-				continue
-			end
-			seen[uid] = true
-			n += 1
-			local m = modelOf(uid)
-			if not m then
-				continue
-			end
-			local sign = Ui.new("BillboardGui", { Adornee = m, AlwaysOnTop = true, Active = true, Size = UDim2.fromOffset(96, 40), StudsOffsetWorldSpace = Vector3.new(0, 14, 0), MaxDistance = 2000, Parent = folder })
-			Ui.button({ Size = UDim2.new(1, 0, 1, -4), Position = UDim2.fromOffset(0, 3), Parent = sign }, "crates", function()
-				Remote.act("mergeBlock", uid, c.code)
-			end, { radius = 12, stroke = 2.5, drop = 3, text = "🧩 Merge", textSize = 15, textShadow = 1.5 })
-		end
+		drawMergeBadges(folder, s)
 	end
 end
 
@@ -341,8 +449,17 @@ local function rotateCurrent()
 		preview = nil
 	elseif mode == "move" and selected then
 		local b = findBuilding(selected)
-		if b then
-			Remote.act("moveBuilding", b.uid, b.x, b.z, ((b.rot or 0) + 1) % 4)
+		if b and blockOf(b.uid) then
+			-- A merged block turns as one building (store rotateBlock).
+			Remote.act("rotateBlock", b.uid)
+		elseif b then
+			-- placement.ts rotateSelected: a click when it turns, the error buzz when there's no room.
+			local ok, moved = Remote.act("moveBuilding", b.uid, b.x, b.z, ((b.rot or 0) + 1) % 4)
+			if ok and moved ~= false then
+				Sfx.click()
+			else
+				Sfx.error()
+			end
 		end
 	end
 end
@@ -477,7 +594,14 @@ local function hover(screen: Vector2)
 		end
 	elseif mode == "move" and carry then
 		local b = findBuilding(carry.uid)
-		if b then
+		local g = carry.block
+		if b and g then
+			-- A merged block: the plate covers the whole block (store canPlaceBlock).
+			local x, z = tx - (g.w - 1) // 2, tz - (g.h - 1) // 2
+			local ok = store.canPlaceBlock(s, g, x, z)
+			showPlate(x, z, g.w, g.h, if ok then "#66bb6a" else "#ef5350", 0.5)
+			carry.x, carry.z = x, z
+		elseif b then
 			local x, z, w, h = lotAt(b.def, tx, tz, b.rot)
 			local ok = store.canPlace(s, b.def, x, z, b.rot, b.uid)
 			showPlate(x, z, w, h, if ok then "#66bb6a" else "#ef5350", 0.5)
@@ -577,10 +701,15 @@ local function began(input: InputObject, processed: boolean)
 		local uid = occ:get(`{tx},{tz}`)
 		local b = if uid and uid ~= "road" then findBuilding(uid) else nil
 		if b and store.movable(b.def) then
-			-- Press on a building: pick it, and a drag carries it.
+			-- Press on a building: pick it, and a drag carries it. A merged block is picked and
+			-- carried whole, by its top-left building.
+			local g = blockOf(b.uid)
+			if g then
+				b = g.anchor
+			end
 			selected = b.uid
 			again = nil
-			carry = { uid = b.uid, x = b.x, z = b.z }
+			carry = { uid = b.uid, x = if g then g.x else b.x, z = if g then g.z else b.z, block = g }
 			held = input
 			TownCamera.setPanEnabled(false)
 			Placement.refresh()
@@ -606,6 +735,16 @@ local function changed(input: InputObject)
 	end
 end
 
+-- Drops a carried building: a click when it lands, the error buzz when it snaps back (World.tsx startDrag).
+local function move(uid: string, x: number, z: number, r: number?)
+	local ok, moved = Remote.act("moveBuilding", uid, x, z, r)
+	if ok and moved ~= false then
+		Sfx.click()
+	else
+		Sfx.error()
+	end
+end
+
 local function ended(input: InputObject)
 	if input ~= held and input.UserInputType ~= Enum.UserInputType.MouseButton1 then
 		return
@@ -617,10 +756,21 @@ local function ended(input: InputObject)
 		carry = nil
 		TownCamera.setPanEnabled(true)
 		local b = findBuilding(c.uid)
-		if b and (c.x ~= b.x or c.z ~= b.z) then
+		if b and c.block then
+			if c.x ~= c.block.x or c.z ~= c.block.z then
+				-- The anchor is the block's top-left building, so its spot is the block's.
+				if store.canPlaceBlock(state(), c.block, c.x, c.z) then
+					move(b.uid, c.x, c.z, b.rot)
+				else
+					Sfx.error()
+					ctx.toast("It doesn't fit there")
+				end
+			end
+		elseif b and (c.x ~= b.x or c.z ~= b.z) then
 			if store.canPlace(state(), b.def, c.x, c.z, b.rot, b.uid) then
-				Remote.act("moveBuilding", b.uid, c.x, c.z, b.rot)
+				move(b.uid, c.x, c.z, b.rot)
 			else
+				Sfx.error()
 				ctx.toast("It doesn't fit there")
 			end
 		end

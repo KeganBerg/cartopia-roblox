@@ -12,6 +12,7 @@ local resto = require(Game.resto) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
+local BuildArt = require(script.Parent.BuildArt)
 
 local Collection = {}
 
@@ -34,14 +35,19 @@ local function car(parent: Instance, order: number, model: string, mine: any, re
 		end)
 	end
 	local box = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 4), Size = UDim2.fromOffset(80, 62), BackgroundColor3 = if mine then Color3.fromHex("#e9f1fb") else Color3.fromHex("#eceff1"), ZIndex = 3, Parent = b }, { Ui.corner(8) })
-	local pic = Thumb.new("Cars", model, UDim2.fromScale(1, 1), Color3.fromHex(if mine then mine.color else "#37474f"))
-	pic.ZIndex = 3
-	if not mine then
-		-- A silhouette: the car drawn black and faint.
-		pic.ImageColor3 = Ui.BLACK
-		pic.ImageTransparency = 0.72
+	if not mine and def.secret then
+		-- A resto-mod still to build: its puzzle, with the pieces held in colour.
+		BuildArt.new(box, model, resto.piecesOf(restoParts, model), UDim2.fromScale(1, 1), { z = 3 })
+	else
+		local pic = Thumb.new("Cars", model, UDim2.fromScale(1, 1), Color3.fromHex(if mine then mine.color else "#37474f"))
+		pic.ZIndex = 3
+		if not mine then
+			-- A silhouette: the car drawn black and faint.
+			pic.ImageColor3 = Ui.BLACK
+			pic.ImageTransparency = 0.72
+		end
+		pic.Parent = box
 	end
-	pic.Parent = box
 	Ui.text({ Text = def.name, TextSize = 12, TextColor3 = if mine then LINE else GREY, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(2, 68), Size = UDim2.new(1, -4, 0, 15), ZIndex = 3, Parent = b })
 	if not mine then
 		local src = if def.secret then { icon = "🧩", text = `{#resto.piecesOf(restoParts, model)}/{resto.PIECE_COUNT}` } else data.carSource(def)

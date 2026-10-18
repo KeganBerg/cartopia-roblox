@@ -12,10 +12,18 @@ local Mods = require(Models:WaitForChild("Mods"))
 local Panels = require(Models:WaitForChild("Panels"))
 local Trim = require(Models:WaitForChild("Trim"))
 local Skins = require(Models:WaitForChild("Skins"))
+local CityTint = require(ReplicatedStorage.Shared:WaitForChild("CityTint"))
 
 local Thumb = {}
 
-function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: Color3?): ViewportFrame
+-- Whether there's a picture of that model (the landmarks only once the model build has them).
+function Thumb.has(kind: "Cars" | "Buildings", id: string): boolean
+	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
+	return lib ~= nil and (lib :: any)[kind]:FindFirstChild(id) ~= nil
+end
+
+-- theme: a building's colour theme (cityLook.themeFor), to show it in the colours it wears in town.
+function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: Color3?, theme: any?): ViewportFrame
 	local vp = Instance.new("ViewportFrame")
 	vp.Size = size
 	vp.BackgroundTransparency = 1
@@ -35,6 +43,7 @@ function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: C
 			end
 		end
 	end
+	CityTint.apply(m, theme)
 	m.Parent = vp
 	local cf, ext = m:GetBoundingBox()
 	local cam = Instance.new("Camera")

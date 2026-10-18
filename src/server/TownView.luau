@@ -19,14 +19,18 @@ local placement = require(Game.placement) :: any
 local lualib = require(Game.lualib_bundle) :: any
 local roadLayout = require(Game.scene_traffic_layout) :: any
 local streetFurniture = require(Game.streetFurniture) :: any
+local merge = require(Game.merge) :: any
+local cityLook = require(Game.cityLook) :: any
 local Builder = require(Shared.Models.Builder)
 local Pictures = require(Shared.Pictures)
+local CityTint = require(Shared.CityTint)
 local Catalog = require(Shared.Models.Catalog)
 local Paint = require(Shared.Models.Paint)
 local Mods = require(Shared.Models.Mods)
 local Panels = require(Shared.Models.Panels)
 local Trim = require(Shared.Models.Trim)
 local Skins = require(Shared.Models.Skins)
+local Ladders = require(Shared.Models.Ladders)
 
 local SCALE = Catalog.SCALE
 local TILE = data.TILE * SCALE -- studs per tile
@@ -40,11 +44,20 @@ local PAVING = Color3.fromHex("#eadfc8")
 local GRASS = Color3.fromHex(Catalog.GRASS)
 -- Ground layers, in studs. The web game stacks its flat layers a few hundredths of a unit apart,
 -- which an orthographic camera tells apart; Roblox's camera stands hundreds of studs back, where
--- surfaces that close blend into one (the roads and lots vanished into the grass). So the owned
--- plots sit well under the asphalt (top 0.2), and the meadow well under them.
+-- surfaces that close blend into one (the roads and lots vanished into the grass). So the lawn
+-- sits well under the asphalt (top 0.2), and the meadow well under it.
+--
+-- A textured surface must never lie under a road or a lot, however far down: from afar Roblox
+-- draws a Texture over whatever stands just above it, and the lawn's showed through the roads and
+-- lots of every plot bought after the first. So the lawn's turf covers only the free tiles, the
+-- meadow only the plots not bought, and under roads and lots lies plain untextured ground (BASE).
 local LAND_TOP = -0.4
 local MEADOW_TOP = -0.9
 local MEADOW = Color3.fromHex(Catalog.MEADOW)
+-- The meadow reaches 2,000 studs out from the town's middle; the plots span PLOT_LO to PLOT_HI.
+local MEADOW_REACH = 2000
+local PLOT_LO = data.PLOT_MIN * PLOT * TILE - (GRID / 2) * TILE
+local PLOT_HI = (data.PLOT_MAX + 1) * PLOT * TILE - (GRID / 2) * TILE
 
 -- Lays one of the web game's ground textures (Catalog.TEXTURES: the lawn's or the meadow's) over a
 -- part's top face, once its image is uploaded; until then the part's flat colour shows. Images tile
@@ -66,6 +79,25 @@ local function groundTexture(p: BasePart, key: string, from: Vector3)
 	-- Which image it is, for the preview tools (tools/emulate/render.mjs).
 	tex:SetAttribute("Image", t.name)
 	tex.Parent = p
+end
+
+-- A piece of meadow, its top at MEADOW_TOP, centred `at` (studs from the town's middle) and `size`
+-- across.
+local function meadowPart(parent: Instance, origin: Vector3, at: Vector3, size: Vector3): Part
+	local meadow = Instance.new("Part")
+	meadow.Name = "Meadow"
+	meadow.Anchored = true
+	meadow.Size = Vector3.new(size.X, 4, size.Z)
+	meadow.CFrame = CFrame.new(origin + Vector3.new(at.X, MEADOW_TOP - 2, at.Z))
+	meadow.Color = MEADOW
+	-- Flat colour like the web's ground: Roblox's Grass material reads far brighter and greener.
+	meadow.Material = Enum.Material.SmoothPlastic
+	meadow.TopSurface = Enum.SurfaceType.Smooth
+	meadow.CastShadow = false
+	-- The web lines its meadow images up 8 units off the town's middle (World.tsx OUTER).
+	groundTexture(meadow, "meadow", origin + Vector3.new(8, 0, 8) * SCALE)
+	meadow.Parent = parent
+	return meadow
 end
 
 local TownView = {}
@@ -116,29 +148,24 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		f.Name = sub
 		f.Parent = folder
 	end
-	-- Meadow under the whole lot and the countryside past it, 4,000 studs across like the web
-	-- game's outer ground (World.tsx OUTER), in four pieces (a part is at most 2,048 studs). The
-	-- pieces' middles are ~1,400 studs off, past what instance streaming sends a player, so the
-	-- model is kept persistent: without it players saw Workspace.Ground in its place.
+	-- Meadow round the town out to the countryside's edge, 4,000 studs across like the web game's
+	-- outer ground (World.tsx OUTER), in eight pieces round the plots (a part is at most 2,048
+	-- studs); each plot not bought gets its own piece (_renderLand). The far pieces' middles are
+	-- past what instance streaming sends a player, so the model is kept persistent: without it
+	-- players saw Workspace.Ground in its place.
 	local meadows = Instance.new("Model")
 	meadows.Name = "Meadow"
 	meadows.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	meadows.Parent = folder
-	for i = 0, 3 do
-		local meadow = Instance.new("Part")
-		meadow.Name = "Meadow"
-		meadow.Anchored = true
-		meadow.Size = Vector3.new(2000, 4, 2000)
-		-- Its top below the owned plots (see LAND_TOP).
-		meadow.CFrame = CFrame.new(origin + Vector3.new((i % 2 - 0.5) * 2000, MEADOW_TOP - 2, (i // 2 - 0.5) * 2000))
-		meadow.Color = MEADOW
-		-- Flat colour like the web's ground: Roblox's Grass material reads far brighter and greener.
-		meadow.Material = Enum.Material.SmoothPlastic
-		meadow.TopSurface = Enum.SurfaceType.Smooth
-		meadow.CastShadow = false
-		-- The web lines its meadow images up 8 units off the town's middle (World.tsx OUTER).
-		groundTexture(meadow, "meadow", origin + Vector3.new(8, 0, 8) * SCALE)
-		meadow.Parent = meadows
+	local cuts = { -MEADOW_REACH, PLOT_LO, PLOT_HI, MEADOW_REACH }
+	for i = 1, 3 do
+		for j = 1, 3 do
+			if i == 2 and j == 2 then
+				continue
+			end
+			local x0, x1, z0, z1 = cuts[i], cuts[i + 1], cuts[j], cuts[j + 1]
+			meadowPart(meadows, origin, Vector3.new((x0 + x1) / 2, 0, (z0 + z1) / 2), Vector3.new(x1 - x0, 0, z1 - z0))
+		end
 	end
 	-- The shared world (server/World) has its own ground under every town instead.
 	if TownView.sharedGround then
@@ -188,30 +215,37 @@ local function lotSize(def: any, rot: number?): (number, number)
 	return def.w, def.h
 end
 
--- Land plots: bright grass on every plot the town owns.
+-- Land plots: on every plot the town owns, plain ground in the lawn's colour, at the meadow's
+-- level (the lawn's textured turf lies over its free tiles: _renderLawn); on every other plot, meadow.
 function TownView._renderLand(self: TownView, land: { string })
-	local seen = {}
+	local owned = {}
 	for _, k in land do
-		seen[k] = true
-		if not self.land[k] then
-			local px, pz = splitKey(k)
-			local c = self:tileToWorld(px * PLOT + (PLOT - 1) / 2, pz * PLOT + (PLOT - 1) / 2)
-			local p = part({
-				Name = k,
-				Size = Vector3.new(PLOT * TILE, 1, PLOT * TILE),
-				CFrame = CFrame.new(c + Vector3.new(0, LAND_TOP - 0.5, 0)),
-				Color = GRASS,
-				Material = Enum.Material.SmoothPlastic,
-				Parent = (self.folder :: any).Land,
-			})
-			groundTexture(p, "grass", p.CFrame.Position - p.Size / 2)
-			self.land[k] = p
-		end
+		owned[k] = true
 	end
-	for k, p in self.land do
-		if not seen[k] then
-			p:Destroy()
-			self.land[k] = nil
+	for px = data.PLOT_MIN, data.PLOT_MAX do
+		for pz = data.PLOT_MIN, data.PLOT_MAX do
+			local k = `{px},{pz}`
+			local have = self.land[k]
+			if have and (have.Name == k) == (owned[k] == true) then
+				continue
+			end
+			if have then
+				have:Destroy()
+			end
+			local c = self:tileToWorld(px * PLOT + (PLOT - 1) / 2, pz * PLOT + (PLOT - 1) / 2)
+			if owned[k] then
+				self.land[k] = part({
+					Name = k,
+					Size = Vector3.new(PLOT * TILE, 4, PLOT * TILE),
+					CFrame = CFrame.new(c + Vector3.new(0, MEADOW_TOP - 2, 0)),
+					Color = GRASS,
+					Material = Enum.Material.SmoothPlastic,
+					CastShadow = false,
+					Parent = (self.folder :: any).Land,
+				})
+			else
+				self.land[k] = meadowPart((self.folder :: any).Meadow, self.origin, c - self.origin, Vector3.new(PLOT * TILE, 0, PLOT * TILE))
+			end
 		end
 	end
 end
@@ -265,20 +299,28 @@ for name in Catalog.MODELS do
 	end
 end
 function TownView._renderLawn(self: TownView, land: { string }, roads: { string }, buildings: { any })
+	-- Tiles taken by a road or a building, and those of them that are paved (a road, or a lot).
 	local used: { [string]: boolean } = {}
+	local paved: { [string]: boolean } = {}
 	for _, k in roads do
 		used[k] = true
+		paved[k] = true
 	end
 	local lots = {}
 	for _, b in buildings do
 		if b.stored then
 			continue
 		end
-		local w, h = lotSize(data.buildingDef(b.def), b.rot)
+		local def = data.buildingDef(b.def)
+		local w, h = lotSize(def, b.rot)
+		local lot = def.kind ~= "decor" and def.kind ~= "obstacle"
 		table.insert(lots, `{b.x},{b.z},{w},{h}`)
 		for i = 0, w - 1 do
 			for j = 0, h - 1 do
 				used[`{b.x + i},{b.z + j}`] = true
+				if lot then
+					paved[`{b.x + i},{b.z + j}`] = true
+				end
 			end
 		end
 	end
@@ -289,6 +331,57 @@ function TownView._renderLawn(self: TownView, land: { string }, roads: { string 
 	self.lawnKey = key
 	local folder = (self.folder :: any).Lawn :: Folder
 	folder:ClearAllChildren()
+	-- The lawn's turf, textured, over every tile that isn't paved: each plot's free tiles in as few
+	-- rectangles as rows allow. Never under a road or lot (see LAND_TOP).
+	local corner = self:tileToWorld(-0.5, -0.5)
+	for _, k in land do
+		local px, pz = splitKey(k)
+		local done: { [string]: boolean } = {}
+		local function free(x: number, z: number): boolean
+			local t = `{x},{z}`
+			return not paved[t] and not done[t]
+		end
+		for z = pz * PLOT, pz * PLOT + PLOT - 1 do
+			for x = px * PLOT, px * PLOT + PLOT - 1 do
+				if not free(x, z) then
+					continue
+				end
+				local x1 = x
+				while x1 + 1 < (px + 1) * PLOT and free(x1 + 1, z) do
+					x1 += 1
+				end
+				local z1 = z
+				while z1 + 1 < (pz + 1) * PLOT do
+					local row = true
+					for i = x, x1 do
+						if not free(i, z1 + 1) then
+							row = false
+							break
+						end
+					end
+					if not row then
+						break
+					end
+					z1 += 1
+				end
+				for i = x, x1 do
+					for j = z, z1 do
+						done[`{i},{j}`] = true
+					end
+				end
+				local turf = part({
+					Name = "Turf",
+					Size = Vector3.new((x1 - x + 1) * TILE, LAND_TOP - MEADOW_TOP, (z1 - z + 1) * TILE),
+					CFrame = CFrame.new(self:tileToWorld((x + x1) / 2, (z + z1) / 2) + Vector3.new(0, (LAND_TOP + MEADOW_TOP) / 2, 0)),
+					Color = GRASS,
+					Material = Enum.Material.SmoothPlastic,
+					CastShadow = false,
+					Parent = folder,
+				})
+				groundTexture(turf, "grass", corner)
+			end
+		end
+	end
 	local fall = Catalog.SEASON == "fall"
 	local winter = Catalog.SEASON == "winter"
 	for _, k in land do
@@ -532,19 +625,262 @@ function TownView._renderRoads(self: TownView, roads: { string })
 	end
 end
 
-function TownView._buildingModel(self: TownView, b: any, turn: number): Model?
+-- Grows a model built at the origin by s along its own axes (World.tsx groupScale): evenly for a
+-- 2x2 or 4x4 block, along one side for a pair. A stretched part grows by how much the stretch
+-- lengthens each of its own axes, so turned pieces stay close to the web's shape.
+local function stretch(model: Model, s: Vector3)
+	if s.X == s.Y and s.Y == s.Z then
+		if s.X ~= 1 then
+			model:ScaleTo(s.X)
+		end
+		return
+	end
+	for _, p in model:GetDescendants() do
+		if p:IsA("BasePart") then
+			local cf = p.CFrame
+			local r = cf.Rotation
+			p.Size = p.Size * Vector3.new((r.XVector * s).Magnitude, (r.YVector * s).Magnitude, (r.ZVector * s).Magnitude)
+			p.CFrame = CFrame.new(cf.Position * s) * r
+		end
+	end
+end
+
+-- The model a building (or a merged block, `g`) draws, built at the origin and turned to face its
+-- road. A merged block is the top-left building's model grown to fill it (a 2x4 is two 2x2s side
+-- by side); four level 10 houses are the Vanguard Tower, eight the Globe Tower (World.tsx
+-- BuildingLot), when the model build has them.
+local function blockModel(b: any, g: any, turn: number, level: number): Model?
+	local name = Builder.buildingName(b.def, level) or Builder.buildingName("parked", 1)
+	local facing = CFrame.Angles(0, turn * math.pi / 2, 0)
+	if g and merge.isGlobe(g) and Builder.has("landmark:globe") then
+		local m = Builder.build("landmark:globe") :: Model
+		m:PivotTo(facing)
+		return m
+	end
+	if g and merge.isLandmark(g) and Builder.has("landmark:vanguard") then
+		local m = Builder.build("landmark:vanguard") :: Model
+		stretch(m, Vector3.one * (math.min(g.cols, g.rows) / 2))
+		m:PivotTo(facing)
+		return m
+	end
+	if not name then
+		return nil
+	end
+	if not g then
+		local m = Builder.build(name)
+		if m then
+			Ladders.add(m, name)
+			m:PivotTo(facing)
+		end
+		return m
+	end
+	local model: Model? = nil
+	for _, part in merge.groupParts(g, turn) do
+		local m = Builder.build(name)
+		if not m then
+			return nil
+		end
+		Ladders.add(m, name)
+		stretch(m, Vector3.new(part.scale[1], part.scale[2], part.scale[3]))
+		m:PivotTo(CFrame.new(part.at[1] * TILE, 0, part.at[2] * TILE) * facing)
+		if model then
+			for _, d in m:GetChildren() do
+				d.Parent = model
+			end
+			m:Destroy()
+		else
+			model = m
+		end
+	end
+	return model
+end
+
+-- Flat layers closer than this (studs) flicker against each other from Roblox's camera.
+local LAYER_GAP = 0.25
+
+-- The web's models stack flat layers (a yard on a slab, a stripe on a yard) a few hundredths of a
+-- unit apart, which flicker in Roblox (Rusty's yard did). Raises the top of each thin flat block or
+-- disc lying within LAYER_GAP of a lower layer it overlaps, keeping its underside where it was.
+-- `floor` is the top of the paved lot under the model, if any.
+local function spreadLayers(model: Model, floor: number?)
+	type Layer = { top: number, x0: number, x1: number, z0: number, z1: number }
+	local layers: { Layer } = {}
+	local items = {}
+	for _, p in model:GetDescendants() do
+		if not p:IsA("Part") then
+			continue
+		end
+		local r = p.CFrame
+		-- The part's own axis that stands upright, if any.
+		local axis: string? = nil
+		if p.Shape == Enum.PartType.Block then
+			if math.abs(r.UpVector.Y) > 0.999 then
+				axis = "Y"
+			elseif math.abs(r.RightVector.Y) > 0.999 then
+				axis = "X"
+			elseif math.abs(r.LookVector.Y) > 0.999 then
+				axis = "Z"
+			end
+		elseif p.Shape == Enum.PartType.Cylinder and math.abs(r.RightVector.Y) > 0.999 then
+			axis = "X"
+		end
+		if not axis then
+			continue
+		end
+		local h = (p.Size :: any)[axis] :: number
+		-- Its footprint on the ground.
+		local ex = math.abs(r.RightVector.X) * p.Size.X + math.abs(r.UpVector.X) * p.Size.Y + math.abs(r.LookVector.X) * p.Size.Z
+		local ez = math.abs(r.RightVector.Z) * p.Size.X + math.abs(r.UpVector.Z) * p.Size.Y + math.abs(r.LookVector.Z) * p.Size.Z
+		local at = r.Position
+		table.insert(items, {
+			part = p,
+			axis = axis,
+			h = h,
+			-- Thin and wide: a layer that may be raised.
+			flat = h <= 1 and math.min(ex, ez) - h >= 1,
+			layer = { top = at.Y + h / 2, x0 = at.X - ex / 2, x1 = at.X + ex / 2, z0 = at.Z - ez / 2, z1 = at.Z + ez / 2 },
+		})
+	end
+	table.sort(items, function(a, b)
+		return a.layer.top < b.layer.top
+	end)
+	if floor then
+		table.insert(layers, { top = floor, x0 = -math.huge, x1 = math.huge, z0 = -math.huge, z1 = math.huge })
+	end
+	for _, it in items do
+		local l = it.layer
+		if it.flat then
+			local top = l.top
+			local moved = true
+			while moved do
+				moved = false
+				for _, o in layers do
+					if math.abs(top - o.top) < LAYER_GAP - 0.001 and o.x0 < l.x1 and l.x0 < o.x1 and o.z0 < l.z1 and l.z0 < o.z1 then
+						top = o.top + LAYER_GAP
+						moved = true
+					end
+				end
+			end
+			local grow = top - l.top
+			if grow > 0 then
+				local p = it.part
+				local cf = p.CFrame
+				p.Size += if it.axis == "X" then Vector3.new(grow, 0, 0) elseif it.axis == "Y" then Vector3.new(0, grow, 0) else Vector3.new(0, 0, grow)
+				p.CFrame = cf + Vector3.new(0, grow / 2, 0)
+				l.top = top
+			end
+		end
+		table.insert(layers, l)
+	end
+end
+
+-- A mesh loaded from the packs collides as a rough hull (Roblox's default), which would fill in an
+-- arch or an open bay. Asks Roblox once per mesh for a copy with precise collisions and gives it to
+-- every part using that mesh, one mesh at a time in the background; until then (or if Roblox
+-- won't) the part keeps its default.
+local precise: { [string]: MeshPart | false } = {}
+local waiting: { [string]: { MeshPart } } = {}
+local queue: { string } = {}
+local working = false
+
+local function applyPrecise(part: MeshPart, with: MeshPart)
+	if not part.Parent then
+		return
+	end
+	local size, cf = part.Size, part.CFrame
+	if pcall(part.ApplyMesh, part, with) then
+		part.Size = size
+		part.CFrame = cf
+	end
+end
+
+local function preciseMesh(part: MeshPart)
+	-- (The preview tools' stand-in MeshParts have no MeshId.)
+	local ok, id = pcall(function()
+		return part.MeshId
+	end)
+	if not ok or id == "" then
+		return
+	end
+	local have = precise[id]
+	if have then
+		applyPrecise(part, have)
+		return
+	elseif have == false then
+		return
+	end
+	local list = waiting[id]
+	if not list then
+		list = {}
+		waiting[id] = list
+		table.insert(queue, id)
+	end
+	table.insert(list, part)
+	if working then
+		return
+	end
+	working = true
+	task.spawn(function()
+		while #queue > 0 do
+			local next = table.remove(queue, 1) :: string
+			local ok, made = pcall(function()
+				return (game:GetService("AssetService") :: any):CreateMeshPartAsync(next, {
+					CollisionFidelity = Enum.CollisionFidelity.PreciseConvexDecomposition,
+				})
+			end)
+			precise[next] = if ok and made then made else false
+			for _, p in waiting[next] do
+				if ok and made then
+					applyPrecise(p, made)
+				end
+			end
+			waiting[next] = nil
+		end
+		working = false
+	end)
+end
+
+-- Gives a building's own pieces collisions, so a player can walk into an open building (the
+-- garage's bays, the workshop), jump on its props and up onto its roof. Glass-thin and tiny bits
+-- stay out of it, as do the bars of a ladder (its truss does the climbing, Ladders.add). The big
+-- meshes get precise collisions (preciseMesh), the rest keep Roblox's default.
+local function solidify(model: Model)
+	for _, d in model:GetDescendants() do
+		if not d:IsA("BasePart") or d:IsA("TrussPart") or d.Name == "Lot" then
+			continue
+		end
+		local s = d.Size
+		local solid = d.Transparency < 0.9 and not d:GetAttribute("Ladder") and s.X + s.Y + s.Z >= 1
+		d.CanCollide = solid
+		if solid and d:IsA("MeshPart") and math.max(s.X, s.Y, s.Z) >= 4 then
+			preciseMesh(d)
+		end
+	end
+end
+
+function TownView._buildingModel(self: TownView, b: any, turn: number, g: any, cityTheme: string?): Model?
 	local def = data.buildingDef(b.def)
 	local level = data.buildingLevel(b)
-	local name = Builder.buildingName(b.def, level) or Builder.buildingName("parked", 1)
-	local model = if name then Builder.build(name) else nil
+	local model = blockModel(b, g, turn, level)
 	if not model then
 		return nil
 	end
-	local w, h = lotSize(def, b.rot)
-	local c = self:tileToWorld(b.x + (w - 1) / 2, b.z + (h - 1) / 2)
-	model:PivotTo(CFrame.new(c) * CFrame.Angles(0, turn * math.pi / 2, 0))
-	if def.kind ~= "decor" and def.kind ~= "obstacle" then
-		-- The paved lot under a business or home (World.tsx BuildingLot), level with the asphalt.
+	-- In its colour theme, or the city's (CityTint.tsx); the paved lot keeps its own.
+	CityTint.apply(model, cityLook.themeFor(b.tint, cityTheme, def.kind == "decor"))
+	local w, h, c
+	if g then
+		w, h = g.w, g.h
+		c = self:tileToWorld(g.x + (w - 1) / 2, g.z + (h - 1) / 2)
+	else
+		w, h = lotSize(def, b.rot)
+		c = self:tileToWorld(b.x + (w - 1) / 2, b.z + (h - 1) / 2)
+	end
+	model:PivotTo(CFrame.new(c) * model:GetPivot())
+	local paved = def.kind ~= "decor" and def.kind ~= "obstacle"
+	spreadLayers(model, if paved then c.Y + 0.02 * SCALE else nil)
+	if paved then
+		-- The paved lot under a business or home (World.tsx BuildingLot), level with the asphalt:
+		-- one under the whole of a merged block.
 		part({
 			Name = "Lot",
 			Size = Vector3.new(w * TILE - 0.1 * SCALE, 0.4, h * TILE - 0.1 * SCALE),
@@ -555,18 +891,23 @@ function TownView._buildingModel(self: TownView, b: any, turn: number): Model?
 			Parent = model,
 		})
 	end
-	-- One invisible box over the lot: what you bump into and what you click.
+	-- One invisible box over the lot: what you tap. Players walk through it: the building's own
+	-- pieces are what they bump into, stand on and climb (solidify).
 	local _, size = model:GetBoundingBox()
+	solidify(model)
 	local hit = part({
 		Name = "Hit",
 		Size = Vector3.new(w * TILE * 0.9, math.max(4, size.Y), h * TILE * 0.9),
 		CFrame = CFrame.new(c + Vector3.new(0, math.max(4, size.Y) / 2, 0)),
 		Transparency = 1,
-		CanCollide = def.kind ~= "decor",
+		CanCollide = false,
+		CanTouch = false,
 		Parent = model,
 	})
 	model.PrimaryPart = hit
-	if def.kind ~= "decor" and def.kind ~= "house" then
+	-- A tap works a business, and opens a house's or a decoration's upgrades and colours (store
+	-- tapBuilding), as on the web; a decoration with neither takes no taps.
+	if (def.kind ~= "decor" and def.kind ~= "house") or data.themable(def) then
 		local click = Instance.new("ClickDetector")
 		click.MaxActivationDistance = 400
 		click.MouseClick:Connect(function(player)
@@ -583,21 +924,43 @@ function TownView._buildingModel(self: TownView, b: any, turn: number): Model?
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	model:SetAttribute("Uid", b.uid)
 	model:SetAttribute("Def", b.def)
-	model:SetAttribute("Name", def.name)
+	model:SetAttribute("Name", if g and merge.isLandmark(g) then merge.landmarkName(g) else def.name)
 	model:SetAttribute("Level", level)
+	-- Quarter turns about its middle (client/SpeedwayLife puts the race and crowd inside it).
+	model:SetAttribute("Turn", turn)
 	model:SetAttribute("Owner", self.userId)
 	model:SetAttribute("Height", size.Y)
+	if g then
+		model:SetAttribute("Merged", #g.members)
+	end
 	return model
 end
 
-function TownView._renderBuildings(self: TownView, buildings: { any }, roadSet: any)
-	local seen = {}
+-- The buildings on the map (stored ones wait in the Inventory) and their merged blocks.
+local function placed(buildings: { any }): ({ any }, any)
+	local list = {}
 	for _, b in buildings do
-		if b.stored then
+		if not b.stored then
+			table.insert(list, b)
+		end
+	end
+	return list, merge.mergeGroups(list)
+end
+
+function TownView._renderBuildings(self: TownView, buildings: { any }, roadSet: any, cityTheme: string?)
+	local seen = {}
+	local list, merges = placed(buildings)
+	for _, b in list do
+		-- A merged block draws once, from its top-left building; the rest draw nothing.
+		local owner = merges.owner:get(b.uid)
+		if owner and owner ~= b.uid then
 			continue
 		end
-		local turn = placement.turnOf(b, roadSet)
-		local key = `{b.def}|{b.x}|{b.z}|{b.rot}|{turn}|{data.buildingLevel(b)}`
+		local g = merges.groups:get(b.uid)
+		local turn = if g then merge.groupTurn(g, roadSet) else placement.turnOf(b, roadSet)
+		local look = `{b.tint or ""}|{if data.buildingDef(b.def).kind == "decor" then "" else cityTheme or ""}`
+		local block = if g then `{g.code}|{g.x}|{g.z}|{#g.members}` else ""
+		local key = `{b.def}|{b.x}|{b.z}|{b.rot}|{turn}|{data.buildingLevel(b)}|{block}|{look}`
 		seen[b.uid] = true
 		local have: { model: Model, key: string }? = self.buildings[b.uid]
 		if have and have.key ~= key then
@@ -605,7 +968,7 @@ function TownView._renderBuildings(self: TownView, buildings: { any }, roadSet: 
 			have = nil
 		end
 		if not have then
-			local m = self:_buildingModel(b, turn)
+			local m = self:_buildingModel(b, turn, g, cityTheme)
 			if m then
 				m.Parent = (self.folder :: any).Buildings
 				have = { model = m, key = key }
@@ -626,12 +989,24 @@ function TownView._renderBuildings(self: TownView, buildings: { any }, roadSet: 
 end
 
 -- Cars: each driver parks in front of the business it works at; the rest line up by the garage.
+-- A merged block's drivers park side by side along its front, a row further out when the front is full.
+local CAR_GAP = 13
+
 function TownView._renderCars(self: TownView, cars: { any }, buildings: { any }, roadSet: any)
 	local workAt: { [string]: any } = {}
 	local garage
-	for _, b in buildings do
+	local list, merges = placed(buildings)
+	-- Each merged block's drivers, in order, for their places along its front.
+	local slot: { [string]: number } = {}
+	local drivers: { [string]: number } = {}
+	for _, b in list do
 		if b.car then
 			workAt[b.car] = b
+			local owner = merges.owner:get(b.uid)
+			if owner then
+				drivers[owner] = (drivers[owner] or 0) + 1
+				slot[b.car] = drivers[owner]
+			end
 		end
 		if b.def == "garage" then
 			garage = b
@@ -643,7 +1018,19 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 		seen[car.uid] = true
 		local at = workAt[car.uid]
 		local cf: CFrame
-		if at then
+		local g = at and merges.groups:get(merges.owner:get(at.uid) or "")
+		if g then
+			local turn = merge.groupTurn(g, roadSet)
+			local c = self:tileToWorld(g.x + (g.w - 1) / 2, g.z + (g.h - 1) / 2)
+			local facing = CFrame.Angles(0, turn * math.pi / 2, 0)
+			local across = (if turn % 2 == 1 then g.h else g.w) * TILE
+			local depth = (if turn % 2 == 1 then g.w else g.h) * TILE / 2
+			local per = math.max(1, math.floor(across / CAR_GAP))
+			local n = math.min(per, drivers[g.anchor.uid])
+			local i = slot[car.uid] - 1
+			local row, k = i // per, i % per
+			cf = CFrame.new(c) * facing * CFrame.new((k - (n - 1) / 2) * CAR_GAP, 0, depth + TILE * 0.3 + row * 7) * CFrame.Angles(0, math.pi / 2, 0)
+		elseif at then
 			local def = data.buildingDef(at.def)
 			local turn = placement.turnOf(at, roadSet)
 			local w, h = lotSize(def, at.rot)
@@ -721,7 +1108,7 @@ function TownView.render(self: TownView, save: any)
 	local list = save.roads or {}
 	self:_renderRoads(list)
 	local roadSet = lualib.__TS__New(lualib.Set, list)
-	self:_renderBuildings(save.buildings or {}, roadSet)
+	self:_renderBuildings(save.buildings or {}, roadSet, save.cityTheme)
 	self:_renderLawn(save.land or {}, list, save.buildings or {})
 	self:_renderCars(save.cars or {}, save.buildings or {}, roadSet)
 end

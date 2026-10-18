@@ -21,8 +21,10 @@ local Trim = require(ReplicatedStorage.Shared.Models.Trim)
 local Skins = require(ReplicatedStorage.Shared.Models.Skins)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Mastery = require(script.Parent.Mastery)
 local TownCamera = require(script.Parent.TownCamera)
 local DayNight = require(script.Parent.DayNight)
+local Sfx = require(script.Parent.Sounds.Sfx)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder) :: any
 local venues = require(Game.scene_venues) :: any
 
@@ -349,6 +351,11 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local hint = Ui.text({ Text = "", TextSize = 22, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.4, 80), Size = UDim2.fromOffset(600, 30), Stroke = 2.5, Shadow = 2, Parent = screen })
 	local callLabel = Ui.text({ Text = "", TextSize = 46, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.3), Size = UDim2.fromOffset(700, 60), Stroke = 4, Shadow = 4, Parent = screen })
 	local spinNote = Ui.text({ Text = "💨 Wheelspin", TextSize = 22, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 132), Size = UDim2.fromOffset(300, 30), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
+	-- Each car's skill, flashed while it is working (Race.tsx skill-flash); the rival's takes the
+	-- place of its boost note.
+	local mySkill = spec.mySkill and data.SKILLS[spec.mySkill]
+	local theirSkill = rival.skill and data.SKILLS[rival.skill]
+	local skillNote = Ui.text({ Text = if mySkill then `{mySkill.icon} {mySkill.name}!` else "", TextSize = 24, AnchorPoint = Vector2.new(0, 0), Position = UDim2.new(0, 20, 0, 70), Size = UDim2.fromOffset(320, 30), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromHex("#ffe082"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
 	local theirNote = Ui.text({ Text = `{rival.name}: 🔥 Boost!`, TextSize = 20, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 70), Size = UDim2.fromOffset(320, 28), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromHex("#ffab91"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
 
 	-- ── Bottom: BOOST under the left thumb, the tach in the middle, SHIFT under the right ─────
@@ -393,7 +400,11 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 				DragRace.input(r, "down")
 			end
 		else
-			DragRace.input(r, "down")
+			-- A shift: the good click on a perfect (or smooth) one, as Race.tsx press.
+			local perfect = r.perfect
+			if DragRace.input(r, "down") then
+				Sfx.shift(r.perfect > perfect)
+			end
 		end
 	end
 	local function pressUp()
@@ -403,7 +414,9 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	end
 	local function fireBoost()
 		if counting and r.tick >= DragRace.GO_TICK then
-			DragRace.input(r, "boost")
+			if DragRace.input(r, "boost") then
+				Sfx.boost()
+			end
 		end
 	end
 	local function isPress(input: InputObject): boolean
@@ -449,6 +462,11 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	-- ── The result card ───────────────────────────────────────────────────────────────────────
 	local function showResult(res: any)
 		local won = res.won
+		if won then
+			Sfx.win()
+		else
+			Sfx.lose()
+		end
 		local overlay = Ui.new("Frame", { Name = "Result", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0a1630"), BackgroundTransparency = 0.45, ZIndex = 45, Parent = screen })
 		local shadow, card = Ui.shadowed({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(420, 470), Parent = overlay }, { radius = 24, stroke = 4, drop = 8, color = Ui.SHEET })
 		local _ = shadow
@@ -525,6 +543,10 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			Ui.text({ Text = `{name} unlocked`, TextSize = 18, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(42, 0), Size = UDim2.new(1, -50, 1, 0), Parent = row })
 			y += 44
 		end
+		-- What the race unlocked in mastery (ClassCups.tsx MasteryPrizePopup).
+		if res.mastery then
+			y = Mastery.prize(card, res.mastery, y)
+		end
 		if not won and rival.pi > spec.myPi then
 			line(`Your PI {spec.myPi} < their PI {rival.pi}. Upgrade your car in the Garage.`, y, 14, Color3.fromHex("#c62828"), { Body = true })
 			y += 24
@@ -548,6 +570,7 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	end
 
 	local function showFailed(why: string)
+		Sfx.lose()
 		local overlay = Ui.new("Frame", { Name = "Result", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0a1630"), BackgroundTransparency = 0.45, ZIndex = 45, Parent = screen })
 		local _, card = Ui.shadowed({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(400, 220), Parent = overlay }, { radius = 24, stroke = 4, drop = 8, color = Ui.SHEET })
 		Ui.text({ Text = "NO RESULT", TextSize = 34, Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, 0, 0, 40), TextColor3 = Ui.INK, Parent = card })
@@ -564,6 +587,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local band = { lo = 0, hi = 0 }
 	local bandKey = ""
 	local lastCall: number = -1
+	local lastCount = -1 -- the count last beeped (3, 2, 1, then 0 at GO)
+	local wasLaunched = false
 
 	local function carZ(i: number, racer: any): number
 		local ro = runOut[i]
@@ -625,6 +650,15 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		-- The countdown bar: the reds come on with the count (amber on the last), all green at GO.
 		-- It drops out of sight just before the camera reaches it, as on the web.
 		local n = if r.tick < DragRace.GO_TICK then 3 - math.floor(r.tick * DragRace.DT / DragRace.COUNT_STEP) else 0
+		if counting and n ~= lastCount and n >= 0 and n <= 3 then
+			lastCount = n
+			Sfx.countdown(n == 0)
+		end
+		-- Off the line at GO: the launch's call gets a shift click (Race.tsx callLaunch).
+		if r.me.launched and not wasLaunched then
+			wasLaunched = true
+			Sfx.shift(type(r.launch) == "string" and r.launch:sub(1, 7) == "PERFECT")
+		end
 		for i, lamp in lamps do
 			local on = counting and (n == 0 or i <= 4 - n)
 			lamp.Color = if not on then hex("#3a1010") elseif n == 0 then hex("#00e676") else hex(LIT[i])
@@ -662,7 +696,10 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			Ui.setText(callLabel, "")
 		end
 		spinNote.Visible = r.spin and callLabel.Text == ""
-		theirNote.Visible = th.burning and not me.finished
+		local theirsOn = theirSkill ~= nil and r.theirSkillOn
+		Ui.setText(theirNote, if theirsOn then `{rival.name}: {theirSkill.icon} {theirSkill.name}!` else `{rival.name}: 🔥 Boost!`)
+		theirNote.Visible = not r.done and (theirsOn or th.burning)
+		skillNote.Visible = mySkill ~= nil and r.mySkillOn and not r.done
 		Ui.setText(speed, `{race.kmh(me.speed)} km/h`)
 		Ui.setText(gearText, `GEAR {me.gear + 1}`)
 		needle.Rotation = -210 + math.min(1.05, rpm) * 240

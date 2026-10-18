@@ -57,12 +57,18 @@ async function call(url, init, what) {
 }
 
 // A mesh pack goes up as a Model; a ground texture as a Decal, whose id Open Cloud gives back is
-// the image's own, ready for a Texture.
-async function upload(key, creator, name, file, image = false) {
+// the image's own, ready for a Texture; a sound as Audio.
+const KINDS = {
+  model: { assetType: 'Model', description: 'Cartopia 3D models', type: 'model/gltf-binary', ext: 'glb' },
+  image: { assetType: 'Decal', description: 'Cartopia picture', type: 'image/png', ext: 'png' },
+  audio: { assetType: 'Audio', description: 'Cartopia music and sounds, made for the game', type: 'audio/mpeg', ext: 'mp3' },
+}
+async function upload(key, creator, name, file, image = false, audio = false) {
+  const kind = KINDS[audio ? 'audio' : image ? 'image' : 'model']
   const form = new FormData()
-  const request = { assetType: image ? 'Decal' : 'Model', displayName: `Cartopia ${name.replace(":", " ")}`.slice(0, 50), description: image ? 'Cartopia picture' : 'Cartopia 3D models', creationContext: { creator, expectedPrice: 0 } }
+  const request = { assetType: kind.assetType, displayName: `Cartopia ${name.replaceAll(':', ' ').replaceAll('/', ' ')}`.slice(0, 50), description: kind.description, creationContext: { creator, expectedPrice: 0 } }
   form.append('request', JSON.stringify(request))
-  form.append('fileContent', new Blob([readFileSync(file)], { type: image ? 'image/png' : 'model/gltf-binary' }), image ? `${name}.png` : `${name}.glb`)
+  form.append('fileContent', new Blob([readFileSync(file)], { type: kind.type }), `${name.replaceAll(/[:/]/g, '-')}.${kind.ext}`)
   let op = await call(`${API}/assets`, { method: 'POST', headers: { 'x-api-key': key }, body: form }, `upload ${name}`)
   for (let i = 0; !op.done; i++) {
     if (i > 60) throw new Error(`upload ${name}: Roblox didn't finish processing it`)
@@ -84,19 +90,38 @@ const texList = existsSync(join(TEX_DIR, 'list.json')) ? JSON.parse(readFileSync
 // The loading screen's pictures (tools/splash/build.mjs).
 const SPLASH_DIR = join(ROOT, 'build/splash')
 const splashList = existsSync(join(SPLASH_DIR, 'list.json')) ? JSON.parse(readFileSync(join(SPLASH_DIR, 'list.json'), 'utf8')) : []
-// Textures and pictures share assets.json with the packs, as "texture:<name>" and "splash:<name>".
+// The sky's faces (tools/sky/build.mjs).
+const SKY_DIR = join(ROOT, 'build/sky')
+const skyList = existsSync(join(SKY_DIR, 'list.json')) ? JSON.parse(readFileSync(join(SKY_DIR, 'list.json'), 'utf8')) : []
+// Textures and pictures share assets.json with the packs, as "texture:<name>", "splash:<name>" and
+// "sky:<name>".
 const packs = [
   ...JSON.parse(readFileSync(join(GLB_DIR, 'packs.json'), 'utf8')).map((p) => ({ ...p, path: join(GLB_DIR, p.file) })),
   ...texList.map((t) => ({ name: `texture:${t.name}`, path: join(TEX_DIR, t.file), image: true })),
   ...splashList.map((t) => ({ name: `splash:${t.name}`, path: join(SPLASH_DIR, t.file), image: true })),
+  ...skyList.map((t) => ({ name: `sky:${t.name}`, path: join(SKY_DIR, t.file), image: true })),
 ]
+// The game's music and sounds (tools/audio/build.mjs), as "audio:<file>:<hash>". Roblox caps
+// how many sounds an account uploads a month, so they go up after everything else, the effects and
+// the tutorial's voice first, and a refusal leaves the rest for a later run.
+const AUDIO_DIR = join(ROOT, 'audio')
+const audioList = existsSync(join(AUDIO_DIR, 'list.json')) ? JSON.parse(readFileSync(join(AUDIO_DIR, 'list.json'), 'utf8')) : []
+const FIRST = ['sprites/sfx', 'sprites/voice', 'music/', 'sprites/weather', 'rave/', 'club/']
+const rank = (file) => FIRST.findIndex((p) => file.startsWith(p))
+const sounds = audioList
+  .map((e) => ({ name: `audio:${e.file.replace(/\.mp3$/, '')}:${e.hash}`, path: join(AUDIO_DIR, e.file), audio: true, rank: rank(e.file) }))
+  .sort((a, b) => a.rank - b.rank)
 const assets = existsSync(ASSETS) ? JSON.parse(readFileSync(ASSETS, 'utf8')) : {}
+const save = () => writeFileSync(ASSETS, JSON.stringify(Object.fromEntries(Object.entries(assets).sort()), null, 1) + '\n')
 const todo = packs.filter((p) => !assets[p.name])
-console.log(`${packs.length} packs, ${todo.length} to upload`)
+const soundTodo = sounds.filter((p) => !assets[p.name])
+console.log(`${packs.length} packs, ${todo.length} to upload; ${sounds.length} sound files, ${soundTodo.length} to upload`)
+let creator = null
+const whoUploads = async () => (creator ??= creatorFromEnv() ?? (await creatorOf(universe)))
 if (todo.length) {
   let done = 0
   try {
-    const creator = creatorFromEnv() ?? (await creatorOf(universe))
+    const creator = await whoUploads()
     console.log(`uploading as ${JSON.stringify(creator)}`)
     // A few at a time: Roblox takes a few seconds to process each one.
     const queue = [...todo]
@@ -118,7 +143,24 @@ if (todo.length) {
     process.exit(0)
   }
 }
+// Sounds one at a time, in order, so a monthly cap stops at the least needed ones.
+if (soundTodo.length) {
+  let done = 0
+  try {
+    const creator = await whoUploads()
+    for (const p of soundTodo) {
+      assets[p.name] = await upload(key, creator, p.name, p.path, false, true)
+      done++
+      save()
+      console.log(`${p.name} -> ${assets[p.name]}`)
+    }
+  } catch (err) {
+    // Never stops the publish either: a sound not uploaded yet stays silent until a later run.
+    const why = err.status === 401 || err.status === 403 ? `The Open Cloud key needs Assets read and write to upload the sounds (${err.message})` : err.status === 429 || /quota|limit/i.test(err.message) ? `Roblox's monthly audio upload limit was reached; the rest go up on a later run (${err.message})` : err.message
+    console.log(`::warning title=Sounds not all uploaded::${why} (${done} of ${soundTodo.length} uploaded).`)
+  }
+}
 // Drop ids of packs no model uses any more.
-const live = new Set(packs.map((p) => p.name))
+const live = new Set([...packs, ...sounds].map((p) => p.name))
 for (const name of Object.keys(assets)) if (!live.has(name)) delete assets[name]
 writeFileSync(ASSETS, JSON.stringify(Object.fromEntries(Object.entries(assets).sort()), null, 1) + '\n')

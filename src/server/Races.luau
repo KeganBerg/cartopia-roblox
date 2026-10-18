@@ -2,7 +2,9 @@
 -- Drag races, run by the server so nobody can pay themselves a win.
 --
 -- The client asks to start a race (Quick Race against one of three rivals, a campaign race, a
--- paint rival, the rival in town, or a double-or-nothing rematch against them).
+-- paint rival, the rival in town, or a double-or-nothing rematch against them). A Quick Race won
+-- brings a faster challenger straight away (game/challenger.ts), and a loss offers the rematch:
+-- either is mode "next".
 -- The server checks the race is open, spends the fuel, picks the rival exactly as the web game's
 -- race screen does (ui/Race.tsx: makeRivals, campaignRival, eased by fairRace.fairNow so the race
 -- car can always win), and hands back the race: both cars and a seed for the rival's driving.
@@ -82,6 +84,10 @@ export type Mods = {
 	game: ((string) -> any)?,
 	-- Weekly time boards by name (server/Boards), for the modes.
 	boards: { [string]: any }?,
+	-- Everyone's ghosts and taunts (server/Ghosts), and whose ghosts a player can race:
+	-- { userId, name, here? } for everyone else in the server and their friends.
+	ghosts: any?,
+	people: ((userId: number) -> { any })?,
 }
 
 -- A race mode beyond the ones built in here (server/Modes/*.luau). Each is a table of functions
@@ -106,12 +112,20 @@ export type Mode = {
 }
 
 export type Races = typeof(setmetatable(
-	{} :: { towns: any, mods: Mods, quick: { [number]: { pi: number, list: { RivalCard } } }, pending: { [number]: Pending }, bets: { [number]: Bet } },
+	{} :: {
+		towns: any,
+		mods: Mods,
+		quick: { [number]: { pi: number, list: { RivalCard } } },
+		pending: { [number]: Pending },
+		bets: { [number]: Bet },
+		-- After a Quick Race (or a challenger): the next challenger after a win, the rematch after a loss.
+		nextUp: { [number]: RivalCard },
+	},
 	Races
 ))
 
 function Races.new(towns: any, mods: Mods): Races
-	return setmetatable({ towns = towns, mods = mods, quick = {}, pending = {}, bets = {} }, Races)
+	return setmetatable({ towns = towns, mods = mods, quick = {}, pending = {}, bets = {}, nextUp = {} }, Races)
 end
 
 local function round(x: number): number
@@ -131,9 +145,10 @@ end
 -- each eased to what the car can beat. They stay the same until one is raced.
 function Races.quickRivals(self: Races, userId: number): { RivalCard }
 	local data, fairRace, rng = self.mods.data, self.mods.fairRace, self.mods.random
+	-- From the town's best car, as Race.tsx makeRivals(bestCar(cars)).
 	local myPi = self.towns:_with(userId, function(s: any)
-		local _, pi = self:_car(s)
-		return if pi > 0 then pi else 10
+		local best = self.mods.raceCar.bestCar(s.cars)
+		return if best then self.mods.raceCar.carPi(best) else 10
 	end)
 	-- The same rivals until one is raced, or the race car changes.
 	local known = self.quick[userId]
@@ -173,6 +188,33 @@ function Races.quickRivals(self: Races, userId: number): { RivalCard }
 	end)
 	self.quick[userId] = { pi = myPi, list = list }
 	return list
+end
+
+-- What a Quick Race rival or challenger pays (Race.tsx reward): challengers half as much again.
+function Races._quickPrize(self: Races, id: string, pi: number): number
+	local bonus = if id:sub(1, 5) == "chal-" then (self.mods.game :: any)("challenger").CHALLENGER_BONUS else 1
+	return round((150 + pi * 6) * bonus)
+end
+
+-- The challenger after beating `beaten` (Race.tsx: makeChallenger(n, race.pi, car.model, pi(car))).
+-- The card shows their own PI, as the web's does; the race eases it like every rival's.
+function Races._challenger(self: Races, beaten: RivalCard, model: string, myPi: number): RivalCard
+	local n = if beaten.id:sub(1, 5) == "chal-" then (tonumber(beaten.id:sub(6)) or 0) + 1 else 0
+	local rng = self.mods.random
+	local c = (self.mods.game :: any)("challenger").makeChallenger(n, beaten.pi, model, myPi, function()
+		return rng:NextNumber()
+	end)
+	return {
+		id = c.id,
+		name = c.town,
+		carName = c.carName,
+		model = c.model,
+		color = c.color,
+		pi = c.pi,
+		shift = 1,
+		skill = c.skill,
+		prize = self:_quickPrize(c.id, c.pi),
+	}
 end
 
 -- A campaign race's rival (Race.tsx campaignRival), eased to the race car, and its prize.
@@ -352,11 +394,18 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 	self:_forfeit(userId)
 	local bet = self.bets[userId]
 	self.bets[userId] = nil
+	local nextUp = self.nextUp[userId]
+	self.nextUp[userId] = nil
 	if mode == "quick" then
 		if type(arg) ~= "number" or arg ~= math.floor(arg) or arg < 1 or arg > 3 then
 			return nil, "pick a rival"
 		end
 		rival = self:quickRivals(userId)[arg]
+	elseif mode == "next" then
+		if not nextUp then
+			return nil, "no race on offer"
+		end
+		rival = nextUp
 	elseif mode == "bet" then
 		if not bet then
 			return nil, "no bet on offer"
@@ -469,9 +518,9 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 		-- Every AI rival is one this car can beat with perfect driving (fairPi.ts), as the web's
 		-- race screen makes sure of for every race.
 		local racePi = if ghost then r.pi else m.fairPi.fairRivalPi(r.pi, fairOf, r.shift, r.skill)
-		if mode == "quick" then
+		if mode == "quick" or mode == "next" then
 			r = table.clone(r)
-			r.prize = round(150 + racePi * 6)
+			r.prize = self:_quickPrize(r.id, racePi)
 			rival = r
 		end
 		spec = {
@@ -488,6 +537,8 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 		where = { id = v.id, name = v.name, icon = v.icon, sky = sky.kind, note = m.grip.conditionsNote(mine), dist = dist, night = if mode == "row" then r.night else night }
 	end)
 	if not spec then
+		-- Still on offer after a race that didn't start (no fuel, say).
+		self.nextUp[userId] = nextUp
 		return nil, why
 	end
 	local r = rival :: RivalCard
@@ -520,7 +571,8 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 		return nil, "too quick"
 	end
 	self.pending[userId] = nil
-	local won = myTime < theirTime
+	-- A dead heat goes to the player, as on the web.
+	local won = myTime < theirTime or (myTime == theirTime and myTime < math.huge)
 	local result: any = { won = won, myTime = myTime, theirTime = theirTime, launch = run.launch, perfect = run.perfect, shifts = run.shifts, top = run.top }
 	local bet: Bet? = nil
 	self.towns:_with(userId, function(s: any)
@@ -529,6 +581,19 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 		local store = self.mods.store.useGame.getState
 		if p.mode == "campaign" then
 			result.stars = store().campaignResult(p.chapter, p.race, myTime, theirTime, p.rival.pi)
+			-- The result card's next race in the chapter once this one has ever been won, else a
+			-- retry (Race.tsx campNextOf); nothing after the boss.
+			local data = self.mods.data
+			for ci, ch in data.CAMPAIGN do
+				if ch.id == p.chapter then
+					local now = store()
+					local beaten = (now.campaign[data.campaignRaceId(ch, p.race)] or 0) > 0
+					local n = if beaten then (p.race :: number) + 1 else p.race :: number
+					if n < data.CAMPAIGN_RACES then
+						result.next = { chapter = ci - 1, race = n, prize = self:_campaignRival(now, ci - 1, n).prize, retry = not beaten }
+					end
+				end
+			end
 		elseif p.mode == "row" then
 			local first = ((s.rivalRow or {})[p.who] or 0) == 0
 			store().rowResult(p.who, won)
@@ -552,12 +617,19 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 		end
 		-- The rival's id says which mode the race counts under for mastery (mastery.ts
 		-- masteryMode); solo runs against a ghost don't count.
-		local mode = if p.mode == "campaign" then "campaign" elseif p.mode == "quick" then "drag" else "rival"
+		local mode = if p.mode == "campaign" then "campaign" elseif p.mode == "quick" or p.mode == "next" then "drag" else "rival"
 		if modeDef then
 			mode = if p.spec.ghost then nil else self.mods.game("mastery").masteryMode(p.rival.id)
 		end
 		if mode then
+			-- What the race unlocked in mastery (ClassCups.tsx MasteryPrizePopup), for the result card.
+			store().closeMasteryPrize()
 			store().masteryRace(p.model, won, mode, p.rival.pi > p.spec.myPi)
+			local prize = store().masteryPrize
+			if prize then
+				result.mastery = prize
+				store().closeMasteryPrize()
+			end
 		end
 		local after = store()
 		result.coins = after.coins - before.coins
@@ -568,9 +640,13 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 		result.levelUp = after.level > before.level
 	end)
 	self.bets[userId] = bet :: any
-	-- A Quick Race win or loss deals new rivals next time.
-	if p.mode == "quick" then
+	-- A Quick Race win or loss deals new rivals next time, and offers the next race: a faster
+	-- challenger after a win, the rematch after a loss.
+	if p.mode == "quick" or p.mode == "next" then
 		self.quick[userId] = nil
+		local up = if won then self:_challenger(p.rival, p.model, p.spec.myPi) else p.rival
+		self.nextUp[userId] = up
+		result.next = { name = up.name, prize = up.prize, challenger = won }
 	end
 	return result
 end
@@ -613,6 +689,7 @@ function Races.close(self: Races, userId: number)
 	self:_forfeit(userId)
 	self.bets[userId] = nil
 	self.quick[userId] = nil
+	self.nextUp[userId] = nil
 	self.pending[userId] = nil
 end
 

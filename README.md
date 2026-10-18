@@ -18,7 +18,8 @@ the web game's.
 | `src/shared/Models/` | `Catalog.luau`, `Scenery.luau` and `Meshes.luau` are **generated** by `tools/models`: every building (`id@level`), car and street piece as Roblox parts, and the countryside round the town (forest, farm, lake, each plot's wild meadow) with its meshes merged so it stays cheap to draw. `Builder.luau` builds them. |
 | `src/server/TownView.luau` | Draws each player's town in `Workspace.Towns` from their save: land, lawn, roads (put together like the web's `RoadTile`), buildings and cars. |
 | `src/client/Remote.luau` | The client's side: `Remote.act("buyCar", "pip", "#c62828")`, and a copy of the town in the client's store. |
-| `src/client/` (rest) | The screens (HUD, shop, showroom, build mode, job bubbles), the web-style town camera (`TownCamera`) and the shared day and night (`DayNight`) and the countryside round the town (`Countryside`). |
+| `src/client/` (rest) | The screens (HUD, shop, showroom, build mode, job bubbles), the web-style town camera (`TownCamera`), the shared day and night (`DayNight`), the countryside round the town (`Countryside`), the town's traffic and townspeople (`TownLife`) and the race and crowd at a Speedway (`SpeedwayLife`). |
+| `src/client/Sounds/` | The music and sounds (see "Music and sounds" below). |
 | `tools/transpile/` | The TypeScript-to-Luau converter (see below). |
 | `tools/models/` | The model converter: renders the web game's models in Node, turns them into parts and meshes, and uploads the meshes to Roblox (`upload.mjs`). |
 | `tools/emulate/` | Runs the real Luau outside Roblox (with Lune) and draws what it built, for previews without Studio. |
@@ -52,6 +53,21 @@ Saves are the web game's `SaveState`, so a save moves between the two games unch
 a lock in the same `UpdateAsync` that reads the save; a lock not refreshed for 30 minutes counts as
 abandoned. If another server still holds a player's lock after 5 tries, the player is kicked with a
 "try again" message instead of getting a blank town that would overwrite theirs.
+
+### Gem packs and car packs (Robux)
+
+The Bank sells the web game's gem packs and car packs (`bucksPacks.ts`) as Roblox Developer
+Products, one per pack, named exactly like the pack. `tools/products/sync.mjs` (run by
+`.github/workflows/products.yml` when `tools/products/` changes) makes them, pricing each pack from
+the web game's dollar price at Roblox's own Robux store rates (`prices.json`: "match-dollars", with
+per-pack overrides; `null` stops selling a pack). The Open Cloud key needs the
+`developer-product:read` and `developer-product:write` permissions for it.
+
+The server (`src/server/Purchases.luau`) finds the products by name, opens Roblox's purchase prompt
+from the `Bank` remote, and in `ProcessReceipt` pays the pack through the web store's own
+`applyPurchases` (gems, plus coins and parts for the buyer's level, plus the car). Each PurchaseId
+is written with the save in the same DataStore update, so a receipt Roblox sends twice pays once.
+Car packs are one per account, and buying waits for the town's Crew House, as on the web.
 
 ## The converter
 
@@ -131,6 +147,25 @@ rojo build -o build/place.rbxl
 lune run tools/emulate/town.luau build/place.rbxl build/town.json build/gui.json [shop|showroom]
 node tools/emulate/render.mjs <web repo> build/town.json out.png build/gui.json
 ```
+
+## Music and sounds
+
+The web game synthesises its music and sounds as it plays; the Roblox game plays Kegan's
+recordings of them. `node tools/audio/build.mjs <recordings folder>` (needs ffmpeg; the folder is
+the project's `cartopia-roblox-music`) writes `audio/`: the 24 town songs and 18 club tracks one
+file each, Rave Mode's build-up and drop, and three sprites (every sound effect, the tutorial's
+voice lines, and a season's weather loops), listed in `audio/list.json`. Roblox caps audio uploads
+a month, hence the sprites. The publish job uploads anything new (`tools/models/upload.mjs`, effects
+first) and writes the ids into `src/shared/AudioAssets.luau` (`build.mjs --ids`); a sound not
+uploaded yet stays silent.
+
+In the game, `src/client/Sounds` plays them: `Sfx` (named like the web's `sfx.*` calls:
+`Sfx.coin()`, `Sfx.crate.open("gold")`, `Sfx.rescue.reveal("rare")`), `Music` (three day and three
+night songs a season, shuffled), `Ambience` (the town's sounds and weather; `Ambience.setWeather`,
+`Ambience.thunder`), `Club` (the nightclub's track for the night), `Rave` (`Rave.start(dropAt)`),
+`Voice` (`Voice.say("03-collect")`) and `Mixer` (the Menu's Music, Effects and Town sounds
+settings, saved per account by `server/Prefs`). Sounds the store's actions make on the server
+(`sfx.buy()` in store.ts) reach the player with the town's snapshot.
 
 ## Next steps
 

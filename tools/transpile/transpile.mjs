@@ -135,7 +135,20 @@ const STUBS = {
 for (const [from, to] of Object.entries(STUBS)) cpSync(join(here, from), join(work, to))
 // The same stand-ins after transpiling, where Luau can do what TypeScript can't (catch any sfx.* call).
 const LUAU_STUBS = {
-  lib_sound: 'local noop = function() end\nreturn { sfx = setmetatable({}, { __index = function() return noop end }) }\n',
+  // Every sfx.* call goes to `heard` when something has set it (the server's Towns collects them
+  // for the player's client to play, see client/Sounds/Sfx), and is silent otherwise.
+  lib_sound: [
+    'local M = { heard = nil :: ((string, ...any) -> ())? }',
+    'M.sfx = setmetatable({}, { __index = function(_, name)',
+    '\treturn function(...)',
+    '\t\tif M.heard then',
+    '\t\t\tM.heard(name, ...)',
+    '\t\tend',
+    '\tend',
+    'end })',
+    'return M',
+    '',
+  ].join('\n'),
 }
 
 // Regular expressions the game uses, each swapped for a function call that does the same job
@@ -148,6 +161,9 @@ const REWRITES = [
   ...REGEX,
   // Lua lists can't hold nil: STRIPES' "no stripe" entry becomes false.
   [/export const STRIPES = \[null,/, 'export const STRIPES: (string | null)[] = [false as unknown as null,'],
+  // Likewise merge.ts's missing quarters of a 4x4: a nil would shorten the list, and every() then
+  // passed a single merged square as a whole 4x4 block on offer.
+  [/alike\(g\.anchor, q\.anchor\) \? q : null/, 'alike(g.anchor, q.anchor) ? q : (false as unknown as null)'],
   [/Math\.imul\(/g, '__imul('],
   [/Math\.hypot\(/g, '__hypot('],
   // Float32Arrays (kart tracks) keep their 0-based indexes and single precision (js.ts __zeros).
@@ -166,6 +182,8 @@ const REWRITES = [
   // Passing a named function straight to map/filter trips TypeScriptToLua's `this` checks.
   [/\(Boolean\)/g, "((x: any) => !!x)"],
   [/\.(map|filter|some|every|forEach|find)\(([A-Za-z_]\w*)\)/g, '.$1((x: any) => $2(x))'],
+  // The arcade's device bests are parsed JSON (untyped); give the list its type so .map converts.
+  [/Array\.isArray\(b\.park\) \? b\.park\.map\(/, 'Array.isArray(b.park) ? (b.park as unknown[]).map('],
 ]
 
 function walk(dir) {
@@ -181,7 +199,7 @@ for (const file of walk(join(work, 'src'))) {
   for (const [from, to] of REWRITES) src = src.replace(from, to)
   const toRoot = relative(dirname(file), join(work, 'src')).replace(/\\/g, '/') || '.'
   src = src.replace(/from 'zustand'/g, `from '${toRoot}/__zustand'`).replace(/from 'zustand\/middleware'/g, `from '${toRoot}/__zustand_middleware'`)
-  src = src.replace(/from 'three'/g, `from '${toRoot}/__three'`)
+  src = src.replace(/from 'three'/g, `from '${toRoot}/__three'`).replace(/from 'three\/examples\/jsm\/utils\/BufferGeometryUtils\.js'/g, `from '${toRoot}/__three'`)
   writeFileSync(file, src)
 }
 
@@ -505,7 +523,7 @@ rmSync(work, { recursive: true, force: true })
 
 // An array or string method called as a plain field (`list.find(...)`) means TypeScriptToLua didn't
 // know the value's type (an `any`), so it wasn't translated and would fail at runtime.
-const METHOD = /(?<![\w])(?!string\.|table\.|math\.|bit32\.|os\.|____lualib\.)[\w.]+\.(filter|map|find|findIndex|some|every|includes|push|pop|shift|unshift|slice|forEach|reduce|indexOf|join|concat|sort|splice|flat|flatMap|fill|startsWith|endsWith|split|replace|replaceAll|trim|toUpperCase|toLowerCase|padStart|padEnd|charAt|charCodeAt|repeat|at|toFixed|toString)\(/
+const METHOD = /(?<![\w])(?!string\.|table\.|math\.|bit32\.|os\.|____lualib\.|____exports\.\w+\()[\w.]+\.(filter|map|find|findIndex|some|every|includes|push|pop|shift|unshift|slice|forEach|reduce|indexOf|join|concat|sort|splice|flat|flatMap|fill|startsWith|endsWith|split|replace|replaceAll|trim|toUpperCase|toLowerCase|padStart|padEnd|charAt|charCodeAt|repeat|at|toFixed|toString)\(/
 const untranslated = []
 for (const f of readdirSync(out)) {
   if (f === 'lualib_bundle.luau') continue

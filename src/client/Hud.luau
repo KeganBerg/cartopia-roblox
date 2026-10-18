@@ -18,13 +18,13 @@ local StarterGui = game:GetService("StarterGui")
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
-local endless = require(Game.endless) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Shop = require(script.Parent.Shop)
 local Cars = require(script.Parent.Cars)
 local Goals = require(script.Parent.Goals)
+local Fly = require(script.Parent.Fly)
 local Rescue = require(script.Parent.Rescue)
 local Menu = require(script.Parent.Menu)
 local Upgrade = require(script.Parent.Upgrade)
@@ -32,6 +32,7 @@ local Placement = require(script.Parent.Placement)
 local TownCamera = require(script.Parent.TownCamera)
 local Jobs = require(script.Parent.Jobs)
 local RaceMenu = require(script.Parent.RaceMenu)
+local Bank = require(script.Parent.Bank)
 
 local Hud = {}
 
@@ -65,31 +66,6 @@ local REF_W, REF_H = 1280, 800
 
 local function now(): number
 	return workspace:GetServerTimeNow() * 1000
-end
-
--- The story goal (or endless goal) the tracker shows, as GoalTracker in ui/Goals.tsx: one ready
--- to collect first, else the first one still to do.
-local function trackedGoal(s: any): any?
-	local rows = {}
-	for _, g in store.activeGoals(s) do
-		table.insert(rows, { icon = g.icon, text = g.text, have = store.statValue(s, g.stat, g.def), target = g.target, ready = true })
-	end
-	local capped = endless.endlessCapped(s.endless, now())
-	for _, g in store.activeEndless(s) do
-		local kind = endless.KINDS[g.kind]
-		table.insert(rows, { icon = if kind then kind.icon else "♾", text = endless.endlessText(g, s.cars), have = endless.endlessHave(store.endlessTown(s), g), target = g.n, ready = not capped })
-	end
-	for _, r in rows do
-		if r.ready and r.have >= r.target then
-			return r
-		end
-	end
-	for _, r in rows do
-		if r.have < r.target then
-			return r
-		end
-	end
-	return rows[1]
 end
 
 function Hud.start()
@@ -159,6 +135,8 @@ function Hud.start()
 		open = function(name: string, arg: any?)
 			openPanel(name, arg)
 		end,
+		-- The HUD counter a collected reward flies into (set once the counters are made).
+		flyTarget = (nil :: any) :: (string) -> GuiObject?,
 	}
 
 	-- ── Top left: the speedometer (Menu button) and the counters ──────────────────────────────
@@ -230,12 +208,22 @@ function Hud.start()
 	local coins = counter(1, "coin", function()
 		openPanel("need", { res = "coins", missing = 0 })
 	end)
+	-- Gems open the Bank once it's unlocked (web Hud.tsx openGems), else how to earn them.
 	local gems = counter(2, "💎", function()
-		openPanel("need", { res = "bucks", missing = 0 })
+		if Bank.unlocked(store.useGame.getState()) then
+			openPanel("bank")
+		else
+			openPanel("need", { res = "bucks", missing = 0 })
+		end
 	end)
 	local parts = counter(3, "⚙️", function()
 		openPanel("need", { res = "parts", missing = 0 })
 	end)
+	-- Where collected rewards fly to (Fly.from): the counters, and the XP box for XP.
+	local flyTo: { [string]: GuiObject } = { coins = coins.Parent :: GuiObject, bucks = gems.Parent :: GuiObject, parts = parts.Parent :: GuiObject, xp = xpBox }
+	ctx.flyTarget = function(res: string): GuiObject?
+		return flyTo[res]
+	end
 
 	-- ── Top middle: town name, MY CARS, the goal tracker ──────────────────────────────────────
 	local center = Ui.new("Frame", { Name = "Center", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10), Size = UDim2.fromOffset(420, 120), BackgroundTransparency = 1, Parent = root }, {
@@ -264,8 +252,17 @@ function Hud.start()
 	local gtText = Ui.text({ Text = "", TextSize = 13, Size = UDim2.fromOffset(0, 25), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 1.5, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = goalRow })
 	local gtBar = Ui.new("Frame", { Size = UDim2.fromOffset(44, 6), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.75, LayoutOrder = 3, Parent = goalRow }, { Ui.corner(3) })
 	local gtFill = Ui.new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromHex("#76ff03"), BorderSizePixel = 0, Parent = gtBar }, { Ui.corner(3) })
+	-- Pulses amber while there's something to collect (the web's chest-glow).
+	local gtGlow = Fly.glow(goalFace, 14)
+	gtGlow.Visible = false
+	-- Tapping it collects (opens Goals) when it's done, else takes you where it gets done.
+	local tracked: any = nil
 	goalRow.Activated:Connect(function()
-		openPanel("goals")
+		if tracked and tracked.have < tracked.target then
+			tracked.go(ctx)
+		else
+			openPanel("goals")
+		end
 	end)
 
 	-- ── Top right: fuel, trophies, sound ──────────────────────────────────────────────────────
@@ -285,7 +282,7 @@ function Hud.start()
 		openPanel("need", { res = "fuel", missing = 0 })
 	end)
 	local fuelSub = Ui.text({ Name = "FuelSub", Text = "", TextSize = 13, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 28), Size = UDim2.fromOffset(260, 16), TextXAlignment = Enum.TextXAlignment.Right, Shadow = 2, Parent = right })
-	local rightRow = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 50), Size = UDim2.fromOffset(200, 43), BackgroundTransparency = 1, Parent = right }, {
+	local rightRow = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 50), Size = UDim2.fromOffset(300, 43), BackgroundTransparency = 1, Parent = right }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	local trophyShadow = Ui.pill({ Name = "Trophies", Size = UDim2.fromOffset(0, 23), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 1, Parent = rightRow })
@@ -300,7 +297,7 @@ function Hud.start()
 	end)
 	-- Sound on/off: mutes the game's sounds (they play through the Cartopia sound group).
 	local soundGroup = SoundService:FindFirstChild("Cartopia") or Ui.new("SoundGroup", { Name = "Cartopia", Volume = 1, Parent = SoundService })
-	local soundSlot = Ui.new("Frame", { Size = UDim2.fromOffset(40, 43), BackgroundTransparency = 1, LayoutOrder = 2, Parent = rightRow })
+	local soundSlot = Ui.new("Frame", { Size = UDim2.fromOffset(40, 43), BackgroundTransparency = 1, LayoutOrder = 10, Parent = rightRow })
 	local _, soundFace = Ui.button({ Name = "Sound", Position = UDim2.fromOffset(2.5, 5.5), Size = UDim2.fromOffset(35, 35), Parent = soundSlot }, "white", nil, { radius = 12, stroke = 2.5, drop = 3, split = 0.5, flat = true })
 	local soundOn = Icons.draw("soundOn", soundFace, 21, Ui.BLUE, nil, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	local soundOff = Icons.draw("soundOff", soundFace, 21, Ui.BLUE, nil, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
@@ -311,6 +308,15 @@ function Hud.start()
 		soundOn.Visible = not muted
 		;(soundGroup :: SoundGroup).Volume = if muted then 0 else 1
 	end)
+
+	-- Menus with a button of their own in this row (client/Panels with `hudButton`, by `hudOrder`:
+	-- the Star Pass and Daily Deals). Each returns the refresh to run with the town's state.
+	local panelButtons: { (any) -> () } = {}
+	for _, mod in PANELS do
+		if mod.hudButton then
+			table.insert(panelButtons, mod.hudButton(rightRow, ctx))
+		end
+	end
 
 	-- ── Bottom: SHOP, CARS, SOCIAL, CHAT, EDIT and RACE; Goals and Collect All on the right ───
 	local bar = Ui.new("Frame", { Name = "BottomBar", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.fromOffset(5 * 66 + 4 * 8, 80), BackgroundTransparency = 1, Parent = root }, {
@@ -508,11 +514,16 @@ function Hud.start()
 		Ui.setText(townName, if visiting then visiting.townName else s.townName)
 		carsShadow.Visible = not visiting
 		Ui.setText(carsText, `MY CARS: {#s.cars}`)
-		local g = trackedGoal(s)
-		goalShadow.Visible = g ~= nil and not Placement.active()
+		local g = Goals.tracked(s)
+		tracked = g
+		-- Hidden while visiting, editing, or while the tutorial runs (only once the port has one:
+		-- until then every town still reads as mid-tutorial).
+		local inTutorial = (s.tutorial or 99) < 99 and script.Parent:FindFirstChild("Tutorial") ~= nil
+		goalShadow.Visible = g ~= nil and not Placement.active() and not s.visiting and not inTutorial
 		if g then
 			local have = math.min(g.target, g.have)
 			local done = have >= g.target
+			gtGlow.Visible = done
 			Ui.setText(gtEmoji, if done then "✔" else g.icon)
 			Ui.setText(gtText, g.text)
 			gtFill.Size = UDim2.fromScale(have / math.max(1, g.target), 1)
@@ -533,6 +544,9 @@ function Hud.start()
 			Ui.setText(fuelSub, `+1 fuel in {math.ceil(wait)}s · {data.fuelPerMin(s.level)}/min`)
 		end
 		Ui.setText(trophyText, Ui.compact(s.trophies or 0))
+		for _, f in panelButtons do
+			f(s)
+		end
 		-- The Menu's Sound switch mutes the same group; keep the button's icon in step.
 		local muted = (soundGroup :: SoundGroup).Volume == 0
 		if soundOff.Visible ~= muted then

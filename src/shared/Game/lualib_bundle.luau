@@ -1749,5 +1749,6 @@ return {
   __TS__ArraySetLength = __TS__ArraySetLength,
   __TS__ArrayPushArray = __TS__ArrayPushArray,
   __TS__ArrayReverse = __TS__ArrayReverse,
-  __TS__MathSign = __TS__MathSign
+  __TS__MathSign = __TS__MathSign,
+  __TS__ClassExtends = __TS__ClassExtends
 }

@@ -19,6 +19,7 @@ local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
 local DragStrip = require(script.Parent.DragStrip)
 local RepChip = require(script.Parent.RepChip)
+local Mastery = require(script.Parent.Mastery)
 local tour = require(Game.tour) :: any
 local events = require(Game.events) :: any
 local trial = require(Game.trial) :: any
@@ -103,7 +104,43 @@ local function extrasFor(ctx: any, mode: string, which: any, started: any, back:
 	if PAGES[mode] and PAGES[mode].extras then
 		return PAGES[mode].extras(ctx, which, started, again)
 	end
-	if mode == "row" then
+	if mode == "quick" or mode == "next" then
+		-- A win brings a faster challenger straight away, a loss the rematch (Race.tsx).
+		local chal = rv.id:match("^chal%-(%d+)$")
+		return {
+			title = if chal then `⚔️ Challenger {tonumber(chal) + 1}` else nil,
+			buttons = function(res: any): { DragStrip.Button }?
+				local nx = res.next
+				if not nx then
+					return nil
+				end
+				local label = if nx.challenger then `⚔️ Challenger · {money(nx.prize)}` else "↻ Rematch"
+				local list: { DragStrip.Button } = { { text = "Back", kind = "garage" }, { text = label, go = again("next", nil) } }
+				return list
+			end,
+		}
+	elseif mode == "campaign" then
+		local chId, i = rv.id:match("^camp%-(.+)%-(%d+)$")
+		local ch: any = nil
+		for _, c in data.CAMPAIGN do
+			if c.id == chId then
+				ch = c
+			end
+		end
+		local n = tonumber(i) or 0
+		return {
+			title = if ch then `{ch.name} · {if n == data.CAMPAIGN_RACES - 1 then "Boss race" else `Race {n + 1} of {data.CAMPAIGN_RACES}`}` else nil,
+			buttons = function(res: any): { DragStrip.Button }?
+				local nx = res.next
+				if not nx then
+					return nil
+				end
+				local label = if nx.retry then "↻ Retry" else `▶ Next · {money(nx.prize)}`
+				local list: { DragStrip.Button } = { { text = "Back", kind = "garage" }, { text = label, go = again("campaign", { chapter = nx.chapter, race = nx.race }) } }
+				return list
+			end,
+		}
+	elseif mode == "row" then
 		local def = paintRivals.paintRival(which)
 		return {
 			title = rv.name,
@@ -258,7 +295,9 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		local pic = Thumb.new("Cars", car.model, UDim2.fromScale(1, 1), Color3.fromHex(car.color))
 		pic.Parent = well
 		Ui.text({ Text = "🏁 RACING WITH", Body = true, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(100, 8), Size = UDim2.fromOffset(300, 16), TextColor3 = Color3.fromHex("#ffd54f"), Parent = face })
-		Ui.text({ Text = def.name, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(100, 24), Size = UDim2.fromOffset(330, 26), Shadow = 2, Parent = face })
+		-- The car's top mastery medal after its name (ClassCups.tsx MasteryMedal).
+		local medal = Mastery.medal(car.model)
+		Ui.text({ Text = if medal ~= "" then `{def.name} {medal}` else def.name, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(100, 24), Size = UDim2.fromOffset(330, 26), Shadow = 2, Parent = face })
 		local skill = if def.skill and data.SKILLS[def.skill] then `  {data.SKILLS[def.skill].icon} {data.SKILLS[def.skill].name}` else ""
 		local piText = `PI {raceCar.carPi(car)}`
 		local piChip = Ui.new("Frame", { Position = UDim2.fromOffset(100, 50), Size = UDim2.fromOffset(math.ceil(Ui.textWidth(piText, 13)) + 14, 18), BackgroundColor3 = Color3.fromHex("#ffd54f"), Parent = face }, { Ui.corner(6), Ui.stroke(1.5, Ui.LINE) })
@@ -1002,7 +1041,7 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 	local function barKey(): string
 		local s = store.useGame.getState()
 		local car = myCar()
-		return `{#s.cars}|{if car then car.uid .. raceCar.carPi(car) .. car.color else ""}`
+		return `{#s.cars}|{if car then car.uid .. raceCar.carPi(car) .. car.color .. Mastery.medal(car.model) else ""}`
 	end
 	local shown = barKey()
 	local conn = Remote.changed:Connect(function()
