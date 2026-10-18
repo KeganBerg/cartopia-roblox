@@ -10,6 +10,7 @@ local data = require(Game.data) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Thumb = require(script.Parent.Parent.Thumb)
 local Remote = require(script.Parent.Parent.Remote)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 local Kit = require(script.Parent.Kit)
 
 local LevelUp = {}
@@ -161,6 +162,12 @@ local function show(ctx: any, lu: any, done: () -> ())
 	local rateUp = rate > data.fuelPerMin(from)
 
 	overlay = Kit.overlay(ctx, true, close)
+	-- A short fanfare as the card comes up.
+	task.delay(0.25, function()
+		if overlay.Parent ~= nil then
+			Sfx.levelUp()
+		end
+	end)
 	local shown = if #items > 0 then items elseif teaser then teaser.items else {}
 	local W = 600
 	local CW, CH, GAP = 176, 186, 10

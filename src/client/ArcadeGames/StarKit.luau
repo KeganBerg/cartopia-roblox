@@ -11,6 +11,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Ui = require(script.Parent.Parent.Ui)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder) :: any
 local Catalog = require(ReplicatedStorage.Shared.Models.Catalog) :: any
 local Paint = require(ReplicatedStorage.Shared.Models.Paint) :: any
@@ -441,7 +442,7 @@ end
 -- step(dt) moves it on and calls onGo once at GO!; returns false once it has gone.
 function Kit.countdown(gui: Instance, onGo: () -> ()): (dt: number) -> boolean
 	local l = Kit.words(gui, { Name = "Count", Text = "3", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.34, 0), Size = UDim2.new(1, 0, 0, 120), ZIndex = 9 }, 110, 5, 0.35)
-	local t, went = 0, false
+	local t, went, beeped = 0, false, 4
 	return function(dt: number): boolean
 		t += dt
 		if t >= 0.65 * 3 + 0.6 then
@@ -449,6 +450,11 @@ function Kit.countdown(gui: Instance, onGo: () -> ()): (dt: number) -> boolean
 			return false
 		end
 		local n = 3 - math.floor(t / 0.65)
+		-- A beep for each number, a higher one on GO (ArcadeBits Countdown's sfx.countdown).
+		if math.max(0, n) < beeped then
+			beeped = math.max(0, n)
+			Sfx.countdown(beeped == 0)
+		end
 		if n <= 0 and not went then
 			went = true
 			onGo()

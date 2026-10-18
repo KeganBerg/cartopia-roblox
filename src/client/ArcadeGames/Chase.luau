@@ -20,6 +20,7 @@ local data = require(Game.data) :: any
 local Kit = require(script.Parent.Parent.ArcadeKit)
 local Ui = require(script.Parent.Parent.Ui)
 local TownCamera = require(script.Parent.Parent.TownCamera)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local Chase = {}
 Chase.id = "chase"
@@ -339,11 +340,13 @@ function Chase.play(ctx: any)
 		st.shake = 0.5
 		st.streak = 0
 		st.comboLeft = 0
+		Sfx.arcade.crash()
 		puff(st.x, -0.6, 8, false)
 		if st.hearts <= 0 then
 			st.over = true
 			st.overAt = st.clock
 		end
+		Sfx.arcade.siren()
 	end
 
 	-- The camera: taken over for the run, given back at the end.
@@ -464,6 +467,7 @@ function Chase.play(ctx: any)
 				st.comboLeft = arcade.COMBO_TIME
 				local pts = score(arcade.NEAR_POINTS)
 				local mult = arcade.comboMult(st.streak)
+				Sfx.arcade.ding(1 + math.min(4, st.streak) * 0.12)
 				say(if mult > 1 then `Near miss +{pts}  ×{mult}` else `Near miss +{pts}`, "near")
 			end
 			if c.z > 12 then
@@ -478,6 +482,7 @@ function Chase.play(ctx: any)
 					c.hit = 0.02
 					c.y = 0.01
 					st.shake = 0.25
+					Sfx.arcade.crash()
 					puff(laneX, c.z, 6, false)
 					say(`Smash +{score(arcade.SMASH_POINTS)}`, "smash")
 				elseif st.safe <= 0 then
@@ -496,6 +501,7 @@ function Chase.play(ctx: any)
 		end
 
 		-- Coins bob and spin above the road.
+		local collected = false
 		for i, c in bags do
 			if c.on then
 				c.z += close
@@ -507,10 +513,14 @@ function Chase.play(ctx: any)
 					st.got += 1
 					-- The combo multiplies coins too: the coin counts once in the score, the rest is bonus.
 					st.bonus += arcade.CHASE_COIN_POINTS * (arcade.comboMult(st.streak) - 1)
+					collected = true
 					puff(LANES[c.lane + 1], c.z, 3, true)
 				end
 			end
 			coinParts[i].CFrame = if c.on then at(LANES[c.lane + 1], 0.5 + math.sin(t * 3 + i) * 0.06, c.z) * CFrame.Angles(0, t * 4 + i, 0) else at(0, -100, 0)
+		end
+		if collected then
+			Sfx.coin()
 		end
 
 		-- Nitro cans spin above the road; grab one to boost.
@@ -523,6 +533,8 @@ function Chase.play(ctx: any)
 				if go and c.on and collide.circlePush(mine, { x = LANES[c.lane + 1], z = c.z, r = 0.35 }) ~= nil then
 					c.on = false
 					st.nitro = arcade.NITRO_TIME
+					Sfx.arcade.rev(0.9)
+					Sfx.arcade.air()
 					puff(LANES[c.lane + 1], c.z, 4, true)
 					say("NITRO!", "nitro")
 				end
@@ -584,6 +596,7 @@ function Chase.play(ctx: any)
 			cp.phase = "warn"
 			cp.at = st.t
 			cp.lane = st.lane
+			Sfx.arcade.siren()
 			say("⚠️ Cop!", "warn")
 		end
 		local copTarget = if st.over then 0 else 2 + st.hearts * 0.8
@@ -596,6 +609,7 @@ function Chase.play(ctx: any)
 				if since > arcade.COP_WARN then
 					cp.phase = "go"
 					cp.at = st.t
+					Sfx.arcade.rev(0.5)
 				end
 			elseif cp.phase == "go" then
 				copTarget = 0.2
@@ -612,6 +626,7 @@ function Chase.play(ctx: any)
 						st.streak += 1
 						st.comboLeft = arcade.COMBO_TIME
 						say(`Dodged! +{score(arcade.COP_DODGE_POINTS)}`, "cop")
+						Sfx.arcade.ding(1.5)
 					end
 				end
 			elseif since > 0.8 then
@@ -724,6 +739,7 @@ function Chase.play(ctx: any)
 
 	local count = Kit.countdown(screen, function()
 		running = true
+		Sfx.arcade.siren()
 	end)
 	RunService:BindToRenderStep("ArcadeChase", Enum.RenderPriority.Camera.Value + 1, function(dt: number)
 		count(dt)

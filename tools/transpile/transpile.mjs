@@ -135,7 +135,20 @@ const STUBS = {
 for (const [from, to] of Object.entries(STUBS)) cpSync(join(here, from), join(work, to))
 // The same stand-ins after transpiling, where Luau can do what TypeScript can't (catch any sfx.* call).
 const LUAU_STUBS = {
-  lib_sound: 'local noop = function() end\nreturn { sfx = setmetatable({}, { __index = function() return noop end }) }\n',
+  // Every sfx.* call goes to `heard` when something has set it (the server's Towns collects them
+  // for the player's client to play, see client/Sounds/Sfx), and is silent otherwise.
+  lib_sound: [
+    'local M = { heard = nil :: ((string, ...any) -> ())? }',
+    'M.sfx = setmetatable({}, { __index = function(_, name)',
+    '\treturn function(...)',
+    '\t\tif M.heard then',
+    '\t\t\tM.heard(name, ...)',
+    '\t\tend',
+    '\tend',
+    'end })',
+    'return M',
+    '',
+  ].join('\n'),
 }
 
 // Regular expressions the game uses, each swapped for a function call that does the same job
