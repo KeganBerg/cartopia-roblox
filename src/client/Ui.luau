@@ -350,6 +350,19 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 	-- The sheet takes taps so they don't fall through to the overlay and close it.
 	sheet.Selectable = false
 	Ui.new("UISizeConstraint", { MaxSize = Vector2.new(w, h), Parent = shadow })
+	-- Keep the sheet clear of Roblox's own buttons in the top bar.
+	local function clearTopbar()
+		local ok, inset = pcall(function()
+			return game:GetService("GuiService").TopbarInset
+		end)
+		local top = if ok and inset then inset.Height else 0
+		shadow.Position = UDim2.new(0.5, 0, 0.5, 4 + top / 2)
+		shadow.Size = UDim2.new(1, -40, 1, -40 - top)
+	end
+	clearTopbar()
+	pcall(function()
+		game:GetService("GuiService"):GetPropertyChangedSignal("TopbarInset"):Connect(clearTopbar)
+	end)
 	local head = Ui.new("Frame", { Name = "Head", Size = UDim2.new(1, 0, 0, 61), BackgroundColor3 = Ui.WHITE, BorderSizePixel = 0, Parent = sheet }, {
 		Ui.corner(21),
 		Ui.gradient(Ui.COLORS.head[1], Ui.COLORS.head[2]),

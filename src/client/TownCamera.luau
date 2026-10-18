@@ -18,7 +18,7 @@ local DIR = Vector3.new(75, 80, 75).Unit
 local FOV = 30
 -- The web's zoom is pixels per web unit (18 to 38, more on bigger screens); here it sets how
 -- many studs of town fit the screen's height.
-local ZOOM_MIN, ZOOM_MAX = 12, 60
+local ZOOM_MIN, ZOOM_MAX = 12, 90
 local STUDS_PER_UNIT = 10
 
 local view = Vector3.zero -- the point on the ground the camera looks at
