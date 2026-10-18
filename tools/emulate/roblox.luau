@@ -26,7 +26,7 @@ local function signal()
 	function s:Wait() end
 	return s
 end
-for _, pair in { { "ClickDetector", "MouseClick" }, { "GuiButton", "Activated" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "RemoteEvent", "OnServerEvent" }, { "RunService", "RenderStepped" }, { "RunService", "Heartbeat" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "GuiObject", "MouseEnter" }, { "GuiObject", "MouseLeave" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputEnded" }, { "TextBox", "FocusLost" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" }, { "Player", "CharacterAdded" } } do
+for _, pair in { { "ClickDetector", "MouseClick" }, { "GuiButton", "Activated" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "RemoteEvent", "OnServerEvent" }, { "RunService", "RenderStepped" }, { "RunService", "Heartbeat" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "GuiObject", "MouseEnter" }, { "GuiObject", "MouseLeave" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputEnded" }, { "TextBox", "FocusLost" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" }, { "Player", "CharacterAdded" }, { "Instance", "ChildAdded" } } do
 	pcall(roblox.implementProperty, pair[1], pair[2], function()
 		return signal()
 	end)
