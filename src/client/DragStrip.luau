@@ -231,6 +231,7 @@ export type Button = { text: string, kind: string?, go: (() -> ())? }
 -- Run's par) and returns the height it reached.
 export type Extras = {
 	title: string?,
+	icon: string?,
 	view: ((card: Frame, res: any, y: number) -> number)?,
 	heading: ((res: any) -> string?)?,
 	quote: ((res: any) -> string?)?,
@@ -459,7 +460,7 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			return Ui.text(p)
 		end
 		local margin = if res.theirTime < math.huge then math.abs(res.theirTime - res.myTime) else nil
-		line(if won then "🏆" else "🏁", 14, 54)
+		line(ex.icon or (if won then "🏆" else "🏁"), 14, 54)
 		local heading = (ex.heading and ex.heading(res)) or (if won then "YOU WIN!" elseif margin and margin < 0.3 then "SO CLOSE!" else "OUTRUN!")
 		line(heading, 76, 40, if won then Color3.fromHex("#2e7d32") else Color3.fromHex("#c62828"), { Stroke = 0 })
 		line(`{if won then `You beat {rival.name}` else `{rival.name} took it`}{if margin then string.format(" by %.2fs", margin) else ""}`, 122, 17, Ui.MUTED, { Body = true })
@@ -506,8 +507,11 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		if ex.view then
 			y = ex.view(card, res, y)
 		end
-		line(loot, y, 22, Ui.INK)
-		y += 40
+		-- A solo run pays nothing, so it shows no loot.
+		if coins ~= 0 or (res.bucks or 0) > 0 or (res.trophies or 0) > 0 or (res.xp or 0) > 0 then
+			line(loot, y, 22, Ui.INK)
+			y += 40
+		end
 		-- A paint rival's colour, won (PaintRivals.tsx PaintPrizePopup).
 		if res.paint then
 			local name = "Paint"

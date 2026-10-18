@@ -33,6 +33,31 @@ local RaceMenu = require(script.Parent.RaceMenu)
 
 local Hud = {}
 
+-- More menus (client/Panels/*.luau), by the web game's panel name: each module has `id` and
+-- `open(ctx, arg)` returning the menu's overlay. And pop-ups (client/Popups/*.luau): each
+-- module's `start(ctx)` runs once the HUD is up, to watch for what it shows.
+local PANELS: { [string]: any } = {}
+local POPUPS: { any } = {}
+for _, pair in { { "Panels", PANELS }, { "Popups", POPUPS } } do
+	local folder = script.Parent:FindFirstChild(pair[1])
+	if folder then
+		local kids = folder:GetChildren()
+		table.sort(kids, function(a, b)
+			return a.Name < b.Name
+		end)
+		for _, m in kids do
+			if m:IsA("ModuleScript") then
+				local mod = (require :: any)(m)
+				if pair[1] == "Panels" then
+					PANELS[mod.id] = mod
+				else
+					table.insert(POPUPS, mod)
+				end
+			end
+		end
+	end
+end
+
 local LINE = Ui.LINE
 local REF_W, REF_H = 1280, 800
 
@@ -386,6 +411,8 @@ function Hud.start()
 			open = RaceMenu.open(ctx, arg)
 		elseif panel == "need" then
 			open = Menu.need(ctx, arg or store.useGame.getState().need)
+		elseif PANELS[panel] then
+			open = PANELS[panel].open(ctx, arg)
 		else
 			toast("That screen is coming to Roblox soon")
 		end
@@ -507,6 +534,9 @@ function Hud.start()
 		refresh()
 	end
 	Jobs.start(gui)
+	for _, p in POPUPS do
+		task.spawn(p.start, ctx)
+	end
 	return { gui = gui, root = root, openPanel = openPanel, toast = toast, ctx = ctx }
 end
 

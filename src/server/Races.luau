@@ -55,6 +55,7 @@ type Pending = {
 	stake: number?,
 	-- What a mode from server/Modes kept for its finish.
 	extra: any,
+	userId: number,
 }
 
 -- A town rival race won, with a rematch for double or nothing on offer until another race.
@@ -79,13 +80,16 @@ export type Mods = {
 	modes: { [string]: Mode }?,
 	-- A converted game module by name (Shared.Game.<name>), for the modes.
 	game: ((string) -> any)?,
+	-- Weekly time boards by name (server/Boards), for the modes.
+	boards: { [string]: any }?,
 }
 
 -- A race mode beyond the ones built in here (server/Modes/*.luau). Each is a table of functions
 -- given the Races object and the town's state (run inside towns:_with, so the web store's
 -- actions are live):
---   list(self, s, arg): what the race menu's page for the mode shows (rivals, progress), or nil
---   start(self, s, arg, car, myPi): the race to run, or nil and why. Returns a table with
+--   list(self, s, arg, userId): what the race menu's page for the mode shows, or nil
+--   act(self, s, arg, userId): something done outside a race (claim a prize), or nil and why
+--   start(self, s, arg, car, myPi, userId): the race to run, or nil and why. Returns a table with
 --     rival (a RivalCard), and optionally venue (id), dist, night, weatherSeed, sky, ghost (a
 --     solo run against a ghost finishing in that many seconds), car (a loaner { model, color,
 --     upgrades } raced instead of the player's car), fuel (false: free) and extra (anything the
@@ -94,8 +98,10 @@ export type Mods = {
 --     adds to `result` what the result card shows. Mastery counts the race by its rival's id, as
 --     the web game does (mastery.ts masteryMode).
 export type Mode = {
-	list: ((self: any, s: any, arg: any) -> any)?,
-	start: (self: any, s: any, arg: any, car: any, myPi: number) -> (any?, string?),
+	id: string,
+	list: ((self: any, s: any, arg: any, userId: number) -> any)?,
+	act: ((self: any, s: any, arg: any, userId: number) -> (any?, string?))?,
+	start: (self: any, s: any, arg: any, car: any, myPi: number, userId: number) -> (any?, string?),
 	finish: (self: any, s: any, p: any, won: boolean, myTime: number, theirTime: number, result: any) -> (),
 }
 
@@ -413,7 +419,7 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 			end
 			rival, who = card, id
 		elseif modeDef then
-			local got, err = modeDef.start(self, s, arg, car, myPi)
+			local got, err = modeDef.start(self, s, arg, car, myPi, userId)
 			if not got then
 				why = err or "That race isn't open"
 				return
@@ -485,7 +491,7 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 		return nil, why
 	end
 	local r = rival :: RivalCard
-	self.pending[userId] = { mode = mode, spec = spec, rival = r, chapter = chapter, race = raceNo, model = model, startedAt = self.mods.clock(), who = who, stake = stake, extra = extra }
+	self.pending[userId] = { mode = mode, spec = spec, rival = r, chapter = chapter, race = raceNo, model = model, startedAt = self.mods.clock(), who = who, stake = stake, extra = extra, userId = userId }
 	return { spec = spec, rival = r, mode = mode, venue = where, stake = stake, extra = extra, car = loaner }
 end
 
@@ -557,7 +563,8 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 		result.coins = after.coins - before.coins
 		result.trophies = after.trophies - before.trophies
 		result.bucks = after.bucks - before.bucks
-		result.xp = if p.mode == "bet" then 0 else self.mods.store.lastRaceXpPaid()
+		-- A race that paid no XP (double or nothing, a solo run) shows none.
+		result.xp = if p.mode == "bet" or (after.xp == before.xp and after.level == before.level) then 0 else self.mods.store.lastRaceXpPaid()
 		result.levelUp = after.level > before.level
 	end)
 	self.bets[userId] = bet :: any
@@ -577,9 +584,24 @@ function Races.list(self: Races, userId: number, mode: any, arg: any): any?
 	local out = nil
 	self.towns:_with(userId, function(s: any)
 		s.tick(self.towns.now())
-		out = (def.list :: any)(self, s, arg)
+		out = (def.list :: any)(self, s, arg, userId)
 	end)
 	return out
+end
+
+-- Something a mode from server/Modes does outside a race (claiming last week's Time Trial prize).
+-- Returns its answer, or nil and why.
+function Races.act(self: Races, userId: number, mode: any, arg: any): (any?, string?)
+	local def = if type(mode) == "string" and self.mods.modes then self.mods.modes[mode] else nil
+	if not def or not def.act then
+		return nil, "not a race"
+	end
+	local out, why = nil, nil
+	self.towns:_with(userId, function(s: any)
+		s.tick(self.towns.now())
+		out, why = (def.act :: any)(self, s, arg, userId)
+	end)
+	return out, why
 end
 
 -- Turns down double or nothing (the result card's Keep button), or leaves it.

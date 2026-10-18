@@ -172,6 +172,11 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 	game = function(name)
 		return emu.require(G[name])
 	end,
+	boards = {
+		trial = emu.require(SSS.Server.Boards).new("Trial", nil, function()
+			return raceClock
+		end),
+	},
 })
 -- Render steps, run by hand.
 local renderSteps = {}
@@ -269,6 +274,8 @@ local function raceDesk(op, arg)
 			return races:rows(1), nil
 		elseif op == "list" and type(arg) == "table" then
 			return races:list(1, arg.mode, arg.which), nil
+		elseif op == "act" and type(arg) == "table" then
+			return races:act(1, arg.mode, arg.which)
 		elseif op == "keep" then
 			races:keep(1)
 			return true, nil
@@ -997,7 +1004,7 @@ local function closeRace()
 	if not screen then
 		return
 	end
-	local b = cardButton("Collect") or cardButton("Back")
+	local b = cardButton("Collect") or cardButton("Back") or cardButton("Board")
 	if b then
 		signalFor(b, "Activated"):Fire()
 		Emu.resumeWaits()
@@ -1147,3 +1154,31 @@ towns:_with(1, function()
 end)
 modeRace("world", "World Tour", "🏁 %$")
 print(`world tour beaten: {towns:snapshot(1).save.worldTour or 0}`)
+
+-- The Time Trial: the hub's tile opens the board; run against par, then your best.
+local function trialRun(tag)
+	topUp()
+	hud.ctx.close()
+	local f, _, res = runRace(tag, { [60] = true }, function()
+		hud.openPanel("race", "hub")
+		local tile = find(hud.gui, function(d)
+			return d:IsA("TextButton") and (d.Name == "Trial" or (d.Parent and d.Parent.Name == "Trial"))
+		end)
+		assert(tile, "no Time Trial tile")
+		signalFor(tile, "Activated"):Fire()
+		Emu.resumeWaits()
+		if SHOTS then
+			shot(`page-{tag}`, nil)
+		end
+		local run = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Visible and string.find(label(d), "Run vs") ~= nil
+		end)
+		assert(run, `no Run button on the Time Trial page ({table.concat(calls, ", ")})`)
+		signalFor(run, "Activated"):Fire()
+	end)
+	print(`{tag}: {f} frames; card: {cardText(res)}`)
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	closeRace()
+end
+trialRun("trial")
+trialRun("trial2")

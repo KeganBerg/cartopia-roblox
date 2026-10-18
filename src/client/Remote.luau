@@ -98,6 +98,10 @@ end
 townEvent.OnClientEvent:Connect(function(snap)
 	store.useGame.getState().loadSave(snap.save)
 	store.useGame.setState({ need = snap.need, panel = snap.panel })
+	-- One-off news for the pop-ups (client/Popups); each pop-up clears its own when closed.
+	if snap.popups and next(snap.popups) ~= nil then
+		store.useGame.setState(snap.popups)
+	end
 	Remote.last = snap
 	-- Rusty's search in progress (not part of the save), or nil.
 	Remote.search = snap.search

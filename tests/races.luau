@@ -57,6 +57,12 @@ local function setup()
 		end,
 		modes = {
 			world = require("../src/server/Modes/World"),
+			trial = require("../src/server/Modes/Trial"),
+		},
+		boards = {
+			trial = require("../src/server/Boards").new("Trial", nil, function()
+				return t
+			end),
 		},
 		game = function(name)
 			return require(G .. name)
@@ -226,5 +232,36 @@ return function(test)
 		local run = drive(spec)
 		local _, theirs = DragRace.times(run)
 		assert(theirs == 13.5, tostring(theirs))
+	end)
+
+	test("races: a time trial chases par, goes on the board, then chases your best", function()
+		local races, towns, wait = setup()
+		local Js = require(G .. "__js")
+		local trial = require(G .. "trial")
+		local page = races:list(1, "trial")
+		assert(page.ghost == "Par" and page.board.total == 0 and #page.prizes == 0, "fresh board")
+		local started, why = races:start(1, "trial")
+		assert(started, `start: {why}`)
+		assert(started.spec.ghost == page.target and started.rival.id == "trial", "chases par")
+		assert(started.venue.id == trial.trialVenue(trial.trialWeek()).id, "this week's venue")
+		local run = drive(started.spec)
+		local mine = DragRace.times(run)
+		wait(60)
+		local result = assert(races:finish(1, run.events))
+		assert(result.trial, "no trial result"); assert(result.trial.kept == math.round(mine * 1000) / 1000 and result.trial.place == 1, `posted {result.trial.kept} {mine} {result.trial.place}`)
+		page = races:list(1, "trial")
+		assert(page.ghost == "Your best" and page.target == result.trial.kept and page.board.me.place == 1, "your best")
+		assert(page.board.top[1].town and page.board.top[1].look.model, "row details")
+		-- Next week, last week's place pays once.
+		NOW += 7 * 86400000
+		page = races:list(1, "trial")
+		assert(#page.prizes == 1 and page.prizes[1].place == 1, "prize waiting")
+		local bucks = towns:snapshot(1).save.bucks
+		local got = assert(races:act(1, "trial", { claim = page.prizes[1].week }))
+		assert(got.bucks == trial.TRIAL_PRIZES[1].bucks and towns:snapshot(1).save.bucks == bucks + got.bucks, "paid")
+		assert(races:act(1, "trial", { claim = page.prizes[1].week }) == nil, "only once")
+		assert(#races:list(1, "trial").prizes == 0, "claimed")
+		NOW -= 7 * 86400000
+		local _ = Js
 	end)
 end

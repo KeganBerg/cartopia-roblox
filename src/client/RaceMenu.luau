@@ -651,14 +651,17 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		-- This week's Time Trial.
 		local week = trial.trialWeek()
 		local tvn = trial.trialVenue(week)
-		local trialFace = hubTile(cell(4, 4, 3, 3, 3), "Trial", soon("Time Trials"))
+		local trialFace = hubTile(cell(4, 4, 3, 3, 3), "Trial", function()
+			show("trial")
+		end)
 		scene(trialFace, { horizon = 0.4, cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.7 })
 		hubTag(trialFace, "TIME TRIAL", "#5ce0d0")
 		title(trialFace, tvn.name, 40, 19)
 		local chips = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.new(1, -20, 0, 26), BackgroundTransparency = 1, ZIndex = 4, Parent = trialFace }, {
 			Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 		})
-		chip(chips, "⏱️ --", { LayoutOrder = 1 })
+		local trialBest = PAGES.trial and PAGES.trial.last and PAGES.trial.last.week == week and PAGES.trial.last.board.me
+		chip(chips, if trialBest then string.format("⏱️ %.3fs", trialBest.t) else "⏱️ --", { LayoutOrder = 1 })
 		chip(chips, `⏳ {trial.shortLeft(data.msToNextWeek())}`, { LayoutOrder = 2 })
 
 		-- The other modes, as the web's small buttons.
