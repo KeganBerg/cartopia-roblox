@@ -347,8 +347,9 @@ export function convert(data) {
     const keep = merged ? (m) => ((m.key ??= meshKey(m)), loose.set(m.key, m), m.key) : remember
     const name = model.kind === 'building' ? `${model.id}@${model.level ?? 1}` : model.id
     const paint = new Set(model.paint ?? [])
-    // A car's mods share one pack ("mod:<car>"), which the game loads only when that car needs it.
-    const packOwner = model.id.startsWith('mod:') ? model.id.split(':').slice(0, 2).join(':') : model.id
+    // A car's mods and custom paint panels share one pack ("mod:<car>"), which the game loads only
+    // when that car needs it.
+    const packOwner = model.id.startsWith('mod:') || model.id.startsWith('panel:') ? `mod:${model.id.split(':')[1]}` : model.id
     const parts = []
     // Which parts (1-based, as Luau counts) each piece became, for the stock pieces a mod takes away.
     const partsOf = []
@@ -540,10 +541,14 @@ export function convert(data) {
     for (const [mod, list] of Object.entries(byMod)) (modDrops[car] ??= {})[mod] = toParts(car, list)
   const wheels = {}
   for (const [car, list] of Object.entries(data.wheelsOf ?? {})) wheels[car] = toParts(car, list)
+  const rims = {}
+  for (const [car, list] of Object.entries(data.rimsOf ?? {})) rims[car] = toParts(car, list)
+  const panelDrops = {}
+  for (const [car, list] of Object.entries(data.panelDrops ?? {})) panelDrops[car] = toParts(car, list)
   const stance = {}
   for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
     for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, stance, textures: data.textures ?? [] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, stance, textures: data.textures ?? [] }
 }
 
 function mul(a, b) {
@@ -614,7 +619,8 @@ Catalog.GRASS = ${str(result.ground.grass)}
 Catalog.MEADOW = ${str(result.ground.meadow)}
 
 -- The web game's ground textures (textures.ts), uploaded as images: the lawn on the town's land and
--- the meadow past it. span = studs one image covers; image = 0 until upload.mjs uploads it.
+-- the meadow past it, and the custom paint patterns (pattern_<id>). span = studs one image covers;
+-- image = 0 until upload.mjs uploads it.
 Catalog.TEXTURES = {
 ${(result.textures ?? []).map((t) => `\t${t.key} = { image = ${assets[`texture:${t.name}`] ?? 0}, span = ${num(t.span * SCALE)}, name = ${str(t.name)} },\n`).join('')}}
 
@@ -644,6 +650,10 @@ Catalog.LOOKS = {
   for (const [car, byMod] of Object.entries(result.modDrops ?? {})) cat += `\t[${str(car)}] = { ${lists(byMod)} },\n`
   cat += '}\n\n-- Each car\'s stock wheel parts (tyres and rims), which a set of rims replaces.\nCatalog.WHEELS = {\n'
   for (const [car, list] of Object.entries(result.wheels ?? {})) cat += `\t[${str(car)}] = { ${list.map(num).join(', ')} },\n`
+  cat += '}\n\n-- Each car\'s stock rims (custom paint colours them).\nCatalog.RIMS = {\n'
+  for (const [car, list] of Object.entries(result.rims ?? {})) cat += `\t[${str(car)}] = { ${list.map(num).join(', ')} },\n`
+  cat += '}\n\n-- The car parts its custom paint panels ("panel:<car>:<hood|doors|roof|body>" models) take the\n-- place of: its paint.\nCatalog.PANEL_DROPS = {\n'
+  for (const [car, list] of Object.entries(result.panelDrops ?? {})) cat += `\t[${str(car)}] = { ${list.map(num).join(', ')} },\n`
   cat += '}\n\n-- How far each stance mod moves a car\'s body up (or down), in studs.\nCatalog.STANCE = {\n'
   for (const [car, byMod] of Object.entries(result.stance ?? {})) cat += `\t[${str(car)}] = { ${Object.entries(byMod).map(([k, v]) => `${k} = ${num(v)}`).join(', ')} },\n`
   cat += '}\n\nCatalog.MODELS = {\n' + modelList('town') + '}\n\nreturn Catalog\n'

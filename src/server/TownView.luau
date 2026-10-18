@@ -22,6 +22,7 @@ local Builder = require(Shared.Models.Builder)
 local Catalog = require(Shared.Models.Catalog)
 local Paint = require(Shared.Models.Paint)
 local Mods = require(Shared.Models.Mods)
+local Panels = require(Shared.Models.Panels)
 
 local SCALE = Catalog.SCALE
 local TILE = data.TILE * SCALE -- studs per tile
@@ -646,9 +647,10 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 			queue += 1
 		end
 		local job = Paint.jobOf(car)
-		local key = `{car.model}|{Paint.key(job)}|{Paint.hatName(car.hat) or ""}|{Mods.key(car.mods)}`
-		-- A car's mod meshes load the first time it needs them; it's drawn again once they're in.
-		if car.mods and #car.mods > 0 and not Builder.modsReady(car.model) then
+		local key = `{car.model}|{Paint.key(job)}|{Paint.hatName(car.hat) or ""}|{Mods.key(car.mods)}|{Panels.key(car.panels)}`
+		-- A car's mod and custom paint meshes load the first time it needs them; it's drawn again
+		-- once they're in.
+		if ((car.mods and #car.mods > 0) or Panels.key(car.panels) ~= "") and not Builder.modsReady(car.model) then
 			key ..= "|waiting"
 			if not self.waiting[car.model] then
 				self.waiting[car.model] = true
@@ -670,6 +672,7 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 			local m = Builder.build(car.model)
 			if m then
 				Paint.apply(m, job, if type(job.stripe) == "string" then Builder.build(`stripe:{car.model}`) else nil)
+				Panels.apply(m, car.model, car.panels, job.finish, Builder.build)
 				Paint.wearHat(m, car.model, car.hat, Builder.build)
 				Mods.fit(m, car.model, car.mods, Builder.build)
 				m.Name = car.uid

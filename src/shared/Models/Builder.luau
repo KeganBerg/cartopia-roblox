@@ -18,6 +18,7 @@ local Builder = {}
 -- Written by the model build (tools/models/build.mjs); empty in a build from before mods.
 local MOD_DROPS: { [string]: any } = (Catalog :: any).MOD_DROPS or {}
 local WHEELS: { [string]: any } = (Catalog :: any).WHEELS or {}
+local PANEL_DROPS: { [string]: any } = (Catalog :: any).PANEL_DROPS or {}
 
 local templates: { [string]: Model } = {}
 local meshParts: { [string]: MeshPart } = {}
@@ -129,9 +130,9 @@ local function packsOf(car: string): { number }
 	end
 	local seen: { [number]: boolean } = {}
 	local assets: { number } = {}
-	local prefix = `mod:{car}:`
+	local mods, panels = `mod:{car}:`, `panel:{car}:`
 	for name, parts in Catalog.MODELS do
-		if name:sub(1, #prefix) == prefix then
+		if name:sub(1, #mods) == mods or name:sub(1, #panels) == panels then
 			for _, p in parts do
 				local m = p[1] == "m" and Meshes.MESHES[p[13]]
 				if m and m.asset ~= 0 and not seen[m.asset] then
@@ -334,12 +335,13 @@ local function template(name: string): Model?
 	-- A countryside or race venue mesh covers a whole patch of ground, so a stand-in box would bury
 	-- the town or the road: those are left out until their mesh is uploaded.
 	-- Racing stripes and hats as boxes would bury the car, so they wait for their meshes too.
-	-- Mods too, and a mod model missing meshes isn't kept, so it fills in once they arrive.
-	local mod = name:sub(1, 4) == "mod:"
+	-- Mods and custom paint panels too, and one missing meshes isn't kept, so it fills in once they
+	-- arrive.
+	local mod = name:sub(1, 4) == "mod:" or name:sub(1, 6) == "panel:"
 	local scenery = (merged ~= nil or mod or name:sub(1, 7) == "stripe:" or name:sub(1, 4) == "hat:") and not Builder.previewMeshes
-	-- A car's parts and its mods' are named by their place in the list, which Catalog.MOD_DROPS
-	-- and WHEELS point at.
-	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil
+	-- A car's parts and its mods' are named by their place in the list, which Catalog.MOD_DROPS,
+	-- WHEELS and PANEL_DROPS point at.
+	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil or PANEL_DROPS[name] ~= nil
 	local missing = false
 	for i, p in parts do
 		if scenery and p[1] == "m" and not meshParts[p[13]] then

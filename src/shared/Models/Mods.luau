@@ -16,6 +16,7 @@ local Mods = {}
 -- Written by the model build (tools/models/build.mjs); empty in a build from before mods.
 local MOD_DROPS: { [string]: any } = (Catalog :: any).MOD_DROPS or {}
 local WHEELS: { [string]: any } = (Catalog :: any).WHEELS or {}
+local RIMS: { [string]: any } = (Catalog :: any).RIMS or {}
 local STANCE: { [string]: any } = (Catalog :: any).STANCE or {}
 
 -- Which mod's stand-ins win when two take the same part away.
@@ -32,8 +33,9 @@ function Mods.key(mods: { string }?): string
 end
 
 -- Fits `mods` onto a freshly built car `model` of type `carId` (its parts untouched since
--- Builder.build). build: Builder.build. Comes after Paint.apply and Paint.wearHat: mod parts in
--- the body colour take the car's paint, and a stance carries the stripes and hat with the body.
+-- Builder.build). build: Builder.build. Comes after Paint.apply, Panels.apply and Paint.wearHat:
+-- mod parts in the body colour take the car's paint, rims its rim colour, and a stance carries the
+-- stripes and hat with the body.
 function Mods.fit(model: Model, carId: string, mods: { string }?, build: (string) -> Model?)
 	if not mods or #mods == 0 then
 		return
@@ -52,19 +54,29 @@ function Mods.fit(model: Model, carId: string, mods: { string }?, build: (string
 	local drops = MOD_DROPS[carId] or {}
 	local pivot = model:GetPivot()
 	local painted: BasePart? = nil
-	for _, d in model:GetChildren() do
+	for _, d in model:GetDescendants() do
 		if d:IsA("BasePart") and d:GetAttribute("Paint") then
 			painted = d
 			break
 		end
 	end
 	local wheels: { [BasePart]: boolean } = {}
+	-- The tyres' looks (the wheel parts that aren't rims), so a rim colour (Panels) skips them.
+	local rimSet: { [number]: boolean } = {}
+	for _, i in RIMS[carId] or {} do
+		rimSet[i] = true
+	end
+	local tyreLooks: { [number]: boolean } = {}
 	for _, i in WHEELS[carId] or {} do
 		local w = model:FindFirstChild(tostring(i))
 		if w and w:IsA("BasePart") then
 			wheels[w] = true
 		end
+		if not rimSet[i] and parts and parts[i] then
+			tyreLooks[parts[i][12]] = true
+		end
 	end
+	local rimColor = model:GetAttribute("RimColor")
 	local claimed: { [number]: boolean } = {}
 	local gone: { [number]: boolean } = {}
 	local stance: any = nil
@@ -79,7 +91,8 @@ function Mods.fit(model: Model, carId: string, mods: { string }?, build: (string
 		for _, i in drops[d.id] or {} do
 			local look = parts and parts[i] and parts[i][12]
 			if look then
-				swaps[look] = swaps[look] or not claimed[i]
+				-- A part already gone (custom paint panels took its place) keeps none either.
+				swaps[look] = swaps[look] or (not claimed[i] and model:FindFirstChild(tostring(i)) ~= nil)
 			end
 			claimed[i] = true
 			gone[i] = true
@@ -104,6 +117,9 @@ function Mods.fit(model: Model, carId: string, mods: { string }?, build: (string
 				end
 				if d.slot == "rims" then
 					wheels[p] = true
+					if typeof(rimColor) == "Color3" and not (look and tyreLooks[look]) then
+						p.Color = rimColor
+					end
 				end
 				p.Parent = folder
 			end
