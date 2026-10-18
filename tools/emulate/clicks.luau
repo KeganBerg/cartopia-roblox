@@ -2425,6 +2425,13 @@ do
 	Emu.resumeWaits()
 	print(`goal screen: {table.concat(calls, ", ")}; tutorial now {towns:snapshot(1).save.tutorial}`)
 	assert(towns:snapshot(1).save.tutorial == 99, "Let's go! didn't finish the tutorial")
+	-- The tutorial's end opens today's spin a moment later, if it's still to take (web App.tsx).
+	Emu.resumeWaits()
+	print(`  after Let's go: menu {tostring(hud.ctx.panel())}`)
+	if hud.ctx.panel() == "daily" then
+		hud.ctx.close()
+		Emu.resumeWaits()
+	end
 
 	-- Welcome back: three hours away with jobs finished.
 	calls = {}
@@ -2444,10 +2451,29 @@ do
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 	Emu.resumeWaits()
 	Emu.resumeWaits()
-	local panel = hud.root:FindFirstChild("Panel")
-	local away = panel and find(panel, function(d)
-		return d:IsA("TextLabel") and string.find(d.Text, "Away", 1, true) ~= nil
-	end)
+	-- The pop-up queue's half-second heartbeat (Kit.start), in case it waited on a menu dropping away.
+	emu.require(client.Popups.Kit).pump()
+	Emu.resumeWaits()
+	-- (A menu closed just before may still be dropping away under the same name: look in each.)
+	local panel, away = nil, nil
+	for _, c in hud.root:GetChildren() do
+		local a = c.Name == "Panel" and find(c, function(d)
+			return d:IsA("TextLabel") and string.find(d.Text, "Away", 1, true) ~= nil
+		end)
+		if a then
+			panel, away = c, a
+		end
+	end
+	if not away then
+		local kids = {}
+		for _, c in hud.root:GetChildren() do
+			table.insert(kids, c.Name)
+		end
+		local KitM = emu.require(client.Popups.Kit)
+		local st = store.useGame.getState()
+		local WP = emu.require(client.Panels.Welcome)
+		print(`  [diag] root [{table.concat(kids, " ")}] showing {tostring(KitM.showing())} menuOpen {KitM.menuOpen(hud.ctx)} levelUp {tostring(st.levelUp)} editing {emu.require(client.Placement).active()} visiting {tostring(st.visiting)} rusty {store.hasRusty(st)} news {WP.hasNews(st, NOW)} panel {tostring(hud.ctx.panel())}`)
+	end
 	print(`welcome: {away and away.Text or "not shown"}`)
 	assert(away, "no welcome back")
 	shot("panel-welcome", nil)
