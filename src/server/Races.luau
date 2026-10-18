@@ -55,7 +55,7 @@ export type Mods = {
 }
 
 export type Races = typeof(setmetatable(
-	{} :: { towns: any, mods: Mods, quick: { [number]: { RivalCard } }, pending: { [number]: Pending } },
+	{} :: { towns: any, mods: Mods, quick: { [number]: { pi: number, list: { RivalCard } } }, pending: { [number]: Pending } },
 	Races
 ))
 
@@ -79,15 +79,18 @@ end
 -- Quick Race: three rivals at 0.8, 0.95 and 1.1 of the race car's PI (Race.tsx makeRivals),
 -- each eased to what the car can beat. They stay the same until one is raced.
 function Races.quickRivals(self: Races, userId: number): { RivalCard }
-	local known = self.quick[userId]
-	if known then
-		return known
-	end
 	local data, fairRace, rng = self.mods.data, self.mods.fairRace, self.mods.random
+	local myPi = self.towns:_with(userId, function(s: any)
+		local _, pi = self:_car(s)
+		return if pi > 0 then pi else 10
+	end)
+	-- The same rivals until one is raced, or the race car changes.
+	local known = self.quick[userId]
+	if known and known.pi == myPi then
+		return known.list
+	end
 	local list: { RivalCard } = {}
 	self.towns:_with(userId, function(s: any)
-		local _, myPi = self:_car(s)
-		myPi = if myPi > 0 then myPi else 10
 		local towns = table.clone(TOWNS)
 		for i = #towns, 2, -1 do
 			local j = rng:NextInteger(1, i)
@@ -117,7 +120,7 @@ function Races.quickRivals(self: Races, userId: number): { RivalCard }
 			}
 		end
 	end)
-	self.quick[userId] = list
+	self.quick[userId] = { pi = myPi, list = list }
 	return list
 end
 

@@ -5,6 +5,8 @@
 -- Remotes (in ReplicatedStorage.Cartopia):
 --   Act    RemoteFunction  client -> server: (action, ...args) -> ok, result or error text
 --   Town   RemoteEvent     server -> client: { save, need, panel, toasts } after every change
+--   Race   RemoteFunction  client -> server: ("rivals" | "campaign" | "start" | "finish", ...)
+--                          -> ok, result or error text (see Races)
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -27,6 +29,7 @@ Js.setClock(now)
 local Saves = require(script.Saves)
 local Towns = require(script.Towns)
 local TownView = require(script.TownView)
+local Races = require(script.Races)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
@@ -38,6 +41,19 @@ local saves = Saves.new({
 	now = os.time,
 })
 local towns = Towns.new(require(Game.store), now)
+local races = Races.new(towns, {
+	store = require(Game.store),
+	data = require(Game.data),
+	raceCar = require(Game.raceCar),
+	fairRace = require(Game.fairRace),
+	fairPi = require(Game.fairPi),
+	grip = require(Game.grip),
+	weather = require(Game.weather),
+	venues = require(Game.scene_venues),
+	DragRace = require(ReplicatedStorage.Shared.DragRace),
+	random = Random.new(),
+	clock = os.clock,
+})
 
 local remotes = Instance.new("Folder")
 remotes.Name = "Cartopia"
@@ -47,6 +63,9 @@ act.Parent = remotes
 local townEvent = Instance.new("RemoteEvent")
 townEvent.Name = "Town"
 townEvent.Parent = remotes
+local raceRemote = Instance.new("RemoteFunction")
+raceRemote.Name = "Race"
+raceRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
 
 -- The mesh packs load first, so towns are drawn with real meshes rather than stand-in boxes.
@@ -221,6 +240,7 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 	sent[player] = nil
 	budget[player] = nil
+	races:close(player.UserId)
 end)
 
 act.OnServerInvoke = function(player: Player, name: any, ...: any)
@@ -241,6 +261,38 @@ act.OnServerInvoke = function(player: Player, name: any, ...: any)
 		return false, "error"
 	end
 	push(player)
+	return true, result
+end
+
+raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
+	if not towns:isOpen(player.UserId) then
+		return false, "town not loaded"
+	end
+	if not allow(player) then
+		return false, "slow down"
+	end
+	local ran, result, why = pcall(function(): (any, any)
+		if op == "rivals" then
+			return races:quickRivals(player.UserId), nil
+		elseif op == "campaign" then
+			return races:campaign(player.UserId), nil
+		elseif op == "start" and type(arg) == "table" then
+			return races:start(player.UserId, arg.mode, arg.which)
+		elseif op == "finish" then
+			return races:finish(player.UserId, arg)
+		end
+		return nil, "not a race"
+	end)
+	if not ran then
+		warn(`[Cartopia] {player.Name} race {op}: {result}`)
+		return false, "error"
+	end
+	if op == "start" or op == "finish" then
+		push(player)
+	end
+	if result == nil then
+		return false, why
+	end
 	return true, result
 end
 

@@ -80,6 +80,7 @@ local function make(class, name, parent)
 end
 make("RemoteFunction", "Act", remotes)
 make("RemoteEvent", "Town", remotes)
+make("RemoteFunction", "Race", remotes)
 remotes.Parent = RS
 -- The model library the server makes for shop pictures.
 local Builder = emu.require(RS.Shared.Models.Builder)

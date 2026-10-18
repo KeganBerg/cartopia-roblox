@@ -27,6 +27,7 @@ local Menu = require(script.Parent.Menu)
 local Upgrade = require(script.Parent.Upgrade)
 local Placement = require(script.Parent.Placement)
 local Jobs = require(script.Parent.Jobs)
+local RaceMenu = require(script.Parent.RaceMenu)
 
 local Hud = {}
 
@@ -304,7 +305,7 @@ function Hud.start()
 	end)
 	local race = Ui.new("Frame", { Name = "Race", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -10, 1, -10), Size = UDim2.fromOffset(84, 66 + 5), BackgroundTransparency = 1, Parent = root })
 	local _, raceFace = Ui.button({ Position = UDim2.fromOffset(3, 8), Size = UDim2.fromOffset(84, 61), Parent = race }, "green", function()
-		toast("Racing is coming to Roblox soon")
+		openPanel("race")
 	end, { radius = 18, stroke = 3, drop = 5, dark = 0.35, gloss = 0.55, shade = 0.82 })
 	Icons.draw("flag", raceFace, 30, Ui.WHITE, Color3.fromHex("#5cce47"), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
 	Ui.text({ Text = "RACE", TextSize = 20, Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 22), Shadow = 2, Stroke = 0.6, Parent = raceFace })
@@ -362,6 +363,8 @@ function Hud.start()
 			open = Goals.open(ctx)
 		elseif panel == "account" or panel == "menu" then
 			open = Menu.open(ctx)
+		elseif panel == "race" then
+			open = RaceMenu.open(ctx, arg)
 		elseif panel == "need" then
 			open = Menu.need(ctx, arg or store.useGame.getState().need)
 		else

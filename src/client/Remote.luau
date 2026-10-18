@@ -11,6 +11,7 @@ local store = require(Game.store) :: any
 local remotes = ReplicatedStorage:WaitForChild("Cartopia")
 local actRemote = remotes:WaitForChild("Act") :: RemoteFunction
 local townEvent = remotes:WaitForChild("Town") :: RemoteEvent
+local raceRemote = remotes:WaitForChild("Race") :: RemoteFunction
 
 local Remote = {}
 
@@ -28,6 +29,10 @@ Remote.failed = failed.Event
 local WHY = {
 	["town not loaded"] = "Your town is still loading",
 	["slow down"] = "Slow down a little",
+	["need fuel"] = "Not enough fuel to race",
+	["You need a car to race"] = "You need a car to race",
+	["That race isn't open yet"] = "That race isn't open yet",
+	["too quick"] = "That race didn't count. Try again.",
 }
 
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
@@ -42,6 +47,26 @@ function Remote.act(name: string, ...: any): (boolean, any)
 	if not ok then
 		warn(`[Cartopia] {name} refused: {result}`)
 		failed:Fire(WHY[result] or "That didn't work. Try again.")
+	end
+	return ok, result
+end
+
+-- Asks the server's race desk (server/Races): "rivals", "campaign", "start" { mode, which } or
+-- "finish" (the race's presses). Returns ok and the answer, toasting why when it's refused
+-- (quiet: no toast, for the menu's own lookups).
+function Remote.race(op: string, arg: any?, quiet: boolean?): (boolean, any)
+	local sent, ok, result = pcall(raceRemote.InvokeServer, raceRemote, op, arg)
+	if not sent then
+		warn(`[Cartopia] race {op}: {ok}`)
+		failed:Fire("Couldn't reach the server. Try again.")
+		return false, "no answer"
+	end
+	if not ok then
+		warn(`[Cartopia] race {op} refused: {result}`)
+		-- Out of fuel opens the fuel menu instead (the server sends it with the snapshot).
+		if not quiet and result ~= "need fuel" then
+			failed:Fire(WHY[result] or "That didn't work. Try again.")
+		end
 	end
 	return ok, result
 end

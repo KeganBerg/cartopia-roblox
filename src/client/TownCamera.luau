@@ -26,6 +26,8 @@ local zoom = 30
 local placed = false
 -- Off while an edit tool uses drags (laying road, moving a building): see setPanEnabled.
 local panEnabled = true
+-- Off while another screen drives the camera (the drag race): see setPaused.
+local paused = false
 
 local function distance(): number
 	local cam = workspace.CurrentCamera
@@ -79,7 +81,7 @@ function TownCamera.start()
 	local pinch: number? = nil
 
 	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
-		if processed then
+		if processed or paused then
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -137,6 +139,9 @@ function TownCamera.start()
 	end)
 
 	RunService:BindToRenderStep("TownCamera", Enum.RenderPriority.Camera.Value + 1, function()
+		if paused then
+			return
+		end
 		if not placed then
 			local f = Town.folder()
 			if f then
@@ -151,6 +156,11 @@ end
 -- Lets edit tools take drags for themselves (Placement): off, a drag no longer pans the town.
 function TownCamera.setPanEnabled(on: boolean)
 	panEnabled = on
+end
+
+-- Hands the camera to another screen (true) or takes it back (false).
+function TownCamera.setPaused(on: boolean)
+	paused = on
 end
 
 -- Moves the view to look at a world position.
