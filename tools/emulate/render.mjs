@@ -20,7 +20,8 @@ const ROOT = resolve(HERE, '../..')
 export async function render({ web, scene, out, gui, width = 1280, height = 800, camera }) {
   // Lune writes an empty list as {}.
   if (!Array.isArray(scene.parts)) scene = { ...scene, parts: [] }
-  const dir = join(resolve(web), '.rbx-preview')
+  // One folder per run, so renders running side by side don't swap scenes.
+  const dir = join(resolve(web), '.rbx-preview', String(process.pid))
   mkdirSync(dir, { recursive: true })
   const req = createRequire(join(resolve(web), 'package.json'))
   const threeDir = dirname(req.resolve('three'))
@@ -113,7 +114,16 @@ sun.position.set(300, 500, 200); sun.castShadow = true
 sun.shadow.mapSize.set(4096, 4096)
 Object.assign(sun.shadow.camera, { left: -400, right: 400, top: 400, bottom: -400, near: 10, far: 1500 })
 scene.add(sun)
-const unit = { Block: new T.BoxGeometry(1, 1, 1), Cylinder: new T.CylinderGeometry(0.5, 0.5, 1, 28).rotateZ(-Math.PI / 2), Ball: new T.SphereGeometry(0.5, 24, 16), ellipsoid: new T.SphereGeometry(0.5, 24, 16) }
+// Roblox's wedge: the full bottom, the full back (+Z) face, and a slope down to the front edge.
+const wedgeGeo = (() => {
+  const v = [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [0.5, 0.5, 0.5]]
+  const tris = [[0, 1, 2], [0, 2, 3], [3, 2, 5], [3, 5, 4], [0, 4, 5], [0, 5, 1], [0, 3, 4], [1, 5, 2]]
+  const g = new T.BufferGeometry()
+  g.setAttribute('position', new T.Float32BufferAttribute(tris.flatMap((t) => t.flatMap((k) => v[k])), 3))
+  g.computeVertexNormals()
+  return g
+})()
+const unit = { Wedge: wedgeGeo, Block: new T.BoxGeometry(1, 1, 1), Cylinder: new T.CylinderGeometry(0.5, 0.5, 1, 28).rotateZ(-Math.PI / 2), Ball: new T.SphereGeometry(0.5, 24, 16), ellipsoid: new T.SphereGeometry(0.5, 24, 16) }
 const MAT = { Neon: { emissive: 0.9 }, Metal: { metalness: 0.55, roughness: 0.35 }, Glass: { roughness: 0.1 }, Grass: { roughness: 1 }, Asphalt: { roughness: 1 }, Concrete: { roughness: 0.95 } }
 const geoCache = {}
 // Ground textures, as Roblox's Texture lays them on a part's top face.
@@ -136,6 +146,7 @@ for (const p of parts) {
   }
   const look = MAT[p.material] || {}
   const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
+  if (p.shape === 'Wedge') mat.side = T.DoubleSide
   let mats = mat
   if (p.texture && TEX[p.texture.image] && !p.mesh && (p.shape === 'Block' || !p.shape)) {
     const t = TEX[p.texture.image].clone()
