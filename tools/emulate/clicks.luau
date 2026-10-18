@@ -1147,3 +1147,7 @@ towns:_with(1, function()
 end)
 modeRace("world", "World Tour", "🏁 %$")
 print(`world tour beaten: {towns:snapshot(1).save.worldTour or 0}`)
+
+-- The Daily Run: the day's loaner against par; the first run of the day pays.
+modeRace("daily", "Daily Run", "🏁 %$")
+print(`daily run: {(towns:snapshot(1).save.daily or {}).best or "no time"}`)

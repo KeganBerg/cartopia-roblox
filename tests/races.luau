@@ -57,6 +57,7 @@ local function setup()
 		end,
 		modes = {
 			world = require("../src/server/Modes/World"),
+			daily = require("../src/server/Modes/Daily"),
 		},
 		game = function(name)
 			return require(G .. name)
@@ -219,6 +220,40 @@ return function(test)
 		local result = assert(races:finish(1, run.events))
 		assert(result.won == (mine < theirs), "same winner")
 		assert((towns:snapshot(1).save.worldTour or 0) == (if result.won then 1 else 0), "progress")
+	end)
+
+	test("races: the Daily Run races the day's loaner against par and pays the first run", function()
+		local races, towns, wait = setup()
+		local daily = require(G .. "daily")
+		local trial = require(G .. "trial")
+		local run = daily.dailyRun()
+		local save = towns:snapshot(1).save
+		local fuel, coins = save.fuel, save.coins
+		local started, why = races:start(1, "daily", nil)
+		assert(started, `start: {why}`)
+		assert(started.rival.id == "trial" and started.spec.ghost == run.par, "par ghost")
+		assert(started.car and started.car.model == run.car.id and started.car.color == run.color, "loaner")
+		assert(started.spec.myPi == run.pi, `stock loaner PI {started.spec.myPi} vs {run.pi}`)
+		assert(started.venue.id == run.venue.id, "the day's venue")
+		assert(towns:snapshot(1).save.fuel == fuel - trial.TRIAL_FUEL, "a trial's fuel")
+		local r = drive(started.spec)
+		local mine = DragRace.times(r)
+		wait(60)
+		local result = assert(races:finish(1, r.events))
+		assert(result.paidNow and result.par == run.par and result.best == mine, "first run")
+		local pay = daily.DAILY_PAY[math.min(daily.dailyMedal(run, mine), #daily.DAILY_MEDALS - 1) + 1]
+		assert(result.coins > 0 and towns:snapshot(1).save.coins > coins, `paid {result.coins} (base {pay})`)
+		local d = towns:snapshot(1).save.daily
+		assert(d and d.day == run.day and d.paid and d.best == mine, "kept in the save")
+		local m = towns:snapshot(1).save.mastery or {}
+		assert(next(m) == nil or not m[run.car.id], "no mastery for a ghost run")
+		-- Again: no pay the second time.
+		started = assert(races:start(1, "daily", nil))
+		r = drive(started.spec)
+		wait(60)
+		local c2 = towns:snapshot(1).save.coins
+		result = assert(races:finish(1, r.events))
+		assert(not result.paidNow and towns:snapshot(1).save.coins == c2, "only the first run pays")
 	end)
 
 	test("races: a ghost run finishes at the ghost's time", function()
