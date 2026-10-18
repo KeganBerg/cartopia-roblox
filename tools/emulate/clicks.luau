@@ -1476,6 +1476,30 @@ local function modePage(tag, mini, press, byName)
 	end
 	if SHOTS then
 		shot(`page-{tag}-after`, nil)
+	end
+	hud.ctx.close()
+end
+
+-- The Trophy Road: claim every stop the trophies reach.
+local roadBefore = towns:snapshot(1).save.road or 0
+modePage("road", "Trophy Road", "Claim")
+local roadSave = towns:snapshot(1).save
+print(`trophy road: {roadBefore} -> {roadSave.road} of {math.floor(roadSave.trophies / 25)} stops`)
+assert((roadSave.road or 0) > roadBefore, "the Trophy Road claimed nothing")
+-- Flair: the trophies opened Frost; pick it (seeing the page clears the new count too).
+modePage("flair", "Flair", "frost", true)
+local flairSave = towns:snapshot(1).save
+print(`flair: trail {flairSave.trail}, seen {flairSave.flairSeen}`)
+assert(flairSave.trail == "frost", "Frost wasn't picked")
+-- Class Cups: the race car's own class opens first; race its first cup race.
+modeRace("cup", "Class Cups", "🏁 %$")
+print(`class cups won: {(function()
+	local n = 0
+	for _, w in towns:snapshot(1).save.cups or {} do
+		n += w
+	end
+	return n
+end)()}`)
 
 -- The Daily Spin: Spin, run the wheel round until it lands, and see the prize was paid once.
 do
@@ -1554,26 +1578,6 @@ do
 	hud.ctx.close()
 end
 
--- The Trophy Road: claim every stop the trophies reach.
-local roadBefore = towns:snapshot(1).save.road or 0
-modePage("road", "Trophy Road", "Claim")
-local roadSave = towns:snapshot(1).save
-print(`trophy road: {roadBefore} -> {roadSave.road} of {math.floor(roadSave.trophies / 25)} stops`)
-assert((roadSave.road or 0) > roadBefore, "the Trophy Road claimed nothing")
--- Flair: the trophies opened Frost; pick it (seeing the page clears the new count too).
-modePage("flair", "Flair", "frost", true)
-local flairSave = towns:snapshot(1).save
-print(`flair: trail {flairSave.trail}, seen {flairSave.flairSeen}`)
-assert(flairSave.trail == "frost", "Frost wasn't picked")
--- Class Cups: the race car's own class opens first; race its first cup race.
-modeRace("cup", "Class Cups", "🏁 %$")
-print(`class cups won: {(function()
-	local n = 0
-	for _, w in towns:snapshot(1).save.cups or {} do
-		n += w
-	end
-	return n
-end)()}`)
 -- Daily Deals: buy today's supplies deal.
 do
 	hud.ctx.close()
