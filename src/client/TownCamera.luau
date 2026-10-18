@@ -1,8 +1,8 @@
 --!strict
 -- The town view, as on the web: the camera looks down on the town from the same corner and
 -- angle as the web game's (an orthographic camera at (75, 80, 75) looking at the middle), drag to
--- pan, scroll or pinch to zoom. Roblox has no orthographic camera, so this one stands far back
--- with a narrow field of view, which looks almost the same and keeps buildings square.
+-- pan, scroll or pinch to zoom. Roblox has no orthographic camera, so this one stands back with a
+-- narrowish field of view, which looks close to the same and keeps buildings square.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -13,7 +13,9 @@ local Town = require(script.Parent.Town)
 local TownCamera = {}
 
 local DIR = Vector3.new(75, 80, 75).Unit
-local FOV = 14
+-- Narrow enough to look close to the web's flat view, wide enough that the camera stays a few
+-- hundred studs away: much further and Roblox can't tell the flat road and lawn layers apart.
+local FOV = 30
 -- The web's zoom is pixels per web unit (18 to 38, more on bigger screens); here it sets how
 -- many studs of town fit the screen's height.
 local ZOOM_MIN, ZOOM_MAX = 12, 60
