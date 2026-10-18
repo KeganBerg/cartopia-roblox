@@ -20,13 +20,25 @@ const API = 'https://apis.roblox.com/assets/v1'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// The develop API names the owner even while the experience is private (the games API answers
+// id 0 then, which Roblox refuses as "Unknown CreatorType").
 async function creatorOf(universe) {
-  const res = await fetch(`https://games.roblox.com/v1/games?universeIds=${universe}`)
+  const res = await fetch(`https://develop.roblox.com/v1/universes/${universe}`)
   if (!res.ok) throw new Error(`couldn't look up the experience's owner: HTTP ${res.status}`)
-  const game = (await res.json()).data?.[0]
-  if (!game) throw new Error(`no experience with universe id ${universe}`)
-  return game.creator.type === 'Group' ? { groupId: String(game.creator.id) } : { userId: String(game.creator.id) }
+  const u = await res.json()
+  if (!u.creatorTargetId) throw new Error(`no owner found for universe ${universe}`)
+  return u.creatorType === 'Group' ? { groupId: String(u.creatorTargetId) } : { userId: String(u.creatorTargetId) }
 }
+
+// CREATOR_USER_ID or CREATOR_GROUP_ID, when set, say who owns the uploads instead of the lookup.
+function creatorFromEnv() {
+  if (process.env.CREATOR_GROUP_ID) return { groupId: process.env.CREATOR_GROUP_ID }
+  if (process.env.CREATOR_USER_ID) return { userId: process.env.CREATOR_USER_ID }
+  return null
+}
+
+// Error text on one line, so the whole of it shows in the run's annotation.
+const oneLine = (text) => text.replace(/\s+/g, ' ').trim()
 
 // Roblox answers 429 or 5xx when busy; wait and try again a few times.
 async function call(url, init, what) {
@@ -38,7 +50,7 @@ async function call(url, init, what) {
       await sleep(attempt * 10000)
       continue
     }
-    const err = new Error(`${what}: HTTP ${res.status} ${body.slice(0, 300)}`)
+    const err = new Error(`${what}: HTTP ${res.status} ${oneLine(body).slice(0, 300)}`)
     err.status = res.status
     throw err
   }
@@ -46,7 +58,8 @@ async function call(url, init, what) {
 
 async function upload(key, creator, name, file) {
   const form = new FormData()
-  form.append('request', JSON.stringify({ assetType: 'Model', displayName: `Cartopia ${name}`.slice(0, 50), description: 'Cartopia 3D models', creationContext: { creator } }))
+  const request = { assetType: 'Model', displayName: `Cartopia ${name}`.slice(0, 50), description: 'Cartopia 3D models', creationContext: { creator, expectedPrice: 0 } }
+  form.append('request', JSON.stringify(request))
   form.append('fileContent', new Blob([readFileSync(file)], { type: 'model/gltf-binary' }), `${name}.glb`)
   let op = await call(`${API}/assets`, { method: 'POST', headers: { 'x-api-key': key }, body: form }, `upload ${name}`)
   for (let i = 0; !op.done; i++) {
@@ -71,7 +84,8 @@ console.log(`${packs.length} packs, ${todo.length} to upload`)
 if (todo.length) {
   let done = 0
   try {
-    const creator = await creatorOf(universe)
+    const creator = creatorFromEnv() ?? (await creatorOf(universe))
+    console.log(`uploading as ${JSON.stringify(creator)}`)
     for (const p of todo) {
       assets[p.name] = await upload(key, creator, p.name, join(GLB_DIR, p.file))
       done++
@@ -82,7 +96,7 @@ if (todo.length) {
   } catch (err) {
     // Never stops the publish: the game draws a box for each shape not uploaded, and the next
     // run tries again.
-    const why = err.status === 401 || err.status === 403 ? 'The Open Cloud key needs Assets read and write to upload the models' : err.message
+    const why = err.status === 401 || err.status === 403 ? `The Open Cloud key needs Assets read and write to upload the models (${err.message})` : err.message
     console.log(`::warning title=3D shapes not all uploaded::${why} (${done} of ${todo.length} uploaded).`)
     process.exit(0)
   }
