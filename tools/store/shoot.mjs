@@ -2,8 +2,8 @@
 // own loading screen: its sunburst, wordmark, town renders and car hero renders (scripts/splash/
 // and public/splash/ in the web repo). The thumbnails are the web loading screen itself at
 // 1920x1080 (a 1280x720 screen at 1.5x) with the loading pill hidden; the icon is the same sunburst, wordmark and car drawn
-// square. Writes store/icon.png and store/thumb-*.jpg, which tools/store/upload.mjs puts on the
-// game page.
+// square. Writes store/icon.png and store/thumb-*.jpg, which are uploaded by hand on the
+// game page (see tools/store/check.mjs).
 //
 //   node tools/store/shoot.mjs <web repo>     (needs Playwright; CHROMIUM= points at a browser)
 

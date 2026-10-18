@@ -234,6 +234,9 @@ function Cars.open(ctx: any, tab: any): Instance
 
 	local content = Ui.new("Frame", { Name = "Content", Position = UDim2.fromOffset(0, 113), Size = UDim2.new(1, 0, 1, -113), BackgroundTransparency = 1, ZIndex = 2, Parent = page })
 	local spin: RBXScriptConnection? = nil
+	-- The turntable car and how far round it has turned (kept while the same car is shown).
+	local turnModel: string? = nil
+	local turnAngle = 0.7
 	local function clear()
 		if spin then
 			spin:Disconnect()
@@ -255,10 +258,21 @@ function Cars.open(ctx: any, tab: any): Instance
 		if m and cam then
 			local cf = m:GetBoundingBox()
 			local dist = (cam.CFrame.Position - cf.Position).Magnitude * 0.92
-			local a = 0.7
+			-- Trying on a paint, hat or part redraws the stage: the same car carries on from where it
+			-- had turned to instead of jumping back to the start. Only the camera moves (the car's
+			-- parts never do), the cheap way for a ViewportFrame to animate on a phone.
+			if turnModel ~= model then
+				turnModel = model
+				turnAngle = 0.7
+			end
+			local function place()
+				cam.CFrame = CFrame.lookAt(cf.Position + Vector3.new(math.cos(turnAngle), 0.5, math.sin(turnAngle)).Unit * dist, cf.Position)
+			end
+			place()
 			spin = RunService.RenderStepped:Connect(function(dt: number)
-				a += dt * 0.5
-				cam.CFrame = CFrame.lookAt(cf.Position + Vector3.new(math.cos(a), 0.5, math.sin(a)).Unit * dist, cf.Position)
+				-- A long hitch (a page building) moves it a short way on, never a big jump.
+				turnAngle = (turnAngle + math.min(dt, 0.1) * 0.5) % (math.pi * 2)
+				place()
 			end)
 		end
 		local badge = Ui.new("Frame", { Position = UDim2.fromOffset(286, 14), Size = UDim2.fromOffset(48, 42), BackgroundColor3 = Ui.WHITE, ZIndex = 3, Parent = content }, {
