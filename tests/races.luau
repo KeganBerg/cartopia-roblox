@@ -57,6 +57,7 @@ local function setup()
 		end,
 		modes = {
 			world = require("../src/server/Modes/World"),
+			cup = require("../src/server/Modes/Cup"),
 		},
 		game = function(name)
 			return require(G .. name)
@@ -226,5 +227,66 @@ return function(test)
 		local run = drive(spec)
 		local _, theirs = DragRace.times(run)
 		assert(theirs == 13.5, tostring(theirs))
+	end)
+
+	test("races: Class Cups take a car of the class, pay through cupResult and show mastery", function()
+		local races, towns, wait = setup()
+		local store = require(G .. "store")
+		local cups = require(G .. "cups")
+		local classes = require(G .. "classes")
+		local save0 = towns:snapshot(1).save
+		local model = require(G .. "raceCar").raceCarOf(save0.cars, save0.raceCar).model
+		local mine = classes.classOf(model).id
+		local other
+		for _, r in cups.CUP_RACES do
+			if not cups.cupFits(r, model) then
+				other = r
+				break
+			end
+		end
+		local started, why = races:start(1, "cup", other.id)
+		assert(started == nil and why == `Race with a {classes.carClass(other.cls).name} car for this cup`, tostring(why))
+		local r = cups.cupRacesOf(mine)[1]
+		-- Nine races in: the next one reaches Bronze.
+		towns:_with(1, function()
+			store.useGame.setState({ mastery = { [model] = { races = 9, wins = 0, modes = {}, upsets = 0, tier = 0 } } })
+		end)
+		local result
+		for i = 1, 6 do
+			towns:_with(1, function()
+				store.useGame.setState({ fuel = 100 })
+			end)
+			started, why = races:start(1, "cup", r.id)
+			assert(started, `start: {why}`)
+			assert(started.rival.id == `cup-{r.id}` and started.venue.id == r.venue, started.rival.id)
+			assert(started.rival.prize == cups.cupPrize(r, true), "first-win prize")
+			local run = drive(started.spec)
+			local a, b = DragRace.times(run)
+			wait(60)
+			result = assert(races:finish(1, run.events))
+			assert(result.won == (a < b), "same winner")
+			if i == 1 then
+				assert(result.mastery and result.mastery.tier == 1 and result.mastery.model == model, "Bronze shown")
+			end
+			if result.won then
+				break
+			end
+			assert(not result.cupCrate, "no crate for a loss")
+		end
+		assert(result.won, "won in six tries")
+		local save = towns:snapshot(1).save
+		assert(save.cups[r.id] == 1 and result.cupWins == 1, "counted")
+		assert(result.cupCrate == cups.CUP_CRATE, "the crate shown")
+		assert(table.find(save.freeCrates, cups.cupCrateSource(r.id)), "the crate given")
+		towns:_with(1, function()
+			local now = store.useGame.getState()
+			assert(now.cupPrize == nil and now.masteryPrize == nil, "popups cleared")
+		end)
+		-- A rematch pays the usual prize and gives no crate.
+		towns:_with(1, function()
+			store.useGame.setState({ fuel = 100 })
+		end)
+		started = assert(races:start(1, "cup", r.id))
+		assert(started.rival.prize == cups.cupPrize(r, false), "rematch prize")
 	end)
 end

@@ -1147,3 +1147,13 @@ towns:_with(1, function()
 end)
 modeRace("world", "World Tour", "🏁 %$")
 print(`world tour beaten: {towns:snapshot(1).save.worldTour or 0}`)
+
+-- Class Cups: the race car's own class opens first; race its first cup race.
+modeRace("cup", "Class Cups", "🏁 %$")
+print(`class cups won: {(function()
+	local n = 0
+	for _, w in towns:snapshot(1).save.cups or {} do
+		n += w
+	end
+	return n
+end)()}`)

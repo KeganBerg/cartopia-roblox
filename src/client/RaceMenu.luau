@@ -18,6 +18,7 @@ local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
 local DragStrip = require(script.Parent.DragStrip)
+local Mastery = require(script.Parent.Mastery)
 local tour = require(Game.tour) :: any
 local events = require(Game.events) :: any
 local trial = require(Game.trial) :: any
@@ -257,7 +258,9 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		local pic = Thumb.new("Cars", car.model, UDim2.fromScale(1, 1), Color3.fromHex(car.color))
 		pic.Parent = well
 		Ui.text({ Text = "🏁 RACING WITH", Body = true, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(100, 8), Size = UDim2.fromOffset(300, 16), TextColor3 = Color3.fromHex("#ffd54f"), Parent = face })
-		Ui.text({ Text = def.name, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(100, 24), Size = UDim2.fromOffset(330, 26), Shadow = 2, Parent = face })
+		-- The car's top mastery medal after its name (ClassCups.tsx MasteryMedal).
+		local medal = Mastery.medal(car.model)
+		Ui.text({ Text = if medal ~= "" then `{def.name} {medal}` else def.name, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(100, 24), Size = UDim2.fromOffset(330, 26), Shadow = 2, Parent = face })
 		local skill = if def.skill and data.SKILLS[def.skill] then `  {data.SKILLS[def.skill].icon} {data.SKILLS[def.skill].name}` else ""
 		local piText = `PI {raceCar.carPi(car)}`
 		local piChip = Ui.new("Frame", { Position = UDim2.fromOffset(100, 50), Size = UDim2.fromOffset(math.ceil(Ui.textWidth(piText, 13)) + 14, 18), BackgroundColor3 = Color3.fromHex("#ffd54f"), Parent = face }, { Ui.corner(6), Ui.stroke(1.5, Ui.LINE) })
@@ -986,7 +989,7 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 	local function barKey(): string
 		local s = store.useGame.getState()
 		local car = myCar()
-		return `{#s.cars}|{if car then car.uid .. raceCar.carPi(car) .. car.color else ""}`
+		return `{#s.cars}|{if car then car.uid .. raceCar.carPi(car) .. car.color .. Mastery.medal(car.model) else ""}`
 	end
 	local shown = barKey()
 	local conn = Remote.changed:Connect(function()

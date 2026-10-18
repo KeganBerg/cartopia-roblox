@@ -551,7 +551,14 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 			mode = if p.spec.ghost then nil else self.mods.game("mastery").masteryMode(p.rival.id)
 		end
 		if mode then
+			-- What the race unlocked in mastery (ClassCups.tsx MasteryPrizePopup), for the result card.
+			store().closeMasteryPrize()
 			store().masteryRace(p.model, won, mode, p.rival.pi > p.spec.myPi)
+			local prize = store().masteryPrize
+			if prize then
+				result.mastery = prize
+				store().closeMasteryPrize()
+			end
 		end
 		local after = store()
 		result.coins = after.coins - before.coins
