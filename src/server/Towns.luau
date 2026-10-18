@@ -145,13 +145,17 @@ function Towns.check(name: any, args: { any }, n: number): (boolean, string?)
 end
 
 export type Towns = typeof(setmetatable(
-	{} :: { store: any, saveOf: (any) -> any, base: any, now: () -> number, states: { [number]: any } },
+	{} :: { store: any, saveOf: (any) -> any, base: any, now: () -> number, states: { [number]: any }, sound: any, sounds: { [number]: { any } } },
 	Towns
 ))
 
--- store: the required Shared.Game.store module. now: milliseconds since the epoch.
-function Towns.new(store: any, now: () -> number): Towns
+-- store: the required Shared.Game.store module. now: milliseconds since the epoch. sound: the
+-- store's Shared.Game.lib_sound, to hear the sfx.* calls its actions make (optional).
+function Towns.new(store: any, now: () -> number, sound: any?): Towns
 	return setmetatable({
+		sound = sound,
+		-- The sounds each town's actions made since its last snapshot, as { name, args... }.
+		sounds = {},
 		store = store,
 		saveOf = store.saveOf,
 		-- The state as the store starts it, actions included: every town starts from a copy.
@@ -165,7 +169,21 @@ end
 function Towns._with(self: Towns, userId: number, fn: (any) -> ...any): ...any
 	local game = self.store.useGame
 	game.setState(assert(self.states[userId], "town not open"), true)
+	local sound = self.sound
+	if sound then
+		sound.heard = function(name: string, ...: any)
+			local heard = self.sounds[userId] or {}
+			self.sounds[userId] = heard
+			-- A burst (Collect All over many lots) is still only a few sounds.
+			if #heard < 8 then
+				table.insert(heard, { name, ... })
+			end
+		end
+	end
 	local result = table.pack(pcall(fn, game.getState()))
+	if sound then
+		sound.heard = nil
+	end
 	self.states[userId] = game.getState()
 	game.setState(self.base, true)
 	if not result[1] then
@@ -191,6 +209,7 @@ end
 
 function Towns.close(self: Towns, userId: number)
 	self.states[userId] = nil
+	self.sounds[userId] = nil
 end
 
 function Towns.isOpen(self: Towns, userId: number): boolean
@@ -232,8 +251,11 @@ end
 -- out once, with the snapshot after it happened.
 Towns.POPUPS = { "levelUp", "gpPrize", "campaignPrize", "tourPrize", "eventPrize", "paintPrize", "tunerPrize", "masteryPrize", "cupPrize" }
 
-function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string }, search: any, popups: { [string]: any } }
+function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string }, search: any, popups: { [string]: any }, sounds: { any } }
 	local state = assert(self.states[userId], "town not open")
+	-- The sounds the actions made (sfx.coin, sfx.buy...), for the client to play once.
+	local sounds = self.sounds[userId] or {}
+	self.sounds[userId] = nil
 	local toasts = {}
 	for _, t in state.toasts or {} do
 		table.insert(toasts, t.text)
@@ -259,7 +281,7 @@ function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, pa
 		end
 		self.states[userId] = next
 	end
-	return { save = self.saveOf(self.states[userId]), need = need, panel = panel, upgrading = upgrading, toasts = toasts, search = state.search, popups = popups }
+	return { save = self.saveOf(self.states[userId]), need = need, panel = panel, upgrading = upgrading, toasts = toasts, search = state.search, popups = popups, sounds = sounds }
 end
 
 -- The save to write to the DataStore.

@@ -19,6 +19,7 @@ local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
 local Confirm = require(script.Parent.Confirm)
 local BuildArt = require(script.Parent.BuildArt)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Rescue = {}
 
@@ -266,6 +267,7 @@ local function bayHero(parent: Instance, order: number, s: any, bay: number, com
 			if done then
 				local _, face = Ui.button({ Size = UDim2.fromScale(1, 1), ZIndex = 5, Parent = btnHolder }, "tab", function()
 					naming = bay
+					Sfx.rescue.fanfare(r.rarity ~= "common")
 					ctx.open("rescue")
 				end, { radius = 12, stroke = 2.5, drop = 3, text = "✨ Collect", textSize = if compact then 15 else 18, textColor = LINE })
 				face.Name = "Collect"
@@ -783,6 +785,7 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 		if r and not (seenPins :: any)[i] then
 			(seenPins :: any)[i] = true
 			found = { i = i, at = os.clock() }
+			Sfx.rescue.reveal(if q.pins[i].kind == "car" then q.pins[i].rarity elseif q.pins[i].kind == "nothing" then "nothing" else "small")
 		end
 	end
 	-- One dot per spot: a find's icon once uncovered.
@@ -849,6 +852,7 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 			end
 			tarp.Activated:Connect(function()
 				if not q.flat and not leaving then
+					Sfx.rescue.go()
 					Remote.act("revealPin", i - 1)
 				end
 			end)
@@ -953,6 +957,7 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 		auto = false
 		leaving = true
 		recap = { items = haul, piece = q.piece }
+		Sfx.rescue.home()
 		Remote.act("towHome")
 	end, 18)
 	home.Name = "TowHome"
@@ -987,6 +992,7 @@ local function haulCard(ctx: any, body: Instance, r: { items: { any }, piece: an
 	end
 	local total = #cars + #smalls
 	-- Redrawn mid-reveal (a new snapshot): what has landed already shows at once.
+	if not r.at then Sfx.rescue.fanfare(cars[1] ~= nil and cars[1].rarity == "rare") end
 	local t0 = r.at or os.clock()
 	r.at = t0
 	local function onBeat(n: number, show: (instant: boolean) -> ())
@@ -1024,6 +1030,7 @@ local function haulCard(ctx: any, body: Instance, r: { items: { any }, piece: an
 					cell.Visible = true
 				else
 					popIn(cell)
+					if cell.Parent then Sfx.rescue.reveal(if c.rarity == "common" then "small" else c.rarity) end
 				end
 			end)
 		end
@@ -1041,6 +1048,7 @@ local function haulCard(ctx: any, body: Instance, r: { items: { any }, piece: an
 				Ui.setText(label, smallText(k, sum[k]))
 			else
 				popIn(chip)
+				if chip.Parent then Sfx.rescue.tick((#cars + n - 1) * 2) end
 				rollUp(label, 0, sum[k], function(v)
 					return smallText(k, v)
 				end)

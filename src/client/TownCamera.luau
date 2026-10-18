@@ -9,6 +9,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Town = require(script.Parent.Town)
+local Mixer = require(script.Parent.Sounds.Mixer)
 
 local TownCamera = {}
 
@@ -193,6 +194,8 @@ end
 -- Hands the camera to another screen (true) or takes it back (false).
 function TownCamera.setPaused(on: boolean)
 	paused = on
+	-- Another screen (a race, an arcade game) has the camera: the town's music and sounds hush.
+	Mixer.hold("camera", on)
 	if not on and walking then
 		follow()
 	end

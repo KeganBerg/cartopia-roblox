@@ -4,10 +4,10 @@
 -- for an uploaded picture rather than its image's: each is looked up once when the server starts
 -- and shared as a Workspace attribute Sky<id> = "rbxassetid://<image>".
 
-local InsertService = game:GetService("InsertService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SkyImages = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("SkyImages")) :: any
+local Insert = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Insert")) :: any
 
 local Sky = {}
 
@@ -16,8 +16,8 @@ local function resolve(id: number)
 		return
 	end
 	task.spawn(function()
-		local ok, model = pcall(InsertService.LoadAsset, InsertService, id)
-		if not ok or not model then
+		local model = Insert.load(id)
+		if not model then
 			return -- already an image's own id
 		end
 		local decal = model:FindFirstChildWhichIsA("Decal", true)

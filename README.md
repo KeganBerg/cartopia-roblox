@@ -19,6 +19,7 @@ the web game's.
 | `src/server/TownView.luau` | Draws each player's town in `Workspace.Towns` from their save: land, lawn, roads (put together like the web's `RoadTile`), buildings and cars. |
 | `src/client/Remote.luau` | The client's side: `Remote.act("buyCar", "pip", "#c62828")`, and a copy of the town in the client's store. |
 | `src/client/` (rest) | The screens (HUD, shop, showroom, build mode, job bubbles), the web-style town camera (`TownCamera`), the shared day and night (`DayNight`), the countryside round the town (`Countryside`), the town's traffic and townspeople (`TownLife`) and the race and crowd at a Speedway (`SpeedwayLife`). |
+| `src/client/Sounds/` | The music and sounds (see "Music and sounds" below). |
 | `tools/transpile/` | The TypeScript-to-Luau converter (see below). |
 | `tools/models/` | The model converter: renders the web game's models in Node, turns them into parts and meshes, and uploads the meshes to Roblox (`upload.mjs`). |
 | `tools/emulate/` | Runs the real Luau outside Roblox (with Lune) and draws what it built, for previews without Studio. |
@@ -146,6 +147,25 @@ rojo build -o build/place.rbxl
 lune run tools/emulate/town.luau build/place.rbxl build/town.json build/gui.json [shop|showroom]
 node tools/emulate/render.mjs <web repo> build/town.json out.png build/gui.json
 ```
+
+## Music and sounds
+
+The web game synthesises its music and sounds as it plays; the Roblox game plays Kegan's
+recordings of them. `node tools/audio/build.mjs <recordings folder>` (needs ffmpeg; the folder is
+the project's `cartopia-roblox-music`) writes `audio/`: the 24 town songs and 18 club tracks one
+file each, Rave Mode's build-up and drop, and three sprites (every sound effect, the tutorial's
+voice lines, and a season's weather loops), listed in `audio/list.json`. Roblox caps audio uploads
+a month, hence the sprites. The publish job uploads anything new (`tools/models/upload.mjs`, effects
+first) and writes the ids into `src/shared/AudioAssets.luau` (`build.mjs --ids`); a sound not
+uploaded yet stays silent.
+
+In the game, `src/client/Sounds` plays them: `Sfx` (named like the web's `sfx.*` calls:
+`Sfx.coin()`, `Sfx.crate.open("gold")`, `Sfx.rescue.reveal("rare")`), `Music` (three day and three
+night songs a season, shuffled), `Ambience` (the town's sounds and weather; `Ambience.setWeather`,
+`Ambience.thunder`), `Club` (the nightclub's track for the night), `Rave` (`Rave.start(dropAt)`),
+`Voice` (`Voice.say("03-collect")`) and `Mixer` (the Menu's Music, Effects and Town sounds
+settings, saved per account by `server/Prefs`). Sounds the store's actions make on the server
+(`sfx.buy()` in store.ts) reach the player with the town's snapshot.
 
 ## Next steps
 

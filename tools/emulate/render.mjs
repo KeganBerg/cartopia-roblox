@@ -139,6 +139,33 @@ for (const [name, url] of Object.entries(S.textures || {})) {
   t.wrapS = t.wrapT = T.RepeatWrapping
   TEX[name] = t
 }
+// Rough stand-ins for the patterns of Roblox's building materials (Brick, WoodPlanks...), one tile
+// every 8 studs, so a brick wall reads as brick in the preview too.
+const PATTERN = {
+  Brick: (g) => { g.fillStyle = '#c8c8c8'; for (let y = 0; y < 64; y += 8) { g.fillRect(0, y, 64, 1.5); for (let x = (y / 8) % 2 ? 8 : 0; x < 64; x += 16) g.fillRect(x, y, 1.5, 8) } },
+  WoodPlanks: (g) => { g.fillStyle = '#cfcfcf'; for (let y = 0; y < 64; y += 8) g.fillRect(0, y, 64, 1.5) },
+  RoofShingles: (g) => { g.fillStyle = '#b8b8b8'; for (let y = 0; y < 64; y += 8) { g.fillRect(0, y, 64, 2); for (let x = (y / 8) % 2 ? 6 : 0; x < 64; x += 12) g.fillRect(x, y, 1.5, 8) } },
+  Fabric: (g) => { g.fillStyle = '#e0e0e0'; for (let x = 0; x < 64; x += 4) g.fillRect(x, 0, 1, 64) },
+  Concrete: (g) => { for (let i = 0; i < 400; i++) { const v = 205 + ((i * 37) % 50); g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; g.fillRect((i * 53) % 64, (i * 29) % 64, 2, 2) } },
+}
+PATTERN.Pebble = PATTERN.Concrete
+const patternTex = {}
+function patterned(mat, material, size) {
+  const draw = PATTERN[material]
+  if (!draw) return mat
+  patternTex[material] ??= (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 64); draw(g)
+    const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace
+    return t
+  })()
+  // A block's faces in three.js order (+X, -X, +Y, -Y, +Z, -Z), each with its own width and height.
+  const [x, y, z] = size
+  return [[z, y], [z, y], [x, z], [x, z], [x, y], [x, y]].map(([w, h]) => {
+    const m = mat.clone(); m.map = patternTex[material].clone(); m.map.repeat.set(w / 8, h / 8); m.map.needsUpdate = true
+    return m
+  })
+}
 // Every part as Roblox shapes it: blocks, cylinders along X, balls, meshes stretched to their part.
 function addParts(scene, parts) {
 for (const p of parts) {
@@ -152,7 +179,7 @@ for (const p of parts) {
   const look = MAT[p.material] || {}
   const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
   if (p.shape === 'Wedge') mat.side = T.DoubleSide
-  let mats = mat
+  let mats = !p.mesh && (p.shape === 'Block' || !p.shape) ? patterned(mat, p.material, p.size) : mat
   if (p.texture && TEX[p.texture.image] && !p.mesh && (p.shape === 'Block' || !p.shape)) {
     const t = TEX[p.texture.image].clone()
     t.repeat.set(p.size[0] / p.texture.span[0], p.size[2] / p.texture.span[1])
@@ -175,6 +202,7 @@ for (const p of parts) {
   // Roblox's Texture projects onto a part's face.
   for (const t of [...(p.patterns || [])].sort((a, b) => (a.z ?? 1) - (b.z ?? 1))) {
     if (!TEX[t.image]) continue
+    const TILE = { Front: [[-1, 0, 0], [0, -1, 0]], Back: [[1, 0, 0], [0, -1, 0]], Right: [[0, 0, -1], [0, -1, 0]], Left: [[0, 0, 1], [0, -1, 0]], Top: [[1, 0, 0], [0, 0, 1]], Bottom: [[-1, 0, 0], [0, 0, 1]] }
     const AXIS = { Top: [1, 1], Bottom: [1, -1], Right: [0, 1], Left: [0, -1], Back: [2, 1], Front: [2, -1] }[t.face]
     if (!AXIS) continue
     const src = geo.index ? geo.toNonIndexed() : geo
@@ -190,7 +218,11 @@ for (const p of parts) {
       for (const q of [a, b, c]) {
         keep.push(...q)
         const s = q.map((x, k) => x * scale[k])
-        uv.push(...(dom === 1 ? [s[0], s[2]] : dom === 0 ? [s[2], s[1]] : [s[0], s[1]]).map((x) => x / t.span))
+        // Along the tile's U (across) and V (down) as Roblox lays it on that face, less its offset.
+        const [U, V] = TILE[t.face]
+        const dot = (a) => a[0] * s[0] + a[1] * s[1] + a[2] * s[2]
+        const off = t.offset ?? [0, 0]
+        uv.push((dot(U) - off[0]) / t.span, -(dot(V) - off[1]) / t.span)
       }
     }
     if (!keep.length) continue
@@ -200,7 +232,7 @@ for (const p of parts) {
     og.computeVertexNormals()
     const map = TEX[t.image].clone()
     map.needsUpdate = true
-    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, color: '#' + (t.color ?? 'ffffff'), transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 - (t.z ?? 1), polygonOffsetUnits: -2 - (t.z ?? 1) }))
+    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, color: '#' + (t.color ?? 'ffffff'), transparent: true, opacity: 1 - (t.transparency ?? 0), roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 - (t.z ?? 1), polygonOffsetUnits: -2 - (t.z ?? 1) }))
     over.matrixAutoUpdate = false
     over.matrix.copy(mesh.matrix)
     scene.add(over)
@@ -231,9 +263,11 @@ cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 const reach = cam.position.distanceTo(new T.Vector3(...c.at))
 scene.fog = S.fog ? new T.Fog('#' + S.fog.color, S.fog.start, S.fog.end) : new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
 // The sky: each face is a picture of what a camera looking that way saw (tools/sky/build.mjs),
-// so each hangs square in front of the camera that way, a skybox round where it stands.
+// so each hangs square in front of the camera that way, a skybox round where it stands. Hung the
+// way Roblox hangs them: Left, Back, Right, Front an upright strip, Up's top edge on Left and
+// Down's top edge on Right (a cubemap's py turned clockwise, ny anticlockwise).
 if (S.sky?.Up) {
-  const FACES = { Lf: [[1, 0, 0], [0, 1, 0]], Bk: [[0, 0, 1], [0, 1, 0]], Rt: [[-1, 0, 0], [0, 1, 0]], Ft: [[0, 0, -1], [0, 1, 0]], Up: [[0, 1, 0], [-1, 0, 0]], Dn: [[0, -1, 0], [1, 0, 0]] }
+  const FACES = { Lf: [[1, 0, 0], [0, 1, 0]], Bk: [[0, 0, 1], [0, 1, 0]], Rt: [[-1, 0, 0], [0, 1, 0]], Ft: [[0, 0, -1], [0, 1, 0]], Up: [[0, 1, 0], [1, 0, 0]], Dn: [[0, -1, 0], [-1, 0, 0]] }
   const D = 20000
   for (const [face, [look, up]] of Object.entries(FACES)) {
     const t = await new T.TextureLoader().loadAsync(S.sky[face])

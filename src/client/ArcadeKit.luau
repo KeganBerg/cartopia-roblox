@@ -16,6 +16,7 @@ local Panels = require(ReplicatedStorage.Shared.Models.Panels)
 local Trim = require(ReplicatedStorage.Shared.Models.Trim)
 local Skins = require(ReplicatedStorage.Shared.Models.Skins)
 local Ui = require(script.Parent.Ui)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Kit = {}
 
@@ -257,12 +258,18 @@ function Kit.countdown(screen: Frame, onGo: () -> ()): (dt: number) -> boolean
 	local label = Ui.text({ Name = "Count", Text = "3", TextSize = 96, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.34, 0), Size = UDim2.new(1, 0, 0, 110), Shadow = 5, ShadowColor = Color3.new(0, 0, 0), ShadowTransparency = 0.65, ZIndex = 30, Parent = screen })
 	local t = 0
 	local went = false
+	local beeped = 4
 	return function(dt: number): boolean
 		if not label.Parent then
 			return false
 		end
 		t += dt
 		local n = 3 - math.floor(t / 0.65)
+		-- A beep for each number, a higher one on GO (ArcadeBits Countdown's sfx.countdown).
+		if math.max(0, n) < beeped then
+			beeped = math.max(0, n)
+			Sfx.countdown(beeped == 0)
+		end
 		if n <= 0 then
 			if not went then
 				went = true

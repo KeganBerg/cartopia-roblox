@@ -19,6 +19,7 @@ local arcadeMore = require(Game.arcadeMore) :: any
 local data = require(Game.data) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Kit = require(script.Parent.StarKit)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local CALL_MISS, CALL_SHOW, GUN_SLIP, PIT_BRAKE, PIT_COAST, PIT_JUMP, PIT_SPEED, PIT_START =
 	arcadeMore.CALL_MISS, arcadeMore.CALL_SHOW, arcadeMore.GUN_SLIP, arcadeMore.PIT_BRAKE, arcadeMore.PIT_COAST, arcadeMore.PIT_JUMP, arcadeMore.PIT_SPEED, arcadeMore.PIT_START
@@ -439,6 +440,7 @@ function Pit.new(ctx: any): Round
 		shake = 0,
 		camX = 1.6,
 		crewK = 0,
+		squeal = 0,
 		glug = 0,
 		call = arcadeMore.pitCall(rand, #wheels),
 		callIdx = 0,
@@ -584,16 +586,27 @@ function Pit.new(ctx: any): Round
 			local brake = s.pedal or s.x > 2.6
 			s.v = math.max(0, s.v - (if brake then PIT_BRAKE * (if s.x > 2.6 then 2 else 1) else PIT_COAST) * dt)
 			s.x += s.v * dt
+			if brake and s.v > 0.5 then
+				s.squeal -= dt
+				if s.squeal <= 0 then
+					Sfx.arcade.squeal()
+					s.squeal = 0.09
+				end
+			end
 			if s.v <= 0 then
 				s.grade = arcadeMore.stopGrade(s.x)
 				s.pushT = arcadeMore.stopPenalty(s.x)
 				pop(if s.grade == "perfect" then "🎯 Perfect stop" elseif s.grade == "good" then "👍 Good stop" elseif s.grade == "short" then "😬 Short! Push" else "😬 Long! Push", if s.pushT > 0 then "bad" else "good")
+				if s.grade == "perfect" then
+					Sfx.arcade.ding(1.2)
+				end
 				if s.pushT > 0 then
 					s.phase = "push"
 					s.pushFrom = s.x
 					s.pushK = 0
 				else
 					s.phase = "wheels"
+					Sfx.arcade.air()
 				end
 			end
 		elseif s.phase == "push" then
@@ -602,6 +615,7 @@ function Pit.new(ctx: any): Round
 			s.x = s.pushFrom * (1 - ease(s.pushK))
 			if s.pushK >= 1 then
 				s.phase = "wheels"
+				Sfx.arcade.air()
 			end
 		elseif s.phase == "wheels" then
 			s.lift = math.min(1, s.lift + dt * 6)
@@ -621,6 +635,7 @@ function Pit.new(ctx: any): Round
 					c.slip = 0.4
 					s.slips += 1
 					s.shake = 0.12
+					Sfx.arcade.buzz()
 					pop(`Wrong wheel! +{CALL_MISS}s`, "bad")
 					continue
 				end
@@ -630,9 +645,11 @@ function Pit.new(ctx: any): Round
 					end
 					local quick = t - c.green < 0.25
 					if c.stage == 0 then
+						Sfx.arcade.wrench()
 						c.stage = 1
 						c.swap = 0
 					else
+						Sfx.arcade.gun()
 						c.stage = 3
 					end
 					c.gun = 0.3
@@ -645,6 +662,7 @@ function Pit.new(ctx: any): Round
 					c.slip = 0.4
 					s.slips += 1
 					s.shake = 0.12
+					Sfx.arcade.buzz()
 					pop("Slipped!", "bad")
 				end
 			end
@@ -681,6 +699,7 @@ function Pit.new(ctx: any): Round
 				if s.laneGo then
 					laneAt.x = -26
 				end
+				Sfx.arcade.air()
 			end
 		elseif s.phase == "hold" then
 			s.lift = math.max(0, s.lift - dt * 7)
@@ -688,6 +707,7 @@ function Pit.new(ctx: any): Round
 			if press then
 				s.pen += PIT_JUMP
 				s.shake = 0.12
+				Sfx.arcade.buzz()
 				pop(`Wait for green! +{PIT_JUMP}s`, "bad")
 			end
 			local clear = not s.laneGo or laneAt.x > 3.5
@@ -700,6 +720,7 @@ function Pit.new(ctx: any): Round
 				s.react = s.t - s.greenAt
 				s.phase = "go"
 				s.v = 0
+				Sfx.arcade.rev(1.1)
 				pop(`⚡ {string.format("%.2f", s.react)}s`, if s.react < 0.4 then "good" else "bad")
 			end
 		elseif s.phase == "go" then
@@ -793,6 +814,13 @@ function Pit.new(ctx: any): Round
 		end
 		lolly.Color = hex(if s.phase == "green" or s.phase == "go" then "#00e676" else "#e53935")
 		show(hose, s.phase == "wheels" or s.phase == "hold")
+		if s.phase == "wheels" and running then
+			s.glug -= dt
+			if s.glug <= 0 then
+				Sfx.arcade.fuel()
+				s.glug = 0.5
+			end
+		end
 
 		-- Camera.
 		local want, look = camWant(s.phase == "wheels" or s.phase == "push")

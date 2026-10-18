@@ -118,7 +118,7 @@ function Gui.partOf(d)
 			local list = {}
 			for _, t in d:GetChildren() do
 				if t:IsA("Texture") and t:GetAttribute("Pattern") then
-					table.insert(list, { image = t:GetAttribute("Pattern"), span = t.StudsPerTileU, face = enumName(t.Face), color = t.Color3:ToHex(), z = t.ZIndex })
+					table.insert(list, { image = t:GetAttribute("Pattern"), span = t.StudsPerTileU, face = enumName(t.Face), color = t.Color3:ToHex(), z = t.ZIndex, offset = { t.OffsetStudsU, t.OffsetStudsV }, transparency = t.Transparency })
 				end
 			end
 			return if #list > 0 then list else nil

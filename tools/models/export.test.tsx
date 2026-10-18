@@ -12,7 +12,7 @@ import { deflateSync } from 'zlib'
 import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
-  Color, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
+  Color, Euler, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
   type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D,
 } from 'three'
 import { BUILDINGS, CARS } from './game/data'
@@ -26,6 +26,23 @@ vi.mock('./scene/Batch', async (load) => {
   const React = await import('react')
   const Plain = (p: { children?: React.ReactNode }) => React.createElement('group', null, p.children)
   return { ...real, Batch: (p: Record<string, unknown>) => React.createElement((batching.off ? Plain : real.Batch) as React.FC, p) }
+})
+// Every hand-drawn texture (scene/textures.ts) is tagged with the name of the function that made it,
+// so build.mjs can give the surface the nearest Roblox material (brick walls as Brick, shingles as
+// RoofShingles): seen up close in walk mode, a flat colour reads as an untextured wall.
+vi.mock('./scene/textures', async (load) => {
+  const real = (await load()) as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const [name, f] of Object.entries(real)) {
+    out[name] = typeof f === 'function' && name.endsWith('Tex')
+      ? (...args: unknown[]) => {
+          const t = (f as (...a: unknown[]) => unknown)(...args) as { userData?: Record<string, unknown> } | null
+          if (t && typeof t === 'object' && t.userData) t.userData.rbxTex = name
+          return t
+        }
+      : f
+  }
+  return out
 })
 // Screen effects and the sky's reflections need a real renderer and draw no shapes.
 vi.mock('./scene/PostFx', async (load) => ({ ...((await load()) as object), PostFx: () => null }))
@@ -208,6 +225,7 @@ type Look = {
   rough?: number
   basic?: boolean // unlit
   text?: { text: string; fg: string; bg: string }
+  tex?: string // the texture's maker in scene/textures.ts (brickTex, sidingTex...)
 }
 
 function cssColor(s: string): string | null {
@@ -264,6 +282,8 @@ function lookOf(m: Material, tint?: Color): Look | null {
   if (sm.emissive && (sm.emissiveIntensity ?? 1) > 0 && sm.emissive.getHex() !== 0) {
     look.e = hex(sm.emissive.clone().multiplyScalar(Math.min(1, sm.emissiveIntensity ?? 1)))
   }
+  const tex = sm.map?.userData?.rbxTex
+  if (typeof tex === 'string') look.tex = tex
   if ('metalness' in sm) look.met = r4(sm.metalness)
   if ('roughness' in sm) look.rough = r4(sm.roughness)
   if ((m as { type: string }).type === 'MeshBasicMaterial') look.basic = true
@@ -449,6 +469,8 @@ it('exports every building and car', async () => {
   const geos = new Map<BufferGeometry, number>()
   const geoList: Geo[] = []
   const models: { id: string; kind: string; level?: number; pieces: Piece[]; paint?: number[] }[] = []
+  // The far land's wind turbines, for the rotors client/Horizon spins: [x, y, z, yaw, tint].
+  const turbines: number[][] = []
   const { BuildingModel } = await import('./scene/BuildingModel')
   const { CarModel } = await import('./scene/CarModel')
   const render = async (el: React.ReactElement) => {
@@ -501,7 +523,7 @@ it('exports every building and car', async () => {
   // the fans in client/SpeedwayLife.luau stand on), so it's drawn at every level.
   const levelsOf = (id: string) => (id === 'stadium' ? [...new Set([...LEVELS, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])].sort((a, b) => a - b) : LEVELS)
   if (!only) for (const d of BUILDINGS) {
-    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, pieces: await render(<BuildingModel def={d} level={level} />) })
+    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, lot: [d.w * TILE, d.h * TILE], pieces: await render(<BuildingModel def={d} level={level} />) })
   }
   // Mods (CarMods.tsx, the Rims and Stance looks): each car drawn with one part fitted at a time
   // and compared with the stock car. The pieces the part adds are its model ("mod:<car>:<part>"),
@@ -804,6 +826,33 @@ it('exports every building and car', async () => {
           m.emissiveIntensity = 0
         }
       })
+      // The wind farm's rotors and the hot-air balloons move, so they stay out of the still land:
+      // client/Horizon builds and moves them itself, the rotors round the hubs kept here (the
+      // middle of each rotor, its heading, and its tint, which the web starts its spin from).
+      root.traverse((o) => {
+        const im = o as InstancedMesh
+        if (!im.isInstancedMesh || im.frustumCulled) return
+        const g = im.geometry as BufferGeometry & { parameters?: Record<string, number> }
+        const prm = g.parameters ?? {}
+        const color = (im.material as MeshStandardMaterial).color?.getHexString()
+        const rotor = g.type === 'BufferGeometry' && color === 'f2f4f5'
+        const balloon =
+          (g.type === 'SphereGeometry' && prm.radius === 1) ||
+          (g.type === 'CylinderGeometry' && prm.radiusTop === 9.15) ||
+          (g.type === 'BoxGeometry' && prm.width === 3.2 && prm.height === 2.6)
+        if (!rotor && !balloon) return
+        im.visible = false
+        if (!rotor) return
+        const m = new Matrix4(), at = new Vector3(), q = new Quaternion(), s = new Vector3()
+        for (let i = 0; i < im.count; i++) {
+          im.getMatrixAt(i, m)
+          m.decompose(at, q, s)
+          const e = new Euler().setFromQuaternion(q, 'YXZ')
+          const spin = ((e.z % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+          turbines.push([r4(at.x), r4(at.y), r4(at.z), r4(e.y), r4(spin / (2 * Math.PI))])
+        }
+      })
+      if (!turbines.length) throw new Error('horizon: no wind turbine rotors found')
       // The sky dome (a shader sphere): Roblox shows the baked skybox instead.
       const pieces = walk(root, geos, geoList).filter((p) => {
         const g = geoList[p.g]
@@ -917,7 +966,7 @@ it('exports every building and car', async () => {
   const fd = openSync(`${OUT}.geos`, 'w')
   for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
   closeSync(fd)
-  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, turbines, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

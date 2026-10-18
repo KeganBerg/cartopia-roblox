@@ -26,6 +26,7 @@ local Policy = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Po
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Crates = {}
 
@@ -258,10 +259,14 @@ function Crates.draw(parent: Instance, ctx: any)
 			if shake then
 				shake()
 			end
+			Sfx.crate.charge(0.75)
 			task.delay(0.75, function()
 				busy = false
+				Sfx.crate.open(def.id)
+				if def.id ~= "street" then Sfx.boost() end
 				local view, opens = if #got > 1 then "ten" else "prize", if #got > 1 then crates.revealOrder(got) else got
 				shown = { view = view, opens = opens }
+				Sfx.crate.reveal(crates.dropTier(opens[#opens].drop), DROP_ICON[opens[#opens].drop.kind] == "🪙")
 				if live then
 					live(view, opens)
 				end
