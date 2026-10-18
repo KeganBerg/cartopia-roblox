@@ -30,6 +30,7 @@ local Placement = require(script.Parent.Placement)
 local TownCamera = require(script.Parent.TownCamera)
 local Jobs = require(script.Parent.Jobs)
 local RaceMenu = require(script.Parent.RaceMenu)
+local Bank = require(script.Parent.Bank)
 
 local Hud = {}
 
@@ -226,8 +227,13 @@ function Hud.start()
 	local coins = counter(1, "coin", function()
 		openPanel("need", { res = "coins", missing = 0 })
 	end)
+	-- Gems open the Bank once it's unlocked (web Hud.tsx openGems), else how to earn them.
 	local gems = counter(2, "💎", function()
-		openPanel("need", { res = "bucks", missing = 0 })
+		if Bank.unlocked(store.useGame.getState()) then
+			openPanel("bank")
+		else
+			openPanel("need", { res = "bucks", missing = 0 })
+		end
 	end)
 	local parts = counter(3, "⚙️", function()
 		openPanel("need", { res = "parts", missing = 0 })

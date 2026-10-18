@@ -1,0 +1,19 @@
+{
+  "_": "Robux price of each pack's Developer Product, by pack id (web src/game/bucksPacks.ts). null = not on sale yet. Prices are Kegan's call: ask before changing one.",
+  "handful": null,
+  "stack": null,
+  "bag": null,
+  "vault": null,
+  "truck": null,
+  "tanker": null,
+  "car-scatto": null,
+  "car-stinger": null,
+  "car-thunderjet": null,
+  "car-sora": null,
+  "car-hayate": null,
+  "car-kestrel": null,
+  "car-firebolt": null,
+  "car-kaze": null,
+  "car-sturm": null,
+  "car-vanta": null
+}

@@ -13,6 +13,7 @@ local cityLook = require(Game.cityLook) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
+local Bank = require(script.Parent.Bank)
 
 local Menu = {}
 
@@ -471,6 +472,9 @@ function Menu.need(ctx: any, need: any?): Instance?
 			{ icon = "⭐", title = "Level up", detail = `Every new level gives +{data.LEVEL_GEMS} gems.` },
 			{ icon = "📋", title = "Finish goals", detail = "Bigger goals pay gems.", action = { label = "Goals", run = function() ctx.open("goals") end } },
 		}
+		if Bank.unlocked(s) then
+			table.insert(sources, { icon = "🏦", title = "Visit the Bank", detail = "Buy gems in packs. Bigger packs come with bonus gems, coins and parts.", action = { label = "Bank", run = function() ctx.open("bank") end } })
+		end
 	else
 		local toGo = data.xpToNext(s.level) - s.xp
 		summary = `{what or "This"} unlocks at level {missing}. You're level {s.level}, {Ui.commas(toGo)} XP from level {s.level + 1}.`
