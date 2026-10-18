@@ -181,7 +181,7 @@ for (const file of walk(join(work, 'src'))) {
   for (const [from, to] of REWRITES) src = src.replace(from, to)
   const toRoot = relative(dirname(file), join(work, 'src')).replace(/\\/g, '/') || '.'
   src = src.replace(/from 'zustand'/g, `from '${toRoot}/__zustand'`).replace(/from 'zustand\/middleware'/g, `from '${toRoot}/__zustand_middleware'`)
-  src = src.replace(/from 'three'/g, `from '${toRoot}/__three'`)
+  src = src.replace(/from 'three'/g, `from '${toRoot}/__three'`).replace(/from 'three\/examples\/jsm\/utils\/BufferGeometryUtils\.js'/g, `from '${toRoot}/__three'`)
   writeFileSync(file, src)
 }
 
@@ -505,7 +505,7 @@ rmSync(work, { recursive: true, force: true })
 
 // An array or string method called as a plain field (`list.find(...)`) means TypeScriptToLua didn't
 // know the value's type (an `any`), so it wasn't translated and would fail at runtime.
-const METHOD = /(?<![\w])(?!string\.|table\.|math\.|bit32\.|os\.|____lualib\.)[\w.]+\.(filter|map|find|findIndex|some|every|includes|push|pop|shift|unshift|slice|forEach|reduce|indexOf|join|concat|sort|splice|flat|flatMap|fill|startsWith|endsWith|split|replace|replaceAll|trim|toUpperCase|toLowerCase|padStart|padEnd|charAt|charCodeAt|repeat|at|toFixed|toString)\(/
+const METHOD = /(?<![\w])(?!string\.|table\.|math\.|bit32\.|os\.|____lualib\.|____exports\.\w+\()[\w.]+\.(filter|map|find|findIndex|some|every|includes|push|pop|shift|unshift|slice|forEach|reduce|indexOf|join|concat|sort|splice|flat|flatMap|fill|startsWith|endsWith|split|replace|replaceAll|trim|toUpperCase|toLowerCase|padStart|padEnd|charAt|charCodeAt|repeat|at|toFixed|toString)\(/
 const untranslated = []
 for (const f of readdirSync(out)) {
   if (f === 'lualib_bundle.luau') continue
