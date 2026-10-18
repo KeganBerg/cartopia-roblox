@@ -99,7 +99,10 @@ for (const p of parts) {
   const [x, y, z, a, b, c, d, e, f, g, h, i] = p.cf
   const m4 = new T.Matrix4().set(a, b, c, x, d, e, f, y, g, h, i, z, 0, 0, 0, 1)
   mesh.matrixAutoUpdate = false
-  mesh.matrix.copy(m4).multiply(new T.Matrix4().makeScale(...scale))
+  mesh.matrix.copy(m4)
+  // A real MeshPart from an uploaded pack: Roblox's glTF import turned its geometry half round.
+  if (p.imported) mesh.matrix.multiply(new T.Matrix4().makeRotationY(Math.PI))
+  mesh.matrix.multiply(new T.Matrix4().makeScale(...scale))
   mesh.castShadow = p.transparency < 0.5 && Math.max(...p.size) < 500
   mesh.receiveShadow = true
   scene.add(mesh)

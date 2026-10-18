@@ -139,6 +139,27 @@ function Emu.resumeWaits()
 	end
 end
 
+-- Stands in for InsertService:LoadAsset with the mesh packs as Roblox imports them: a Model of
+-- MeshParts named by mesh key. Each is marked Imported, so render.mjs turns its geometry half round
+-- about Y the way Roblox's glTF import does, and the game's own correction for that gets checked.
+function Emu.fakeMeshPacks(emu)
+	local Meshes = emu.require(emu.game:GetService("ReplicatedStorage").Shared.Models.Meshes)
+	roblox.implementMethod("InsertService", "LoadAsset", function(_, asset)
+		local model = Instance.new("Model")
+		for key, m in Meshes.MESHES do
+			if m.asset == asset then
+				local part = Instance.new("MeshPart")
+				part.Name = key
+				part.Size = m.size
+				part:SetAttribute("Mesh", key)
+				part:SetAttribute("Imported", true)
+				part.Parent = model
+			end
+		end
+		return model
+	end)
+end
+
 function Emu.load(placeFile: string)
 	local game = roblox.deserializePlace(fs.readFile(placeFile))
 	pcall(function()

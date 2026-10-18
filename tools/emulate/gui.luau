@@ -101,6 +101,7 @@ function Gui.partOf(d)
 	return {
 		shape = shape,
 		mesh = d:GetAttribute("Mesh"),
+		imported = if d:IsA("MeshPart") then d:GetAttribute("Imported") == true else nil,
 		cf = { x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 },
 		size = { d.Size.X, d.Size.Y, d.Size.Z },
 		color = d.Color:ToHex(),
