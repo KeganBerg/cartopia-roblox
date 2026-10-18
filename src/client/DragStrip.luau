@@ -350,6 +350,11 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local hint = Ui.text({ Text = "", TextSize = 22, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.4, 80), Size = UDim2.fromOffset(600, 30), Stroke = 2.5, Shadow = 2, Parent = screen })
 	local callLabel = Ui.text({ Text = "", TextSize = 46, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.3), Size = UDim2.fromOffset(700, 60), Stroke = 4, Shadow = 4, Parent = screen })
 	local spinNote = Ui.text({ Text = "💨 Wheelspin", TextSize = 22, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 132), Size = UDim2.fromOffset(300, 30), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
+	-- Each car's skill, flashed while it is working (Race.tsx skill-flash); the rival's takes the
+	-- place of its boost note.
+	local mySkill = spec.mySkill and data.SKILLS[spec.mySkill]
+	local theirSkill = rival.skill and data.SKILLS[rival.skill]
+	local skillNote = Ui.text({ Text = if mySkill then `{mySkill.icon} {mySkill.name}!` else "", TextSize = 24, AnchorPoint = Vector2.new(0, 0), Position = UDim2.new(0, 20, 0, 70), Size = UDim2.fromOffset(320, 30), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromHex("#ffe082"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
 	local theirNote = Ui.text({ Text = `{rival.name}: 🔥 Boost!`, TextSize = 20, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 70), Size = UDim2.fromOffset(320, 28), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromHex("#ffab91"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
 
 	-- ── Bottom: BOOST under the left thumb, the tach in the middle, SHIFT under the right ─────
@@ -667,7 +672,10 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			Ui.setText(callLabel, "")
 		end
 		spinNote.Visible = r.spin and callLabel.Text == ""
-		theirNote.Visible = th.burning and not me.finished
+		local theirsOn = theirSkill ~= nil and r.theirSkillOn
+		Ui.setText(theirNote, if theirsOn then `{rival.name}: {theirSkill.icon} {theirSkill.name}!` else `{rival.name}: 🔥 Boost!`)
+		theirNote.Visible = not r.done and (theirsOn or th.burning)
+		skillNote.Visible = mySkill ~= nil and r.mySkillOn and not r.done
 		Ui.setText(speed, `{race.kmh(me.speed)} km/h`)
 		Ui.setText(gearText, `GEAR {me.gear + 1}`)
 		needle.Rotation = -210 + math.min(1.05, rpm) * 240
