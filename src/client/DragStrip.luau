@@ -21,6 +21,7 @@ local Trim = require(ReplicatedStorage.Shared.Models.Trim)
 local Skins = require(ReplicatedStorage.Shared.Models.Skins)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Mastery = require(script.Parent.Mastery)
 local TownCamera = require(script.Parent.TownCamera)
 local DayNight = require(script.Parent.DayNight)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder) :: any
@@ -524,6 +525,10 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			Ui.new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0), Size = UDim2.fromOffset(22, 22), BackgroundColor3 = Color3.fromHex(res.paint), Parent = row }, { Ui.round(), Ui.stroke(2, Ui.LINE) })
 			Ui.text({ Text = `{name} unlocked`, TextSize = 18, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(42, 0), Size = UDim2.new(1, -50, 1, 0), Parent = row })
 			y += 44
+		end
+		-- What the race unlocked in mastery (ClassCups.tsx MasteryPrizePopup).
+		if res.mastery then
+			y = Mastery.prize(card, res.mastery, y)
 		end
 		if not won and rival.pi > spec.myPi then
 			line(`Your PI {spec.myPi} < their PI {rival.pi}. Upgrade your car in the Garage.`, y, 14, Color3.fromHex("#c62828"), { Body = true })
