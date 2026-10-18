@@ -16,7 +16,7 @@
           "Anchored": true,
           "Locked": true,
           "Size": [2048, 16, 2048],
-          "Position": [0, -12, 0],
+          "CFrame": { "CFrame": { "position": [0, -12, 0], "orientation": [[1, 0, 0], [0, 1, 0], [0, 0, 1]] } },
           "Color": [0.549, 0.604, 0.263],
           "Material": "SmoothPlastic",
           "TopSurface": "Smooth",
@@ -28,7 +28,7 @@
         "$properties": {
           "Anchored": true,
           "Size": [12, 1, 12],
-          "Position": [0, 0.5, -10],
+          "CFrame": { "CFrame": { "position": [0, 0.5, -10], "orientation": [[1, 0, 0], [0, 1, 0], [0, 0, 1]] } },
           "Color": [0.85, 0.85, 0.85],
           "Material": "SmoothPlastic",
           "TopSurface": "Smooth",

@@ -57,6 +57,8 @@ local function setup()
 		end,
 		modes = {
 			world = require("../src/server/Modes/World"),
+			tuner = require("../src/server/Modes/Tuner"),
+			daily = require("../src/server/Modes/Daily"),
 			trial = require("../src/server/Modes/Trial"),
 		},
 		boards = {
@@ -227,6 +229,40 @@ return function(test)
 		assert((towns:snapshot(1).save.worldTour or 0) == (if result.won then 1 else 0), "progress")
 	end)
 
+	test("races: the Daily Run races the day's loaner against par and pays the first run", function()
+		local races, towns, wait = setup()
+		local daily = require(G .. "daily")
+		local trial = require(G .. "trial")
+		local run = daily.dailyRun()
+		local save = towns:snapshot(1).save
+		local fuel, coins = save.fuel, save.coins
+		local started, why = races:start(1, "daily", nil)
+		assert(started, `start: {why}`)
+		assert(started.rival.id == "trial" and started.spec.ghost == run.par, "par ghost")
+		assert(started.car and started.car.model == run.car.id and started.car.color == run.color, "loaner")
+		assert(started.spec.myPi == run.pi, `stock loaner PI {started.spec.myPi} vs {run.pi}`)
+		assert(started.venue.id == run.venue.id, "the day's venue")
+		assert(towns:snapshot(1).save.fuel == fuel - trial.TRIAL_FUEL, "a trial's fuel")
+		local r = drive(started.spec)
+		local mine = DragRace.times(r)
+		wait(60)
+		local result = assert(races:finish(1, r.events))
+		assert(result.paidNow and result.par == run.par and result.best == mine, "first run")
+		local pay = daily.DAILY_PAY[math.min(daily.dailyMedal(run, mine), #daily.DAILY_MEDALS - 1) + 1]
+		assert(result.coins > 0 and towns:snapshot(1).save.coins > coins, `paid {result.coins} (base {pay})`)
+		local d = towns:snapshot(1).save.daily
+		assert(d and d.day == run.day and d.paid and d.best == mine, "kept in the save")
+		local m = towns:snapshot(1).save.mastery or {}
+		assert(next(m) == nil or not m[run.car.id], "no mastery for a ghost run")
+		-- Again: no pay the second time.
+		started = assert(races:start(1, "daily", nil))
+		r = drive(started.spec)
+		wait(60)
+		local c2 = towns:snapshot(1).save.coins
+		result = assert(races:finish(1, r.events))
+		assert(not result.paidNow and towns:snapshot(1).save.coins == c2, "only the first run pays")
+	end)
+
 	test("races: a ghost run finishes at the ghost's time", function()
 		local spec = { myPi = 40, rival = { pi = 0, shift = 1 }, seed = 3, track = 400, ghost = 13.5 }
 		local run = drive(spec)
@@ -263,5 +299,46 @@ return function(test)
 		assert(#races:list(1, "trial").prizes == 0, "claimed")
 		NOW -= 7 * 86400000
 		local _ = Js
+	end)
+
+	test("races: a Tuner Trial needs its build, races the built host and pays through tunerResult", function()
+		local races, towns, wait = setup()
+		local store = require(G .. "store")
+		local data = require(G .. "data")
+		local tuner = require(G .. "tuner")
+		local t = tuner.tunerTrial("downforce")
+		local started, why = races:start(1, "tuner", "downforce")
+		assert(started == nil and why:find("Fit"), tostring(why))
+		assert(races:start(1, "tuner", "nope") == nil, "not a trial")
+		-- Build the race car for it: a spoiler, snow studs and the tuning it asks for (and more).
+		towns:_with(1, function()
+			local s = store.useGame.getState()
+			local cars = table.clone(s.cars)
+			local car = table.clone(cars[1])
+			local body = data.carDef(car.model).body
+			local spoiler
+			for _, m in data.MODS do
+				if m.slot == "spoiler" and data.modFits(m, body) and not spoiler then
+					spoiler = m.id
+				end
+			end
+			car.mods = { spoiler, "snowstuds" }
+			car.upgrades = { engine = 5, turbo = 5, tires = 5, weight = 5 }
+			cars[1] = car
+			store.useGame.setState({ cars = cars, raceCar = car.uid })
+		end)
+		started, why = races:start(1, "tuner", "downforce")
+		assert(started, `start: {why}`)
+		assert(started.rival.id == "tuner-downforce" and started.venue.id == "snow", started.rival.id)
+		assert(started.rival.prize == tuner.tunerPrize(t, true), "first-win prize")
+		assert(#started.rival.mods == #tuner.hostMods(t) and #started.rival.mods == 2, "the host's build")
+		local run = drive(started.spec)
+		local mine, theirs = DragRace.times(run)
+		wait(60)
+		local result = assert(races:finish(1, run.events))
+		assert(result.won == (mine < theirs), "same winner")
+		local tw = (towns:snapshot(1).save.tuner or {}).downforce or 0
+		assert(tw == (if result.won then 1 else 0), "progress")
+		assert(result.pattern == (if result.won then "hex" else nil), "the pattern on a first win")
 	end)
 end

@@ -18,6 +18,7 @@ local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
 local DragStrip = require(script.Parent.DragStrip)
+local RepChip = require(script.Parent.RepChip)
 local tour = require(Game.tour) :: any
 local events = require(Game.events) :: any
 local trial = require(Game.trial) :: any
@@ -212,7 +213,7 @@ end
 
 function RaceMenu.open(ctx: any, startTab: string?): Instance
 	local tab = startTab or lastTab
-	local overlay, _sheet, body = Ui.panel(ctx.gui, TITLES[tab] or (PAGES[tab] and PAGES[tab].title) or "Race", { wide = true, height = 640, onClose = ctx.close, bodyTop = 6 })
+	local overlay, _sheet, body, headExtras = Ui.panel(ctx.gui, TITLES[tab] or (PAGES[tab] and PAGES[tab].title) or "Race", { wide = true, height = 640, onClose = ctx.close, bodyTop = 6 })
 	local title = (overlay:FindFirstChild("Title", true) :: TextLabel?)
 	local content = Ui.new("Frame", { Name = "Content", Size = UDim2.new(1, 0, 1, -86), BackgroundTransparency = 1, Parent = body })
 	local barHolder = Ui.new("Frame", { Name = "Bar", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 76), BackgroundTransparency = 1, Parent = body })
@@ -931,7 +932,19 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		if title then
 			Ui.setText(title, TITLES[which] or (PAGES[which] and PAGES[which].title) or "Race")
 		end
+		-- The head's chip: your reputation title on the front page (Race.tsx RepChip).
+		local oldChip = headExtras:FindFirstChild("RepChip")
+		if oldChip then
+			oldChip:Destroy()
+		end
+		if which == "hub" then
+			RepChip.draw(headExtras)
+		end
 		content:ClearAllChildren()
+		-- A page with its own car bar (the Daily Run's loaner) hides the usual one.
+		local ownBar = PAGES[which] ~= nil and PAGES[which].hideBar == true
+		barHolder.Visible = not ownBar
+		content.Size = if ownBar then UDim2.fromScale(1, 1) else UDim2.new(1, 0, 1, -86)
 		local page = Ui.new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = content })
 		if which ~= "hub" then
 			-- Back to the front page.
