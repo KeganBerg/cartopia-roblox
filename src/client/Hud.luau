@@ -385,11 +385,12 @@ function Hud.start()
 			task.spawn(Remote.social, if on then "drive" else "home", nil, true)
 		end
 	end)
-	-- The server can start a drive too (Visit in the Social menu drives you over).
+	-- The server can start a drive too (Visit in the Social menu drives you over). Getting out of
+	-- the car (client/GetIn) leaves them on foot, still out in the world; Town goes back.
 	Players.LocalPlayer:GetAttributeChangedSignal("Driving"):Connect(function()
 		local driving = Players.LocalPlayer:GetAttribute("Driving") == true
-		if driving ~= TownCamera.isWalking() then
-			TownCamera.setWalking(driving)
+		if driving and not TownCamera.isWalking() then
+			TownCamera.setWalking(true)
 		end
 	end)
 	-- On phones Roblox's jump button sits in the bottom right corner, under Race and the buttons

@@ -17,6 +17,8 @@
 --                          ReplicatedStorage.MeshLibrary, answering once they're in
 --   Social RemoteFunction  client -> server: ("players" | "visit" | "home" | "help" | "join", arg)
 --                          -> ok, result or error text: playing together (see Social)
+--   GetIn  RemoteFunction  client -> server: ("enter", car) | ("exit"): getting in any car on
+--                          foot and out again (see GetIn)
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -58,6 +60,7 @@ local Drive = require(script.Drive)
 local Sky = require(script.Sky)
 local Prefs = require(script.Prefs)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
+local GetIn = require(script.GetIn)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
 local TICK = 1 -- seconds between town clock ticks, as on the web
@@ -246,6 +249,7 @@ prefsRemote.Name = "Prefs"
 prefsRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
 Prefs.start(DataStoreService:GetDataStore("Prefs_v1"), prefsRemote, Players)
+GetIn.start(towns)
 
 Splash.start()
 Sky.start()

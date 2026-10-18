@@ -94,6 +94,20 @@ if not ok then
 	print("drive:", err)
 end
 
+-- The traffic and verges on the roads (client WorldLife), run for a while round the driver.
+local WorldLife = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.WorldLife)
+pcall(Builder.useLibrary, 1)
+local stepRoads = WorldLife.attach(world)
+local eye = root.CFrame.Position
+for _ = 1, 30 * 20 do
+	stepRoads(1 / 30, eye, nil)
+end
+local onRoad = 0
+for _, m in WorldLife.cars() do
+	onRoad += 1
+end
+print(`{onRoad} road cars in sight, {#game.Workspace.Verges:GetChildren()} verge stretches built`)
+
 local parts = {}
 for _, d in game.Workspace:GetDescendants() do
 	if d:IsA("BasePart") and d.Transparency < 1 then
