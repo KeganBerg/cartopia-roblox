@@ -551,7 +551,25 @@ export function convert(data) {
   const stance = {}
   for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
     for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, textures: data.textures ?? [] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, textures: [...(data.textures ?? []), ...skinTextures()] }
+}
+
+// The car skins baked by skins.mjs (kept in tools/models/skins/), as textures to upload: each
+// skin's base ("skin_<n>") and glow ("skinglow_<n>"), named by their content.
+function skinTextures() {
+  const dir = join(HERE, 'skins')
+  if (!existsSync(join(dir, 'skins.json'))) return []
+  const { span, skins } = JSON.parse(readFileSync(join(dir, 'skins.json'), 'utf8'))
+  mkdirSync(TEX_DIR, { recursive: true })
+  const out = []
+  for (const s of skins)
+    for (const [key, file] of [[`skin_${s.n}`, s.base], [`skinglow_${s.n}`, s.glow]]) {
+      const data = readFileSync(join(dir, file))
+      const name = `${file.replace(/\.png$/, '')}-${createHash('sha1').update(data).digest('hex').slice(0, 16)}`
+      copyFileSync(join(dir, file), join(TEX_DIR, `${name}.png`))
+      out.push({ key, name, file: `${name}.png`, span })
+    }
+  return out
 }
 
 function mul(a, b) {

@@ -24,6 +24,7 @@ local Paint = require(Shared.Models.Paint)
 local Mods = require(Shared.Models.Mods)
 local Panels = require(Shared.Models.Panels)
 local Trim = require(Shared.Models.Trim)
+local Skins = require(Shared.Models.Skins)
 
 local SCALE = Catalog.SCALE
 local TILE = data.TILE * SCALE -- studs per tile
@@ -648,7 +649,7 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 			queue += 1
 		end
 		local job = Paint.jobOf(car)
-		local key = `{car.model}|{Paint.key(job)}|{Paint.hatName(car.hat) or ""}|{Mods.key(car.mods)}|{Panels.key(car.panels)}|{Trim.key(car.trim)}`
+		local key = `{car.model}|{Paint.key(job)}|{Paint.hatName(car.hat) or ""}|{Mods.key(car.mods)}|{Panels.key(car.panels)}|{Trim.key(car.trim)}|{Skins.key(car.skin, car.modSkin)}`
 		-- A car's mod and custom paint meshes load the first time it needs them; it's drawn again
 		-- once they're in.
 		if ((car.mods and #car.mods > 0) or Panels.key(car.panels) ~= "") and not Builder.modsReady(car.model) then
@@ -677,6 +678,7 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 				Trim.apply(m, car.model, car.trim, job.color)
 				Paint.wearHat(m, car.model, car.hat, Builder.build)
 				Mods.fit(m, car.model, car.mods, Builder.build)
+				Skins.apply(m, car.skin, car.modSkin)
 				m.Name = car.uid
 				m.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 				m:SetAttribute("Uid", car.uid)

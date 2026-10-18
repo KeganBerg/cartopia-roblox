@@ -1,0 +1,170 @@
+{
+ "span": 1,
+ "skins": [
+  {
+   "n": 1,
+   "base": "skin1-base.png",
+   "glow": "skin1-glow.png"
+  },
+  {
+   "n": 2,
+   "base": "skin2-base.png",
+   "glow": "skin2-glow.png"
+  },
+  {
+   "n": 3,
+   "base": "skin3-base.png",
+   "glow": "skin3-glow.png"
+  },
+  {
+   "n": 4,
+   "base": "skin4-base.png",
+   "glow": "skin4-glow.png"
+  },
+  {
+   "n": 5,
+   "base": "skin5-base.png",
+   "glow": "skin5-glow.png"
+  },
+  {
+   "n": 6,
+   "base": "skin6-base.png",
+   "glow": "skin6-glow.png"
+  },
+  {
+   "n": 7,
+   "base": "skin7-base.png",
+   "glow": "skin7-glow.png"
+  },
+  {
+   "n": 8,
+   "base": "skin8-base.png",
+   "glow": "skin8-glow.png"
+  },
+  {
+   "n": 9,
+   "base": "skin9-base.png",
+   "glow": "skin9-glow.png"
+  },
+  {
+   "n": 10,
+   "base": "skin10-base.png",
+   "glow": "skin10-glow.png"
+  },
+  {
+   "n": 11,
+   "base": "skin11-base.png",
+   "glow": "skin11-glow.png"
+  },
+  {
+   "n": 12,
+   "base": "skin12-base.png",
+   "glow": "skin12-glow.png"
+  },
+  {
+   "n": 13,
+   "base": "skin13-base.png",
+   "glow": "skin13-glow.png"
+  },
+  {
+   "n": 14,
+   "base": "skin14-base.png",
+   "glow": "skin14-glow.png"
+  },
+  {
+   "n": 15,
+   "base": "skin15-base.png",
+   "glow": "skin15-glow.png"
+  },
+  {
+   "n": 16,
+   "base": "skin16-base.png",
+   "glow": "skin16-glow.png"
+  },
+  {
+   "n": 17,
+   "base": "skin17-base.png",
+   "glow": "skin17-glow.png"
+  },
+  {
+   "n": 18,
+   "base": "skin18-base.png",
+   "glow": "skin18-glow.png"
+  },
+  {
+   "n": 19,
+   "base": "skin19-base.png",
+   "glow": "skin19-glow.png"
+  },
+  {
+   "n": 20,
+   "base": "skin20-base.png",
+   "glow": "skin20-glow.png"
+  },
+  {
+   "n": 21,
+   "base": "skin21-base.png",
+   "glow": "skin21-glow.png"
+  },
+  {
+   "n": 22,
+   "base": "skin22-base.png",
+   "glow": "skin22-glow.png"
+  },
+  {
+   "n": 23,
+   "base": "skin23-base.png",
+   "glow": "skin23-glow.png"
+  },
+  {
+   "n": 24,
+   "base": "skin24-base.png",
+   "glow": "skin24-glow.png"
+  },
+  {
+   "n": 25,
+   "base": "skin25-base.png",
+   "glow": "skin25-glow.png"
+  },
+  {
+   "n": 26,
+   "base": "skin26-base.png",
+   "glow": "skin26-glow.png"
+  },
+  {
+   "n": 27,
+   "base": "skin27-base.png",
+   "glow": "skin27-glow.png"
+  },
+  {
+   "n": 28,
+   "base": "skin28-base.png",
+   "glow": "skin28-glow.png"
+  },
+  {
+   "n": 29,
+   "base": "skin29-base.png",
+   "glow": "skin29-glow.png"
+  },
+  {
+   "n": 30,
+   "base": "skin30-base.png",
+   "glow": "skin30-glow.png"
+  },
+  {
+   "n": 31,
+   "base": "skin31-base.png",
+   "glow": "skin31-glow.png"
+  },
+  {
+   "n": 32,
+   "base": "skin32-base.png",
+   "glow": "skin32-glow.png"
+  },
+  {
+   "n": 33,
+   "base": "skin33-base.png",
+   "glow": "skin33-glow.png"
+  }
+ ]
+}

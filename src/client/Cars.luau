@@ -24,6 +24,7 @@ local HatShop = require(script.Parent.HatShop)
 local ModShop = require(script.Parent.ModShop)
 local CustomShop = require(script.Parent.CustomShop)
 local TrimShop = require(script.Parent.TrimShop)
+local SkinShop = require(script.Parent.SkinShop)
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 
 local Cars = {}
@@ -240,8 +241,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	end
 
 	-- The car on the turntable, turning slowly, framed in the space between the two cards.
-	local function stage(model: string, job: Paint.Job, pi: number, owned: number?, hat: any?, mods: { string }?, panels: any?, trim: any?)
-		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job, hat, mods, panels, trim)
+	local function stage(model: string, job: Paint.Job, pi: number, owned: number?, hat: any?, mods: { string }?, panels: any?, trim: any?, skin: string?, modSkin: any?)
+		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job, hat, mods, panels, trim, skin, modSkin)
 		v.Position = UDim2.fromOffset(280, 10)
 		v.ZIndex = 1
 		v.Parent = content
@@ -295,6 +296,10 @@ function Cars.open(ctx: any, tab: string?): Instance
 	local customing: { uid: string, panels: any }? = nil
 	-- Trim being tried on in the Trim tab.
 	local trimming: { uid: string, trim: any }? = nil
+	-- A body skin being tried on in the Paint tab, and a mod skin in the Mods tab (skin false:
+	-- trying none).
+	local skinning: { uid: string, skin: SkinShop.Trying }? = nil
+	local modSkinning: { uid: string, slot: string, skin: SkinShop.Trying }? = nil
 	-- Cars whose mod meshes have been asked for (they load the first time a car needs them).
 	local asked: { [string]: boolean } = {}
 	local function garage()
@@ -364,7 +369,15 @@ function Cars.open(ctx: any, tab: string?): Instance
 		local panels = tryPanels or car.c.panels
 		local tryTrim = if trimming and trimming.uid == car.c.uid and garageTab == "trim" then trimming.trim else nil
 		local trim = tryTrim or car.c.trim
-		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat, mods, panels, trim)
+		local trySkin: SkinShop.Trying = if skinning and skinning.uid == car.c.uid and garageTab == "paint" then skinning.skin else nil
+		local skin = if trySkin == nil then car.c.skin elseif trySkin == false then nil else trySkin
+		local tryModSkin = if modSkinning and modSkinning.uid == car.c.uid and garageTab == "mods" then modSkinning else nil
+		local modSkin = car.c.modSkin
+		if tryModSkin then
+			modSkin = table.clone(modSkin or {})
+			modSkin[tryModSkin.slot] = tryModSkin.skin or nil
+		end
+		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat, mods, panels, trim, skin, modSkin)
 		-- The car's mod and custom paint meshes, the first time it shows them or opens the Mods or
 		-- Custom tab: drawn again once in.
 		if not asked[car.c.model] and (#mods > 0 or panels ~= nil or garageTab == "mods" or garageTab == "custom") then
@@ -457,6 +470,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 					HatShop.reset()
 					ModShop.reset()
 					CustomShop.reset()
+					skinning = nil
+					modSkinning = nil
 				end
 				garageTab = t[1]
 				render()
@@ -497,6 +512,9 @@ function Cars.open(ctx: any, tab: string?): Instance
 			ModShop.draw(space, ctx, car.c, tryMod, function(id: string?)
 				modding = if id then { uid = car.c.uid, id = id } else nil
 				render()
+			end, tryModSkin, function(t: { slot: string, skin: SkinShop.Trying }?)
+				modSkinning = if t then { uid = car.c.uid, slot = t.slot, skin = t.skin } else nil
+				render()
 			end)
 			return
 		elseif garageTab == "custom" then
@@ -525,6 +543,11 @@ function Cars.open(ctx: any, tab: string?): Instance
 			PaintShop.draw(space, ctx, car.c, tryJob or Paint.jobOf(car.c), function(job: Paint.Job?)
 				painting = if job then { uid = car.c.uid, job = job } else nil
 				render()
+			end, function(list: Instance)
+				SkinShop.body(list, 0, car.c, (tryJob or Paint.jobOf(car.c)).color, trySkin, function(t: SkinShop.Trying)
+					skinning = if t == nil then nil else { uid = car.c.uid, skin = t }
+					render()
+				end)
 			end)
 			return
 		else

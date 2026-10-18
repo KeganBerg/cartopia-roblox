@@ -110,6 +110,10 @@ function Mods.fit(model: Model, carId: string, mods: { string }?, build: (string
 			local look = i and own[i] and own[i][12]
 			if p:IsA("BasePart") and not (look and swaps[look] == false) then
 				p.CFrame = pivot * p.CFrame
+				if look and swaps[look] then
+					-- The car's own part redrawn, not the mod's: a mod skin leaves it be (Skins).
+					p:SetAttribute("StandIn", true)
+				end
 				if p:GetAttribute("Paint") and painted then
 					p.Color = painted.Color
 					p.Material = painted.Material

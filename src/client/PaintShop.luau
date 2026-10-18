@@ -82,8 +82,9 @@ local function dot(parent: Instance, order: number, name: string, color: Color3,
 end
 
 -- `parent` is the detail card's space under the tabs; `job` is the paint job being tried (the
--- car's own when nothing is); `setJob(nil)` stops trying. `redraw` draws the page again.
-function PaintShop.draw(parent: Instance, ctx: any, car: any, job: Paint.Job, setJob: (Paint.Job?) -> ())
+-- car's own when nothing is); `setJob(nil)` stops trying. `top(list)` adds to the top of the page
+-- (the skin picker).
+function PaintShop.draw(parent: Instance, ctx: any, car: any, job: Paint.Job, setJob: (Paint.Job?) -> (), top: ((Instance) -> ())?)
 	local s = store.useGame.getState()
 	local gate = store.gateLevel(s)
 	local tier = mastery.carClassTier(s.mastery, car.model)
@@ -102,6 +103,9 @@ function PaintShop.draw(parent: Instance, ctx: any, car: any, job: Paint.Job, se
 
 	local body = Ui.scroller({ Name = "PaintShop", Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = parent })
 	Ui.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = body })
+	if top then
+		top(body)
+	end
 
 	-- The bar: what's being tried, Undo, and the price (or the rival who has a locked colour).
 	if not Paint.same(job, now) then

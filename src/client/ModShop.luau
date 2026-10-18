@@ -8,6 +8,7 @@ local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
 local Remote = require(script.Parent.Remote)
+local SkinShop = require(script.Parent.SkinShop)
 local Ui = require(script.Parent.Ui)
 
 local ModShop = {}
@@ -79,7 +80,8 @@ local function byPrice(a: any, b: any): boolean
 end
 
 -- `parent` is the detail card's space under the tabs. `trying`: the part being tried on, or nil.
-function ModShop.draw(parent: Instance, ctx: any, car: any, trying: string?, setTrying: (string?) -> ())
+-- `skinTry`: the mod skin being tried on a slot's part (see SkinShop.Trying).
+function ModShop.draw(parent: Instance, ctx: any, car: any, trying: string?, setTrying: (string?) -> (), skinTry: { slot: string, skin: SkinShop.Trying }?, setSkinTry: ({ slot: string, skin: SkinShop.Trying }?) -> ())
 	local s = store.useGame.getState()
 	local gate = store.gateLevel(s)
 	local def = data.carDef(car.model)
@@ -206,6 +208,16 @@ function ModShop.draw(parent: Instance, ctx: any, car: any, trying: string?, set
 		if deal.deal and not fitted and not have then
 			local tag = Ui.new("Frame", { Name = "Deal", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -86, 0, 2), Size = UDim2.fromOffset(38, 16), BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 4, Parent = card }, { Ui.corner(5) })
 			Ui.text({ Text = "DEAL", TextSize = 10, Size = UDim2.fromScale(1, 1), ZIndex = 4, Parent = tag })
+		end
+	end
+	-- The fitted part's mod skin, in the slots that take one.
+	if table.find(data.SKINNED_SLOTS, slot) then
+		if fit[slot] then
+			SkinShop.mod(body, 900, car, slot, if skinTry and skinTry.slot == slot then skinTry.skin else nil, function(skin: SkinShop.Trying)
+				setSkinTry(if skin == nil then nil else { slot = slot, skin = skin })
+			end)
+		else
+			Ui.text({ Text = `🎨 Fit a {string.lower(info.name)} part to give it a mod skin.`, Body = true, TextSize = 13, TextColor3 = SOFT, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 900, Size = UDim2.new(1, -8, 0, 20), ZIndex = 3, Parent = body })
 		end
 	end
 	Ui.new("Frame", { LayoutOrder = 999, Size = UDim2.new(1, 0, 0, 6), BackgroundTransparency = 1, Parent = body })

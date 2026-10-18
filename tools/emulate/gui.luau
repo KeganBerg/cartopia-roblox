@@ -112,12 +112,13 @@ function Gui.partOf(d)
 			end
 			return nil
 		end)(),
-		-- Custom paint patterns (Models/Panels): a tile on each of some faces.
+		-- Custom paint patterns (Models/Panels) and skins (Models/Skins): a tile on each of some
+		-- faces, tinted and stacked by ZIndex.
 		patterns = (function()
 			local list = {}
 			for _, t in d:GetChildren() do
 				if t:IsA("Texture") and t:GetAttribute("Pattern") then
-					table.insert(list, { image = t:GetAttribute("Pattern"), span = t.StudsPerTileU, face = enumName(t.Face) })
+					table.insert(list, { image = t:GetAttribute("Pattern"), span = t.StudsPerTileU, face = enumName(t.Face), color = t.Color3:ToHex(), z = t.ZIndex })
 				end
 			end
 			return if #list > 0 then list else nil

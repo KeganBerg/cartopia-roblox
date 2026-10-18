@@ -157,7 +157,7 @@ for (const p of parts) {
   scene.add(mesh)
   // Custom paint patterns: each face's tile laid flat over the triangles facing that way, as
   // Roblox's Texture projects onto a part's face.
-  for (const t of p.patterns || []) {
+  for (const t of [...(p.patterns || [])].sort((a, b) => (a.z ?? 1) - (b.z ?? 1))) {
     if (!TEX[t.image]) continue
     const AXIS = { Top: [1, 1], Bottom: [1, -1], Right: [0, 1], Left: [0, -1], Back: [2, 1], Front: [2, -1] }[t.face]
     if (!AXIS) continue
@@ -184,7 +184,7 @@ for (const p of parts) {
     og.computeVertexNormals()
     const map = TEX[t.image].clone()
     map.needsUpdate = true
-    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }))
+    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, color: '#' + (t.color ?? 'ffffff'), transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 - (t.z ?? 1), polygonOffsetUnits: -2 - (t.z ?? 1) }))
     over.matrixAutoUpdate = false
     over.matrix.copy(mesh.matrix)
     scene.add(over)
