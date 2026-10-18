@@ -335,7 +335,7 @@ hud.ctx.close()
 -- A Getaway Chase round, a few seconds in, dodging now and then; then busted.
 hud.openPanel("arcade")
 Emu.resumeWaits()
-press(button(hud.gui, "Play"))
+press(button(hud.gui:FindFirstChild("chase", true), "Play"))
 local Chase = emu.require(client.ArcadeGames.Chase)
 assert(arcadeGui() and Chase.debug, "Getaway Chase didn't start")
 run(1.2)
@@ -387,6 +387,31 @@ end
 print(`park: {string.format("%.2f", pst.t)} s, {pst.bumps} bumps, parked {pst.inSpot}`)
 run(0.5)
 shot("park-result", nil, arcadeGui())
+
+-- The other four games start from their tiles, a few seconds in, then the X quits them.
+for _, id in { "pit", "wash", "delivery", "stunt" } do
+	-- Leave the last result card the way a player does (its Back button), so the next game's
+	-- screen is the only one.
+	while arcadeGui() do
+		local back = button(arcadeGui(), "Back")
+		press(back)
+	end
+	hud.ctx.close()
+	hud.openPanel("arcade")
+	Emu.resumeWaits()
+	press(button(hud.gui:FindFirstChild(id, true), "Play"))
+	local g = arcadeGui()
+	assert(g, `{id} didn't start`)
+	run(4)
+	shot(`{id}-round`, game.Workspace, arcadeGui())
+	local close = arcadeGui() and arcadeGui():FindFirstChild("Close", true)
+	assert(close, `{id} has no X`)
+	press(if close:IsA("GuiButton") then close else close:FindFirstChildWhichIsA("GuiButton", true))
+	run(1)
+	Emu.resumeWaits()
+	print(`{id}: started, quit {arcadeGui() == nil}`)
+	assert(arcadeGui() == nil, `{id}'s X didn't quit`)
+end
 
 for _, c in calls do
 	print(c)
