@@ -698,6 +698,13 @@ it('exports every building and car', async () => {
   for (const kind of PROPS) await piece(`prop:${kind}`, <StreetProp kind={kind} side="s" x={0} z={0} />)
   await piece('prop:hydrant', <Hydrant side="s" x={0} z={0} />)
   await piece('prop:lamp', <StreetLamp side="s" x={0} z={0} />)
+  // The landmarks merged level 10 houses become (merge.ts isLandmark, isGlobe): the Vanguard Tower
+  // fills a 2x2 lot, the Globe Tower a 2x4 (long side along x). TownView draws them in place of
+  // the scaled-up house.
+  const { VanguardTower } = await import('./scene/Landmark')
+  const { GlobeTower } = await import('./scene/GlobeTower')
+  await piece('landmark:vanguard', <VanguardTower />)
+  await piece('landmark:globe', <GlobeTower />)
   // Lawn detail (Tufts.tsx): one of each shape, in each of the season's tints it comes in.
   const { Scatter } = await import('./scene/Outskirts')
   const { PAL, SEASON } = await import('./scene/season')

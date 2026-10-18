@@ -300,7 +300,8 @@ local function node(g, r)
 			end
 		end
 		local cam = g:FindFirstChildOfClass("Camera")
-		n.viewport = {
+		-- (An empty one would encode as an object, not a list.)
+		n.viewport = if #parts == 0 then nil else {
 			parts = parts,
 			cam = cam and { cf = { cam.CFrame:GetComponents() }, fov = cam.FieldOfView } or nil,
 			ambient = hex(g.Ambient),

@@ -230,6 +230,13 @@ if SHOTS then
 			m.Parent = lib.Buildings
 		end
 	end
+	for _, name in { "landmark:vanguard", "landmark:globe" } do
+		local m = Builder.build(name)
+		if m then
+			m.Name = name
+			m.Parent = lib.Buildings
+		end
+	end
 end
 
 -- What Roblox can't send through a remote, or HttpService:JSONEncode can't encode (the server
@@ -702,6 +709,249 @@ do
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Scriptable, "the town view didn't come back")
 	print("walk: on and off")
+end
+-- Merged buildings: a town of merged blocks drawn by the server's TownView (each block once, grown
+-- to fill it; level 10 houses as the Vanguard and Globe Towers; colour themes), Merge mode's
+-- badges (merge, turn, split), a merged block turned in Move, the Upgrade sheet of a block that
+-- becomes a landmark, and Shop > Upgrades with its merged and stacked cards.
+do
+	hud.ctx.close()
+	local TownView = emu.require(SSS.Server.TownView)
+	local Placement = emu.require(client.Placement)
+	local kept
+	towns:_with(1, function(s)
+		kept = s.buildings
+		local list = {}
+		local n = 0
+		local rusty = false
+		local function put(def, x, z, extra)
+			n += 1
+			local b = { uid = `m{n}`, def = def, x = x, z = z, jobEndsAt = nil }
+			for k, v in extra or {} do
+				b[k] = v
+			end
+			table.insert(list, b)
+			return b
+		end
+		for _, b in kept do
+			if b.def == "showroom" or b.def == "garage" or b.def == "gas" or b.def == "tree" then
+				table.insert(list, b)
+			elseif b.def == "rescue" and not rusty then
+				rusty = true
+				-- Kept (the Shop wants Rusty's), out of the blocks' way.
+				local r = table.clone(b)
+				r.x, r.z, r.rot = 16, 17, nil
+				table.insert(list, r)
+			end
+		end
+		-- Four level 10 houses: the Vanguard Tower. Eight: the Globe Tower.
+		for j = 0, 1 do
+			for i = 0, 1 do
+				put("house", 5 + i, 5 + j, { level = 10, merge = if i == 0 and j == 0 then 2 else nil })
+			end
+		end
+		for j = 0, 1 do
+			for i = 0, 3 do
+				put("house", 5 + i, 12 + j, { level = 10, merge = if i == 0 and j == 0 then 42 elseif i == 2 and j == 0 then 2 else nil })
+			end
+		end
+		-- A 2x2 of pizza places with a driver and a job running, a pair of burger joints in mint.
+		for j = 0, 1 do
+			for i = 0, 1 do
+				put("pizza", 8 + i, 5 + j, { merge = if i == 0 and j == 0 then 2 else nil, jobEndsAt = if i == 0 then NOW + 20000 else nil })
+			end
+		end
+		put("burger", 11, 5, { merge = 21, tint = "mint" })
+		put("burger", 12, 5, { tint = "mint" })
+		-- A 4x4 block of pizza places.
+		for j = 0, 3 do
+			for i = 0, 3 do
+				put("pizza", 10 + i, 13 + j, { merge = if i == 0 and j == 0 then 4 else nil })
+			end
+		end
+		-- Loose ones that could merge: four rose houses in a square, and two pizza places.
+		for j = 0, 1 do
+			for i = 0, 1 do
+				put("house", 14 + i, 5 + j, { level = 3, tint = "rose" })
+			end
+		end
+		put("pizza", 17, 5)
+		put("pizza", 18, 5)
+		-- Flower beds merged along z (decor: no lot).
+		put("flowers", 16, 13, { merge = 12 })
+		put("flowers", 16, 14)
+		s.buildings = list
+		s.coins = 5000000
+		s.parts = 5000
+		s.level = 40
+		-- A driver at the pizza block.
+		if s.cars[1] then
+			for _, b in list do
+				b.car = if b.uid == "m13" then s.cars[1].uid elseif b.car == s.cars[1].uid then nil else b.car
+			end
+		end
+	end)
+	local snap = towns:snapshot(1)
+	signalFor(townEvent, "OnClientEvent"):Fire(snap)
+	local townsFolder = Instance.new("Folder")
+	townsFolder.Name = "Towns"
+	townsFolder.Parent = game.Workspace
+	local view = TownView.new(townsFolder, "Player1", roblox.Vector3.new(0, 0, 0), 1, function(uid)
+		towns:run(1, "tapBuilding", uid)
+	end)
+	-- Drawn without the cars' mods, whose meshes the emulator can't load.
+	local function draw(save)
+		for _, c in save.cars do
+			c.mods, c.panels = nil, nil
+		end
+		view:render(save)
+	end
+	draw(snap.save)
+	local drawn = view.folder.Buildings
+	-- Each block draws once, from its top-left building.
+	assert(drawn:FindFirstChild("m1") and not drawn:FindFirstChild("m2"), "the Vanguard block didn't draw as one building")
+	assert(drawn:FindFirstChild("m5") and not drawn:FindFirstChild("m6") and not drawn:FindFirstChild("m7"), "the Globe block didn't draw as one building")
+	assert(drawn.m1:GetAttribute("Name") == "Vanguard Tower", `the Vanguard block is named {drawn.m1:GetAttribute("Name")}`)
+	assert(drawn.m5:GetAttribute("Name") == "Globe Tower", `the Globe block is named {drawn.m5:GetAttribute("Name")}`)
+	assert(drawn:FindFirstChild("m19") and not drawn:FindFirstChild("m20"), "the 4x4 block didn't draw as one building")
+	assert(drawn.m19.Hit.Size.X > 70, "the 4x4 block's tap box doesn't cover it")
+	assert(drawn:FindFirstChild("m35") and drawn:FindFirstChild("m36"), "loose houses went missing")
+	local function setCamera(from, at)
+		game.Workspace.CurrentCamera.CFrame = roblox.CFrame.lookAt(from, at)
+	end
+	-- Every building answers a tap, houses too (they open their Upgrade sheet).
+	calls = {}
+	local click = drawn.m35.Hit:FindFirstChildOfClass("ClickDetector")
+	assert(click, "a house has no ClickDetector")
+	print(`merges: {#drawn:GetChildren()} buildings drawn for {#snap.save.buildings} in the save`)
+	setCamera(roblox.Vector3.new(170, 260, 300), roblox.Vector3.new(0, 0, 0))
+	Emu.resumeWaits()
+	shot("merges-town", view.folder)
+	-- Merge mode: a Merge badge on every block that could merge, and turn / split on merged ones.
+	hud.openPanel("edit", "merge")
+	local marks = player.PlayerGui:FindFirstChild("EditMarks", true)
+	assert(marks, "Merge mode drew no badges")
+	local merges, splits = {}, {}
+	for _, d in marks:GetChildren() do
+		if d:IsA("BillboardGui") and d.Name == "Merge" then
+			local l = d:FindFirstChildWhichIsA("TextLabel", true)
+			table.insert(merges, `{l and l.Text or "?"} at {d:GetAttribute("Anchor")}`)
+		elseif d:IsA("BillboardGui") and d.Name == "Split" then
+			table.insert(splits, d)
+		end
+	end
+	print(`merge mode: {table.concat(merges, ", ")}; {#splits} merged blocks`)
+	assert(#splits == 6, `{#splits} split badges for 6 merged blocks`)
+	local fours = 0
+	for _, t in merges do
+		if string.find(t, "×4", 1, true) then
+			fours += 1
+		end
+	end
+	assert(fours >= 1 and #merges >= 2, "the four rose houses and the pizza pair have no Merge badges")
+	shot("merges-mode", view.folder)
+	local function pressIn(gui, text)
+		for _, d in gui:GetDescendants() do
+			if d:IsA("TextButton") then
+				local l = d:FindFirstChildWhichIsA("TextLabel", true)
+				if l and string.find(l.Text, text, 1, true) then
+					calls = {}
+					handlerErrors = {}
+					signalFor(d, "Activated"):Fire()
+					assert(#handlerErrors == 0, table.concat(handlerErrors, "; "))
+					return calls[1] or "nothing"
+				end
+			end
+		end
+		return "no button"
+	end
+	-- Merge the four rose houses (×4), turn the burger pair, split the flower beds.
+	local mergeBadge
+	for _, d in marks:GetChildren() do
+		local l = d:IsA("BillboardGui") and d.Name == "Merge" and d:FindFirstChildWhichIsA("TextLabel", true)
+		if l and string.find(l.Text, "×4", 1, true) then
+			mergeBadge = d
+		end
+	end
+	local r = pressIn(mergeBadge, "Merge")
+	assert(r == "ok mergeBlock", `Merge ×4: {r}`)
+	draw(towns:snapshot(1).save)
+	assert(drawn:FindFirstChild("m35") and not drawn:FindFirstChild("m36"), "the merged rose houses still draw apart")
+	marks = player.PlayerGui:FindFirstChild("EditMarks", true)
+	local burgerTools
+	for _, d in marks:GetChildren() do
+		if d:IsA("BillboardGui") and d.Name == "Split" and d.Adornee then
+			local p = d.Adornee.CFrame.Position
+			-- The burger pair's middle: tiles 11.5, 5.
+			if math.abs(p.X - (11.5 - 11.5) * 20) < 1 and math.abs(p.Z - (5 - 11.5) * 20) < 1 then
+				burgerTools = d
+			end
+		end
+	end
+	assert(burgerTools, "no turn and split badges over the burger pair")
+	r = pressIn(burgerTools, "🔄")
+	assert(r == "ok rotateBlock", `turning the burger pair: {r}`)
+	local turned = towns:snapshot(1).save
+	draw(turned)
+	marks = player.PlayerGui:FindFirstChild("EditMarks", true)
+	r = pressIn(marks, "Split")
+	assert(r == "ok splitBlock", `splitting a block: {r}`)
+	print("merge mode: merge, turn and split ok")
+	hud.ctx.close()
+	Placement.cancel()
+	-- The rose block's Upgrade sheet, and a Vanguard block's (at max level).
+	hud.openPanel("upgrade", "m35")
+	shot("merges-upgrade", nil)
+	hud.ctx.close()
+	hud.openPanel("upgrade", "m1")
+	shot("merges-upgrade-landmark", nil)
+	hud.ctx.close()
+	-- Four level 9 houses: the upgrade makes them the Vanguard Tower, and the sheet says so.
+	towns:_with(1, function(s)
+		for _, b in s.buildings do
+			if b.uid == "m35" or b.uid == "m36" or b.uid == "m37" or b.uid == "m38" then
+				b.level = 9
+			end
+		end
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.openPanel("upgrade", "m35")
+	local saysTower = false
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "Vanguard Tower" then
+			saysTower = true
+		end
+	end
+	assert(saysTower, "the Upgrade sheet doesn't say four level 9 houses become the Vanguard Tower")
+	shot("merges-upgrade-becomes", nil)
+	hud.ctx.close()
+	hud.openPanel("shop", "upgrades")
+	local k4 = false
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "🧩×4" then
+			k4 = true
+		end
+	end
+	assert(k4, "Shop > Upgrades has no 🧩×4 card")
+	shot("merges-shop", nil)
+	-- Scrolled down to the maxed ones.
+	local shopGrid = hud.gui:FindFirstChild("Grid", true)
+	if shopGrid then
+		shopGrid.CanvasPosition = roblox.Vector2.new(0, 520)
+	end
+	shot("merges-shop-max", nil)
+	hud.ctx.close()
+	-- Play mode again, with the job badges' merge chips.
+	draw(towns:snapshot(1).save)
+	emu.require(client.Jobs).refresh()
+	shot("merges-play", view.folder)
+	-- Put the town back for what follows.
+	towns:_with(1, function(s)
+		s.buildings = kept
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	townsFolder:Destroy()
+	print("merges: drawn, merged, turned, upgraded")
 end
 if SHOTS then
 	for _, p in { "shop", "goals", "menu", "cars" } do
