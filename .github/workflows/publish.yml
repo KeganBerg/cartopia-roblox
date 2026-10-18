@@ -103,7 +103,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Convert the latest web game"
-          git push
+          # main may have moved during a long upload; replay this commit on top rather than lose
+          # the uploaded shapes' ids.
+          for i in 1 2 3 4 5; do
+            git pull --rebase -X theirs origin main && git push && exit 0
+            sleep $((i * 5))
+          done
+          exit 1
 
       - uses: CompeyDev/setup-rokit@v0.1.2
         if: env.CAN_PUBLISH == 'true'
