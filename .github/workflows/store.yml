@@ -5,6 +5,9 @@ name: Game page pictures
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -17,8 +20,11 @@ jobs:
         env:
           API_KEY: ${{ secrets.ROBLOX_API_KEY }}
           UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: game-page
-          path: build/game-page/
-          if-no-files-found: ignore
+      # The pictures Roblox serves, on their own branch so they can be looked at from anywhere.
+      - name: Save the pictures to the game-page-check branch
+        run: |
+          cd build/game-page
+          git init -q -b game-page-check
+          git add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -qm "What the game page shows"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" game-page-check

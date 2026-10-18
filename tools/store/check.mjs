@@ -6,7 +6,8 @@
 //
 //   API_KEY=<key> UNIVERSE=<id> node tools/store/check.mjs
 //
-// It also saves the pictures Roblox is serving into build/game-page/, so they can be looked at.
+// It also saves the pictures Roblox is serving into build/game-page/; the workflow pushes them
+// to the game-page-check branch so they can be looked at.
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 
