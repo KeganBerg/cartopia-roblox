@@ -214,7 +214,8 @@ local function template(name: string): Model?
 	model.Name = name
 	-- A countryside mesh covers a whole patch of ground, so a stand-in box would bury the town:
 	-- those are left out until their mesh is uploaded.
-	local scenery = Scenery.MODELS[name] ~= nil and not Builder.previewMeshes
+	-- Racing stripes as boxes would bury the car, so they wait for their meshes too.
+	local scenery = (Scenery.MODELS[name] ~= nil or name:sub(1, 7) == "stripe:") and not Builder.previewMeshes
 	for _, p in parts do
 		if not (scenery and p[1] == "m" and not meshParts[p[13]]) then
 			makePart(p).Parent = model

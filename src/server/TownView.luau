@@ -20,6 +20,7 @@ local roadLayout = require(Game.scene_traffic_layout) :: any
 local streetFurniture = require(Game.streetFurniture) :: any
 local Builder = require(Shared.Models.Builder)
 local Catalog = require(Shared.Models.Catalog)
+local Paint = require(Shared.Models.Paint)
 
 local SCALE = Catalog.SCALE
 local TILE = data.TILE * SCALE -- studs per tile
@@ -638,15 +639,17 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 			cf = CFrame.new(self.origin + Vector3.new(queue * 8, 0, 0))
 			queue += 1
 		end
-		local key = `{car.model}|{car.color}`
+		local job = Paint.jobOf(car)
+		local key = `{car.model}|{Paint.key(job)}`
 		local have: { model: Model, key: string }? = self.cars[car.uid]
 		if have and have.key ~= key then
 			have.model:Destroy()
 			have = nil
 		end
 		if not have then
-			local m = Builder.build(car.model, Color3.fromHex(car.color))
+			local m = Builder.build(car.model)
 			if m then
+				Paint.apply(m, job, if type(job.stripe) == "string" then Builder.build(`stripe:{car.model}`) else nil)
 				m.Name = car.uid
 				m.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 				m:SetAttribute("Uid", car.uid)
