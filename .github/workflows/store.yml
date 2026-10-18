@@ -1,29 +1,24 @@
-# Puts the game page's icon and thumbnails (store/, made by tools/store/shoot.mjs) on Roblox
-# whenever they change on main. Run it by hand with "check only" to see what the page shows now.
+# Shows what the Roblox game page has for its icon and thumbnails (tools/store/check.mjs). The
+# pictures in store/ are uploaded by hand in the Creator Dashboard; Open Cloud can't set them.
 name: Game page pictures
 
 on:
-  push:
-    branches: [main]
-    paths: ['store/**', 'tools/store/upload.mjs', '.github/workflows/store.yml']
   workflow_dispatch:
-    inputs:
-      check:
-        description: Only check what the page shows now
-        type: boolean
-        default: false
-
-concurrency: store
 
 jobs:
-  upload:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: node tools/store/upload.mjs ${{ inputs.check && '--check' || '' }}
+      - run: node tools/store/check.mjs
         env:
           API_KEY: ${{ secrets.ROBLOX_API_KEY }}
           UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game-page
+          path: build/game-page/
+          if-no-files-found: ignore
