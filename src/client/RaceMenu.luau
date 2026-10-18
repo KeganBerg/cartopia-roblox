@@ -932,6 +932,10 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			Ui.setText(title, TITLES[which] or (PAGES[which] and PAGES[which].title) or "Race")
 		end
 		content:ClearAllChildren()
+		-- A page with its own car bar (the Daily Run's loaner) hides the usual one.
+		local ownBar = PAGES[which] ~= nil and PAGES[which].hideBar == true
+		barHolder.Visible = not ownBar
+		content.Size = if ownBar then UDim2.fromScale(1, 1) else UDim2.new(1, 0, 1, -86)
 		local page = Ui.new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = content })
 		if which ~= "hub" then
 			-- Back to the front page.
