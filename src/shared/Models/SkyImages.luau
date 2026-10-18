@@ -18,7 +18,7 @@ return {
 	},
 	-- The moon through its month (phase i / #moon: 0 new, 0.5 full), for the sun's place at night;
 	-- the northern lights as one long strip; and the season's falling leaves, petals and snow.
-	moon = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-	aurora = 0,
-	fliers = { leaf = 0, petal = 0, flake = 0 },
+	moon = { 130282930569811, 121302637262035, 100770519297850, 101014346906329, 127050923801624, 102192208625316, 88512237602704, 122497277377383, 131072587833177, 96658175255729, 101068404005711, 100969896306975, 76215469949143, 131528862388399, 84864142600048, 93453638544593 },
+	aurora = 117273104758426,
+	fliers = { leaf = 79355642135111, petal = 75114171304508, flake = 107579872852728 },
 }
