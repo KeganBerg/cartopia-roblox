@@ -76,9 +76,17 @@ crateRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
 
 -- The mesh packs load first, so towns are drawn with real meshes rather than stand-in boxes.
+-- Workspace's ShapesLoaded / ShapesTotal / ShapesReady attributes tell the clients' loading screen
+-- (ReplicatedFirst/Loading) how far along this is. Towns are drawn as soon as the meshes are in;
+-- the model library for the shop pictures is built after that, while players are already in.
 local meshesReady = false
 task.spawn(function()
-	Builder.loadMeshes(45)
+	Builder.loadMeshes(45, function(done, total)
+		workspace:SetAttribute("ShapesLoaded", done)
+		workspace:SetAttribute("ShapesTotal", total)
+	end)
+	meshesReady = true
+	workspace:SetAttribute("ShapesReady", true)
 	-- A copy of every car and building for the client's shop pictures and placement ghost.
 	local library = Instance.new("Folder")
 	library.Name = "ModelLibrary"
@@ -104,7 +112,6 @@ task.spawn(function()
 		end
 	end
 	library.Parent = ReplicatedStorage
-	meshesReady = true
 end)
 
 local townsFolder = Instance.new("Folder")
@@ -213,6 +220,8 @@ Players.PlayerAdded:Connect(function(player)
 	player:SetAttribute("TownSlot", slot)
 	push(player, true)
 	spawnAt(player)
+	-- The town is drawn: the player's loading screen can wait for it to stream in and lift.
+	player:SetAttribute("TownReady", true)
 	player.CharacterAdded:Connect(function()
 		task.wait()
 		spawnAt(player)
