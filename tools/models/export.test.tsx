@@ -27,6 +27,23 @@ vi.mock('./scene/Batch', async (load) => {
   const Plain = (p: { children?: React.ReactNode }) => React.createElement('group', null, p.children)
   return { ...real, Batch: (p: Record<string, unknown>) => React.createElement((batching.off ? Plain : real.Batch) as React.FC, p) }
 })
+// Every hand-drawn texture (scene/textures.ts) is tagged with the name of the function that made it,
+// so build.mjs can give the surface the nearest Roblox material (brick walls as Brick, shingles as
+// RoofShingles): seen up close in walk mode, a flat colour reads as an untextured wall.
+vi.mock('./scene/textures', async (load) => {
+  const real = (await load()) as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const [name, f] of Object.entries(real)) {
+    out[name] = typeof f === 'function' && name.endsWith('Tex')
+      ? (...args: unknown[]) => {
+          const t = (f as (...a: unknown[]) => unknown)(...args) as { userData?: Record<string, unknown> } | null
+          if (t && typeof t === 'object' && t.userData) t.userData.rbxTex = name
+          return t
+        }
+      : f
+  }
+  return out
+})
 // Screen effects and the sky's reflections need a real renderer and draw no shapes.
 vi.mock('./scene/PostFx', async (load) => ({ ...((await load()) as object), PostFx: () => null }))
 vi.mock('./scene/SkyEnv', async (load) => ({ ...((await load()) as object), SkyEnv: () => null }))
@@ -208,6 +225,7 @@ type Look = {
   rough?: number
   basic?: boolean // unlit
   text?: { text: string; fg: string; bg: string }
+  tex?: string // the texture's maker in scene/textures.ts (brickTex, sidingTex...)
 }
 
 function cssColor(s: string): string | null {
@@ -264,6 +282,8 @@ function lookOf(m: Material, tint?: Color): Look | null {
   if (sm.emissive && (sm.emissiveIntensity ?? 1) > 0 && sm.emissive.getHex() !== 0) {
     look.e = hex(sm.emissive.clone().multiplyScalar(Math.min(1, sm.emissiveIntensity ?? 1)))
   }
+  const tex = sm.map?.userData?.rbxTex
+  if (typeof tex === 'string') look.tex = tex
   if ('metalness' in sm) look.met = r4(sm.metalness)
   if ('roughness' in sm) look.rough = r4(sm.roughness)
   if ((m as { type: string }).type === 'MeshBasicMaterial') look.basic = true
@@ -503,7 +523,7 @@ it('exports every building and car', async () => {
   // the fans in client/SpeedwayLife.luau stand on), so it's drawn at every level.
   const levelsOf = (id: string) => (id === 'stadium' ? [...new Set([...LEVELS, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])].sort((a, b) => a - b) : LEVELS)
   if (!only) for (const d of BUILDINGS) {
-    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, pieces: await render(<BuildingModel def={d} level={level} />) })
+    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, lot: [d.w * TILE, d.h * TILE], pieces: await render(<BuildingModel def={d} level={level} />) })
   }
   // Mods (CarMods.tsx, the Rims and Stance looks): each car drawn with one part fitted at a time
   // and compared with the stock car. The pieces the part adds are its model ("mod:<car>:<part>"),
