@@ -26,6 +26,9 @@ local Skins = require(ReplicatedStorage.Shared.Models.Skins)
 
 local KartWorld = {}
 
+-- How much bigger a kart is drawn than the race's KART_LEN (see KartWorld.kart).
+KartWorld.LOOK = 1.3
+
 KartWorld.S = 10 -- studs per web unit
 local S = KartWorld.S
 KartWorld.ORIGIN = Vector3.new(-60000, 0, 0) -- far from every town and the drag strip
@@ -377,6 +380,29 @@ local function pads(into: Instance, t: any)
 	end
 end
 
+-- The ghost racing line painted on the road (KartScene RacingLine): dashes along the AI's line,
+-- green where it's flat out, through amber to red before a bend that needs braking.
+local LINE_COLS = { hex("#39e07a"), hex("#ffc23d"), hex("#ff4d4d") }
+local function racingLine(into: Instance, t: any)
+	local rl = K.racingLine(t)
+	local off, heat = rl.off, rl.heat
+	local s = 0
+	for i = 0, t.n - 1 do
+		local j = (i + 1) % t.n
+		local step = math.sqrt((t.x[j] - t.x[i]) ^ 2 + (t.z[j] - t.z[i]) ^ 2)
+		s += step
+		if math.floor(s / 1.6) % 2 == 1 then
+			continue
+		end
+		local h = heat[i]
+		local c = if h < 0.5 then LINE_COLS[1]:Lerp(LINE_COLS[2], h * 2) else LINE_COLS[2]:Lerp(LINE_COLS[3], (h - 0.5) * 2)
+		local x0, z0 = t.x[i] + t.nx[i] * off[i], t.z[i] + t.nz[i] * off[i]
+		local x1, z1 = t.x[j] + t.nx[j] * off[j], t.z[j] + t.nz[j] * off[j]
+		local len = math.sqrt((x1 - x0) ^ 2 + (z1 - z0) ^ 2)
+		part({ Name = "RacingLine", Size = Vector3.new(0.32 * S, 0.3, (len + 0.02) * S), CFrame = CFrame.new(W((x0 + x1) / 2, Y_PAINT, (z0 + z1) / 2) - Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, math.atan2(x1 - x0, z1 - z0), 0), Color = c, Transparency = 0.4 }, into)
+	end
+end
+
 -- Large flat plates (Roblox parts stop at 2048 studs) covering `size` web units round the middle.
 local function plates(into: Instance, size: number, y: number, thick: number, color: string, name: string, material: Enum.Material?)
 	local n = math.ceil(size * S / 2000)
@@ -672,6 +698,7 @@ function KartWorld.circuit(t: any, pool: { string }?): (Model, { BasePart })
 	end
 	surface(m, t, th)
 	local lamps = startLine(m, t)
+	racingLine(m, t)
 	pads(m, t)
 	trackside(m, t, sp)
 	if t.def.theme == "town" then
@@ -715,7 +742,9 @@ function KartWorld.kart(look: any, parent: Instance): KartView
 	local pivot = m:GetPivot()
 	local cf, size = m:GetBoundingBox()
 	local long = math.max(size.Z, 1)
-	local k = K.KART_LEN * S / long
+	-- The web scales a car by its body's frame length (carFrame), which leaves out the bumpers and
+	-- trim: nose to tail its karts come out about 1.3 times KART_LEN (the race itself uses KART_LEN).
+	local k = K.KART_LEN * KartWorld.LOOK * S / long
 	local parts = {}
 	for _, d in m:GetDescendants() do
 		if d:IsA("BasePart") then

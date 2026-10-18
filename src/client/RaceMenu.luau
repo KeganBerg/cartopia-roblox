@@ -18,6 +18,7 @@ local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
 local DragStrip = require(script.Parent.DragStrip)
+local KartRun = require(script.Parent.KartRun)
 local RepChip = require(script.Parent.RepChip)
 local Mastery = require(script.Parent.Mastery)
 local tour = require(Game.tour) :: any
@@ -32,7 +33,9 @@ local RaceMenu = {}
 
 -- The other race modes' pages (client/RacePages/*.luau), by tab id. Each page module has:
 --   id, title          the tab id (also its Race remote mode) and the menu's title on it
---   mini               { icon, label }: the small button on the front page that opens it
+--   mini               { icon, label, go? }: the small button on the front page that opens it
+--                      (go(ctx, api): what it does instead, e.g. start a race straight away)
+--   chip(s)            the words on the menu head's chip on its page
 --   draw(page, ctx, api)  draws the page; api has start(mode, which), show(tab), money(n),
 --                      myCar(), raceButton(parent, props, prize, onClick, kind?) and tile(...)
 --   extras(ctx, which, started, again)  what the mode adds to the race screen (DragStrip.Extras);
@@ -242,6 +245,13 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		tag = tag,
 		stars = stars,
 		DARK = DARK,
+		-- The menu itself, for a card over it that closes with it.
+		sheet = overlay,
+		-- Starts a kart race (client/KartRun): "gp" (which: the series), "blast" or "custom" (the pick).
+		kart = function(kind: string, which: any)
+			lastTab = tab
+			KartRun.start(ctx, kind, which, tab)
+		end,
 	}
 
 	-- ── The bar: the car you race with ────────────────────────────────────────────────────────
@@ -633,7 +643,9 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			end
 		end
 		local round = (gp[series.id] and gp[series.id].round) or 0
-		local gpFace = hubTile(cell(3, 3, 3, 3, 3), "GrandPrix", soon("The Grand Prix"))
+		local gpFace = hubTile(cell(3, 3, 3, 3, 3), "GrandPrix", function()
+			show("gp")
+		end)
 		scene(gpFace, { horizon = 0.35, groundTop = "#7cc56a", groundBottom = "#4f9a46", road = false, cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.72 })
 		hubTag(gpFace, "GRAND PRIX", "#ffd84a")
 		title(gpFace, series.name, 40, 19)
@@ -691,8 +703,13 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		for _, m in MINIS do
 			for id, p in PAGES do
 				if p.mini and p.mini.label == m[2] then
+					local go = p.mini.go
 					m[3] = function()
-						show(id)
+						if go then
+							go(ctx, api)
+						else
+							show(id)
+						end
 					end
 				end
 			end
@@ -940,8 +957,18 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		if oldChip then
 			oldChip:Destroy()
 		end
+		local oldPage = headExtras:FindFirstChild("PageChip")
+		if oldPage then
+			oldPage:Destroy()
+		end
 		if which == "hub" then
 			RepChip.draw(headExtras)
+		elseif PAGES[which] and PAGES[which].chip then
+			-- A mode's own chip (.rm-head-chip): its progress in a few words.
+			local text = PAGES[which].chip(store.useGame.getState())
+			local w = math.ceil(Ui.textWidth(text, 13) * 1.05) + 22
+			local pc = Ui.new("Frame", { Name = "PageChip", LayoutOrder = 1, Size = UDim2.fromOffset(w, 26), BackgroundColor3 = Color3.fromHex("#0a1e46"), BackgroundTransparency = 0.65, Parent = headExtras }, { Ui.round(), Ui.stroke(2, Ui.LINE, 0.45) })
+			Ui.text({ Text = text, Body = true, Weight = "heavy", TextSize = 13, Size = UDim2.fromScale(1, 1), Shadow = 1, ShadowTransparency = 0.6, ShadowColor = Ui.BLACK, Parent = pc })
 		end
 		content:ClearAllChildren()
 		-- A page with its own car bar (the Daily Run's loaner) hides the usual one.

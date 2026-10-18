@@ -39,6 +39,7 @@ local S = KartWorld.S
 local W = KartWorld.W
 local STEP = 1 / 120
 local HERO_TIME = 2.2
+local LOOK = KartWorld.LOOK
 
 local function hex(h: string): Color3
 	return Color3.fromHex(h)
@@ -835,7 +836,7 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 			local body = base * CFrame.new(0, (p.y + bob) * S, 0) * CFrame.Angles(pitch, k.spinYaw + k.drift * 0.32, roll)
 			v.model:PivotTo(body * v.offset)
 			local fx = v.fx
-			local back = -K.KART_LEN / 2 - 0.05
+			local back = -K.KART_LEN * LOOK / 2 - 0.05
 			local sparking = k.drift ~= 0 and k.charge > K.DRIFT_BLUE * 0.6 and not k.air
 			local sparkColor = hex(if k.charge >= K.DRIFT_ORANGE then "#ff9100" elseif k.charge >= K.DRIFT_BLUE then "#40c4ff" else "#fff59d")
 			for sd, name in { [-1] = "sparkL", [1] = "sparkR" } do
@@ -843,7 +844,7 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 				s.Transparency = if sparking then 0.1 else 1
 				if sparking then
 					s.Color = sparkColor
-					s.CFrame = body * CFrame.new(sd * 0.5 * S, 0.12 * S, (back + 0.25) * S)
+					s.CFrame = body * CFrame.new(sd * 0.5 * LOOK * S, 0.12 * S, (back + 0.25) * S)
 				end
 			end
 			fx.flame.Transparency = if k.boost > 0 then 0.15 else 1
@@ -862,7 +863,7 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 			end
 			fx.magnet.Transparency = if k.tow > 0 then 0 else 1
 			if k.tow > 0 then
-				fx.magnet.CFrame = body * CFrame.new(0, 1.25 * S, 0.2 * S)
+				fx.magnet.CFrame = body * CFrame.new(0, 1.25 * LOOK * S, 0.2 * S)
 			end
 			local ghosted = k.ghost > 0
 			if ghosted ~= v.ghosted then
@@ -878,12 +879,12 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 			fx.rocket.Transparency = if k.rocket > 0 then 0 else 1
 			fx.rocketFlame.Transparency = if k.rocket > 0 then 0.1 else 1
 			if k.rocket > 0 then
-				fx.rocket.CFrame = body * CFrame.new(0, 1.05 * S, -0.15 * S) * CFrame.Angles(0, math.pi / 2, 0)
-				fx.rocketFlame.CFrame = body * CFrame.new(0, 1.05 * S, (-0.15 - 1.75 * 0.8) * S)
+				fx.rocket.CFrame = body * CFrame.new(0, 1.05 * LOOK * S, -0.15 * S) * CFrame.Angles(0, math.pi / 2, 0)
+				fx.rocketFlame.CFrame = body * CFrame.new(0, 1.05 * LOOK * S, (-0.15 - 1.75 * 0.8) * S)
 			end
 			fx.splat.Transparency = if k.splat > 0 then 0 else 1
 			if k.splat > 0 then
-				fx.splat.CFrame = body * CFrame.new(0, 0.62 * S, 0.45 * S) * CFrame.Angles(0, 0, math.pi / 2)
+				fx.splat.CFrame = body * CFrame.new(0, 0.62 * LOOK * S, 0.45 * LOOK * S) * CFrame.Angles(0, 0, math.pi / 2)
 			end
 			-- The tow beam to the kart being reeled in.
 			local beam = beams(i)
