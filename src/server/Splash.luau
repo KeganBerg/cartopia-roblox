@@ -30,10 +30,20 @@ function Splash.start()
 	-- Ahead of the 3D shapes: this time of day's screen, then the other times of day's.
 	resolve(Images.wordmark)
 	resolve(Images.vignette)
+	resolve(Images.shadow)
+	local tiles = Images.tiles or {}
 	for _, time in { now, "day", "dusk", "night" } do
 		for _, kind in { Images.town, Images.sun } do
 			resolve(kind[time].wide)
 			resolve(kind[time].tall)
+		end
+		-- Big screens' sharper tiles of them.
+		for _, name in { "town", "sun" } do
+			for _, shape in { "wide", "tall" } do
+				for _, t in tiles[`{name}-{time}-{shape}`] or {} do
+					resolve(t.id)
+				end
+			end
 		end
 	end
 	-- Then every texture: the ground's first, as each town is drawn on it.

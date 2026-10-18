@@ -196,6 +196,9 @@ function Countryside.draw(origin: Vector3, parent: Instance): (save: any) -> ()
 						m.Parent = wilds
 						plots[k] = m
 					end
+					-- A frame between plots, so the loading screen keeps moving smoothly while
+					-- the countryside is drawn behind it.
+					task.wait()
 				end
 			end
 		end
