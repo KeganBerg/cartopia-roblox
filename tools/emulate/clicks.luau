@@ -1185,3 +1185,93 @@ trialRun("trial2")
 -- The Daily Run: the day's loaner against par; the first run of the day pays.
 modeRace("daily", "Daily Run", "🏁 %$")
 print(`daily run: {(towns:snapshot(1).save.daily or {}).best or "no time"}`)
+-- Tuner Trials: with the build missing, the race button opens the Garage; then the race car gets
+-- Downforce Dash's build (a spoiler, snow studs, tuning) and races it for the Hex pattern.
+do
+	local tdata = emu.require(G.data)
+	local rc = emu.require(G.raceCar)
+	local function build(mods, up)
+		towns:_with(1, function()
+			local s = store.useGame.getState()
+			local car = rc.raceCarOf(s.cars, s.raceCar)
+			local cars = table.clone(s.cars)
+			for i, c in cars do
+				if c.uid == car.uid then
+					local body = tdata.carDef(c.model).body
+					local list = {}
+					for _, slot in mods do
+						if slot == "snowstuds" then
+							table.insert(list, slot)
+						else
+							for _, m in tdata.MODS do
+								if m.slot == slot and tdata.modFits(m, body) and (m.bucks or 0) == 0 then
+									table.insert(list, m.id)
+									break
+								end
+							end
+						end
+					end
+					local c2 = table.clone(c)
+					c2.mods = list
+					c2.upgrades = up
+					cars[i] = c2
+				end
+			end
+			store.useGame.setState({ cars = cars, raceCar = car.uid, tuner = { boostbox = 1, pipes = 1 } })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		Emu.resumeWaits()
+	end
+	topUp()
+	build({}, { engine = 0, turbo = 0, tires = 0, weight = 0 })
+	hud.ctx.close()
+	hud.openPanel("race", "tuner")
+	local fit = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Visible and string.find(label(d), "Fit parts", 1, true) ~= nil
+	end)
+	assert(fit, "no Fit parts button on the Tuner Trials page")
+	signalFor(fit, "Activated"):Fire()
+	local garage = find(hud.gui, function(d)
+		return d.Name == "Cars" and d:IsA("Frame")
+	end)
+	print(`tuner fit parts: {if garage then "garage opened" else "NO GARAGE"}`)
+	assert(garage, "Fit parts didn't open the Garage")
+	hud.ctx.close()
+	build({ "spoiler", "snowstuds" }, { engine = 5, turbo = 5, tires = 5, weight = 5 })
+	-- Raced from the page as modeRace does, then the result card's Paint it opens the Custom tab.
+	topUp()
+	hud.ctx.close()
+	local tf, _, tres = runRace("tuner", { [60] = true }, function()
+		hud.openPanel("race", "hub")
+		local m = find(hud.gui, function(d)
+			return d:IsA("TextButton") and string.find(label(d), "Tuner Trials", 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+		end)
+		assert(m, "no Tuner Trials button on the front page")
+		signalFor(m, "Activated"):Fire()
+		if SHOTS then
+			shot("page-tuner", nil)
+		end
+		local b = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil
+		end)
+		assert(b, "no race button on the Tuner Trials page")
+		signalFor(b, "Activated"):Fire()
+	end)
+	print(`tuner: {tf} frames; card: {cardText(tres)}`)
+	print(`tuner calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	local tw = (towns:snapshot(1).save.tuner or {}).downforce or 0
+	print(`tuner trials won: downforce ×{tw}`)
+	if tw > 0 then
+		local paintIt = cardButton("Paint it")
+		assert(paintIt, "no Paint it button after winning the Hex pattern")
+		signalFor(paintIt, "Activated"):Fire()
+		Emu.resumeWaits()
+		local custom = find(hud.gui, function(d)
+			return d.Name == "CustomShop"
+		end)
+		print(`tuner paint it: garage custom tab open {custom ~= nil}`)
+		assert(custom, "Paint it didn't open the Custom tab")
+		hud.ctx.close()
+	end
+	closeRace()
+end
