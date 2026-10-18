@@ -2,8 +2,9 @@
 -- The heads-up display, laid out like the web game's Hud and BottomBar (ui/Hud.tsx, Menus.tsx):
 -- the speedometer level gauge (it's also the Menu button) and the coin, gem and parts pills top
 -- left; the town name, MY CARS and the goal tracker top middle; fuel, trophies and sound top
--- right; SHOP, CARS and EDIT bottom left, RACE bottom right, with Goals and Collect All docked
--- above it. Also shows toasts and the menus (one at a time), including the ones the server opens.
+-- right; SHOP, CARS, SOCIAL, CHAT and EDIT bottom left, RACE bottom right, with Goals and Collect
+-- All docked above it. While visiting someone's town the bottom bar steps aside for the visit
+-- banner (Popups/Visit), as on the web. Also shows toasts and the menus (one at a time), including the ones the server opens.
 --
 -- Built once. The refresh only changes text, sizes and colours that changed; it never makes
 -- instances.
@@ -12,12 +13,14 @@ local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local StarterGui = game:GetService("StarterGui")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Motion = require(script.Parent.Motion)
 local Icons = require(script.Parent.Icons)
 local Shop = require(script.Parent.Shop)
 local Cars = require(script.Parent.Cars)
@@ -76,6 +79,8 @@ function Hud.start()
 	})
 	-- Everything sits in one frame laid out at the web's 1280x800 and scaled to fit the screen:
 	-- phones see the same screen, smaller (never bigger than on the web).
+	-- Every button on the screen presses, hovers and taps, as on the web (UIMotion).
+	Motion.bindAll(gui)
 	local root = Ui.new("Frame", { Name = "Root", BackgroundTransparency = 1, Size = UDim2.fromOffset(REF_W, REF_H), Parent = gui })
 	local scale = Ui.new("UIScale", { Scale = 1, Parent = root })
 	local left = Ui.new("Frame", { Name = "Left", Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(250, 120), BackgroundTransparency = 1, Parent = root })
@@ -114,19 +119,25 @@ function Hud.start()
 		end)
 	end
 
-	-- One menu at a time.
+	-- One menu at a time. Closing drops the menu away (Motion.panelOut); opening another in its
+	-- place swaps them at once.
 	local open: Instance? = nil
-	local function close()
+	local function close(instant: boolean?)
 		if open then
-			open:Destroy()
+			local o = open
 			open = nil
+			Motion.panelOut(o, instant)
 		end
 	end
 
 	local openPanel: (string, any?) -> ()
 	local ctx = {
+		-- The town being visited (Popups/Visit sets it): { townName, ... }, or nil at home.
+		visiting = nil :: any,
 		gui = root,
-		close = close,
+		close = function()
+			close()
+		end,
 		toast = toast,
 		open = function(name: string, arg: any?)
 			openPanel(name, arg)
@@ -314,8 +325,8 @@ function Hud.start()
 		end
 	end
 
-	-- ── Bottom: SHOP, CARS, EDIT and RACE; Goals and Collect All docked on the right ─────────
-	local bar = Ui.new("Frame", { Name = "BottomBar", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.fromOffset(3 * 66 + 2 * 8, 80), BackgroundTransparency = 1, Parent = root }, {
+	-- ── Bottom: SHOP, CARS, SOCIAL, CHAT, EDIT and RACE; Goals and Collect All on the right ───
+	local bar = Ui.new("Frame", { Name = "BottomBar", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.fromOffset(5 * 66 + 4 * 8, 80), BackgroundTransparency = 1, Parent = root }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	local function iconButton(order: number, colors: string, icon: string, label: string, onClick: () -> ())
@@ -325,6 +336,7 @@ function Hud.start()
 		local mid = Color3.fromHex(c[1]):Lerp(Color3.fromHex(c[2]), 0.5)
 		Icons.draw(icon, face, 31, Ui.WHITE, mid, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		Ui.text({ Text = label, TextSize = 14, Position = UDim2.fromOffset(-10, 64), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = holder })
+		return holder
 	end
 	iconButton(1, "shop", "shop", "SHOP", function()
 		openPanel("shop")
@@ -332,7 +344,18 @@ function Hud.start()
 	iconButton(2, "showroom", "car", "CARS", function()
 		openPanel("cars")
 	end)
-	iconButton(3, "edit", "cone", "EDIT", function()
+	-- Friends, visiting towns and joining friends (Panels/Friends).
+	iconButton(3, "friends", "friends", "SOCIAL", function()
+		openPanel("friends")
+	end)
+	-- Roblox's own chat (TextChatService), only for players Roblox lets chat.
+	local chatButton = iconButton(4, "chat", "chat", "CHAT", function()
+		close()
+		pcall(function()
+			StarterGui:SetCore("ChatActive", not StarterGui:GetCore("ChatActive"))
+		end)
+	end)
+	iconButton(5, "edit", "cone", "EDIT", function()
 		close()
 		TownCamera.setWalking(false)
 		Placement.edit(root, ctx)
@@ -344,18 +367,31 @@ function Hud.start()
 	Icons.draw("flag", raceFace, 30, Ui.WHITE, Color3.fromHex("#5cce47"), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
 	Ui.text({ Text = "RACE", TextSize = 20, Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 22), Shadow = 2, Stroke = 0.6, Parent = raceFace })
 
-	-- Walk: drops the camera behind the avatar to walk the town on foot; Town goes back up.
+	-- Drive: hops in your race car to drive round the shared world (server/Drive), with the camera
+	-- behind it; Town always brings you back to the view over your own town, wherever you were.
 	local walk = Ui.new("Frame", { Name = "Walk", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -250), Size = UDim2.fromOffset(60, 78), BackgroundTransparency = 1, Parent = root })
 	local walkLabel: TextLabel
 	local walkIcon: TextLabel
 	local _, walkFace = Ui.button({ Name = "WalkButton", Position = UDim2.fromOffset(2.5, 5.5), Size = UDim2.fromOffset(55, 55), Parent = walk }, "white", function()
 		TownCamera.setWalking(not TownCamera.isWalking())
 	end, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
-	walkIcon = Ui.text({ Text = "🚶", TextSize = 30, Size = UDim2.fromScale(1, 1), Parent = walkFace })
-	walkLabel = Ui.text({ Text = "WALK", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
+	walkIcon = Ui.text({ Text = "🚗", TextSize = 30, Size = UDim2.fromScale(1, 1), Parent = walkFace })
+	walkLabel = Ui.text({ Text = "DRIVE", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
 	TownCamera.onWalking(function(on: boolean)
-		walkIcon.Text = if on then "🏙️" else "🚶"
-		walkLabel.Text = if on then "TOWN" else "WALK"
+		walkIcon.Text = if on then "🏙️" else "🚗"
+		walkLabel.Text = if on then "TOWN" else "DRIVE"
+		-- The server puts them in their car, or takes them out and back home.
+		if not on or Players.LocalPlayer:GetAttribute("Driving") ~= true then
+			task.spawn(Remote.social, if on then "drive" else "home", nil, true)
+		end
+	end)
+	-- The server can start a drive too (Visit in the Social menu drives you over). Getting out of
+	-- the car (client/GetIn) leaves them on foot, still out in the world; Town goes back.
+	Players.LocalPlayer:GetAttributeChangedSignal("Driving"):Connect(function()
+		local driving = Players.LocalPlayer:GetAttribute("Driving") == true
+		if driving and not TownCamera.isWalking() then
+			TownCamera.setWalking(true)
+		end
 	end)
 	-- On phones Roblox's jump button sits in the bottom right corner, under Race and the buttons
 	-- above it: keep it just left of Race instead.
@@ -431,7 +467,8 @@ function Hud.start()
 		if panel ~= "shop" and panel ~= "inventory" and panel ~= "upgrade" and panel ~= "need" then
 			Placement.cancel()
 		end
-		close()
+		Motion.swapping = open ~= nil
+		close(true)
 		if panel == "edit" then
 			Placement.edit(root, ctx, arg)
 		elseif panel == "inventory" then
@@ -457,6 +494,7 @@ function Hud.start()
 		else
 			toast("That screen is coming to Roblox soon")
 		end
+		Motion.swapping = false
 	end
 
 	-- ── Refresh ───────────────────────────────────────────────────────────────────────────────
@@ -482,7 +520,9 @@ function Hud.start()
 		Ui.setText(coins, Ui.compact(s.coins))
 		Ui.setText(gems, Ui.compact(s.bucks))
 		Ui.setText(parts, Ui.compact(s.parts))
-		Ui.setText(townName, s.townName)
+		local visiting = ctx.visiting
+		Ui.setText(townName, if visiting then visiting.townName else s.townName)
+		carsShadow.Visible = not visiting
 		Ui.setText(carsText, `MY CARS: {#s.cars}`)
 		local g = Goals.tracked(s)
 		tracked = g
@@ -551,9 +591,13 @@ function Hud.start()
 			Ui.setText(readyText, tostring(ready))
 		end
 		local editing = Placement.active()
-		bar.Visible = not editing
-		race.Visible = not editing
-		dock.Visible = not editing
+		-- Before they've picked a plot (Popups/Claim) there's no town to play yet.
+		local picking = Players.LocalPlayer:GetAttribute("NeedsPlot") == true
+		bar.Visible = not editing and not visiting and not picking
+		race.Visible = not editing and not visiting and not picking
+		dock.Visible = not editing and not visiting and not picking
+		walk.Visible = not editing and not picking
+		chatButton.Visible = Players.LocalPlayer:GetAttribute("CanChat") == true
 	end
 
 	Remote.changed:Connect(function(snap)

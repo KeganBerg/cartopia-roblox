@@ -19,6 +19,11 @@ local INK = Color3.fromHex("#14213d")
 local FONT = Font.fromEnum(Enum.Font.FredokaOne)
 local HERO_W = 572 -- the Hot Shot's render width; other cars scale against it, as on the web
 local WORDMARK_AR = 1150 / 4070 -- height over width of the wordmark's picture
+local SETTLE = 2 -- seconds before the layout stays as it is (see LoadingScreen.centred)
+-- Screens this many points across (or more) get the sharper tiled town and sun
+-- (SplashImages.tiles); phones keep the single pictures, a smaller download.
+local BIG = 1000
+local TILES = 4 -- the most tiles a picture is cut into
 
 -- The page colour and the stand-in sun's colours by time of day (the web's --s1..--s4).
 local LOOKS = {
@@ -78,10 +83,20 @@ local function picture(props: { [string]: any }): ImageLabel
 	return new("ImageLabel", props)
 end
 
+-- Labels for a picture's sharper tiles, laid over it (SplashImages.tiles).
+local function tileLabels(over: ImageLabel): { ImageLabel }
+	local labels = {}
+	for i = 1, TILES do
+		labels[i] = picture({ Name = `Tile{i}`, ScaleType = Enum.ScaleType.Stretch, Visible = false, ZIndex = over.ZIndex, Parent = over })
+	end
+	return labels
+end
+
 export type Options = {
 	-- The content string for an uploaded image id (the server may have found its image's own id;
-	-- see Loading.client). Defaults to rbxassetid://<id>.
-	content: ((id: number) -> string)?,
+	-- see Loading.client), and whether it's surely an image's (not a decal's, which shows nothing).
+	-- Defaults to rbxassetid://<id>.
+	content: ((id: number) -> (string, boolean?))?,
 	-- Whether an image has downloaded. Defaults to ImageLabel.IsLoaded.
 	isLoaded: ((image: ImageLabel) -> boolean)?,
 	-- The screen's size in pixels, for previews outside Roblox. Defaults to the ScreenGui's.
@@ -109,6 +124,19 @@ export type LoadingScreen = typeof(setmetatable(
 		box: { [string]: Rect },
 		tagY: { number },
 		fading: boolean,
+		-- Each picture's content string: whether it has downloaded (false while it's on its way),
+		-- and the ones that are surely images.
+		fetched: { [string]: boolean },
+		sure: { [string]: boolean },
+		-- A wide screen whose town picture isn't in yet stacks everything down the middle instead
+		-- of in the web's left panel, which looked broken beside a bare background. Settled
+		-- (locked) once the town arrives or after a moment, so the screen doesn't jump about later.
+		centred: boolean,
+		locked: boolean,
+		-- Whether this screen gets the tiled pictures, and whether it's time to fetch them (once
+		-- the single town picture is in, so that comes first).
+		big: boolean,
+		tilesAsked: boolean,
 	},
 	LoadingScreen
 ))
@@ -134,13 +162,16 @@ function LoadingScreen.new(parent: Instance, opts: Options?): LoadingScreen
 	local scale = new("UIScale", { Parent = root })
 	local p: { [string]: any } = {}
 
-	p.town = picture({ Name = "Town", ScaleType = Enum.ScaleType.Crop, ZIndex = 1, Parent = root })
+	-- Sized to cover the screen as the web's object-fit: cover does (see step).
+	p.town = picture({ Name = "Town", ScaleType = Enum.ScaleType.Stretch, ZIndex = 1, Parent = root })
+	p.townTiles = tileLabels(p.town)
 	p.vignette = picture({ Name = "Edge", Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Stretch, ZIndex = 2, Parent = root })
 	-- The sun: the web's picture, or until it loads a rounded panel in its colours.
 	p.sunStandIn = new("Frame", { Name = "SunStandIn", BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1), ZIndex = 3, Parent = root })
 	round(p.sunStandIn)
 	p.sunGradient = new("UIGradient", { Parent = p.sunStandIn })
 	p.sun = picture({ Name = "Sun", ScaleType = Enum.ScaleType.Stretch, ZIndex = 4, Parent = root })
+	p.sunTiles = tileLabels(p.sun)
 	p.stars = {}
 	for i, s in STARS do
 		local star = new("Frame", {
@@ -210,29 +241,18 @@ function LoadingScreen.new(parent: Instance, opts: Options?): LoadingScreen
 		p.tag[i] = { l, drop }
 	end
 
-	-- The car: its render, its paint layer tinted with the player's paint, and a soft shadow.
+	-- The car: its render, its paint layer tinted with the player's paint, and a soft shadow (the
+	-- web's .car::after: an ellipse 96% of the car wide, 28% high, its bottom 3% below the car's,
+	-- fading out from its middle).
 	p.car = new("Frame", { Name = "Car", AnchorPoint = Vector2.new(0.5, 0), BackgroundTransparency = 1, ZIndex = 10, Parent = root })
-	p.shadow = new("Frame", {
+	p.shadow = picture({
 		Name = "Shadow",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.88),
-		Size = UDim2.fromScale(0.96, 0.24),
-		BackgroundColor3 = Color3.fromHex("#0a0e1e"),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
+		Position = UDim2.fromScale(0.5, 0.89),
+		Size = UDim2.fromScale(0.96, 0.28),
+		ScaleType = Enum.ScaleType.Stretch,
 		ZIndex = 10,
 		Parent = p.car,
-	})
-	round(p.shadow)
-	p.shadowFade = new("UIGradient", {
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.25, 0.55),
-			NumberSequenceKeypoint.new(0.5, 0.4),
-			NumberSequenceKeypoint.new(0.75, 0.55),
-			NumberSequenceKeypoint.new(1, 1),
-		}),
-		Parent = p.shadow,
 	})
 	p.body = picture({ Name = "Body", Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Stretch, ZIndex = 11, Parent = p.car })
 	p.paint = picture({ Name = "Paint", Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Stretch, ZIndex = 12, Parent = p.body })
@@ -328,6 +348,12 @@ function LoadingScreen.new(parent: Instance, opts: Options?): LoadingScreen
 		box = {},
 		tagY = {},
 		fading = false,
+		fetched = {},
+		sure = {},
+		centred = true,
+		locked = false,
+		big = false,
+		tilesAsked = false,
 	}, LoadingScreen)
 	self:setTime("day")
 	self:set(self.text, self.progress)
@@ -339,7 +365,14 @@ function LoadingScreen._content(self: LoadingScreen, id: number): string
 	if id == 0 then
 		return ""
 	end
-	return if self.opts.content then self.opts.content(id) else `rbxassetid://{id}`
+	if self.opts.content then
+		local content, sure = self.opts.content(id)
+		if sure then
+			self.sure[content] = true
+		end
+		return content
+	end
+	return `rbxassetid://{id}`
 end
 
 function LoadingScreen._loaded(self: LoadingScreen, image: ImageLabel): boolean
@@ -349,7 +382,30 @@ function LoadingScreen._loaded(self: LoadingScreen, image: ImageLabel): boolean
 	if self.opts.isLoaded then
 		return self.opts.isLoaded(image)
 	end
-	return image.IsLoaded
+	local content = image.Image
+	return image.IsLoaded or (self.fetched[content] == true and self.sure[content] == true)
+end
+
+-- Downloads a picture, noting when it's in. ImageLabel.IsLoaded alone wasn't enough: a picture
+-- waiting unseen (fully transparent) may never be fetched, and its content changes when the
+-- server finds the image inside an uploaded decal.
+function LoadingScreen._fetch(self: LoadingScreen, content: string)
+	if content == "" or self.fetched[content] ~= nil or self.opts.isLoaded then
+		return
+	end
+	self.fetched[content] = false
+	task.spawn(function()
+		local ContentProvider = game:GetService("ContentProvider")
+		pcall(ContentProvider.PreloadAsync, ContentProvider, { content }, function(_, status)
+			if status == Enum.AssetFetchStatus.Success then
+				self.fetched[content] = true
+			end
+		end)
+		if self.fetched[content] ~= true then
+			-- Try again when it's asked for next (refreshImages).
+			self.fetched[content] = nil
+		end
+	end)
 end
 
 -- Points every picture at its image (again, after the server finds an image's own id).
@@ -361,13 +417,34 @@ function LoadingScreen.refreshImages(self: LoadingScreen)
 		if image.Image ~= content then
 			image.Image = content
 		end
+		self:_fetch(content)
 		-- Which picture it is, for the preview tools (tools/emulate/render.mjs).
-		image:SetAttribute("Key", key)
+		if image:GetAttribute("Key") ~= key then
+			image:SetAttribute("Key", key)
+		end
+	end
+	local function setTiles(labels: { ImageLabel }, key: string)
+		local tiles = if self.big and self.tilesAsked then (Images :: any).tiles and (Images :: any).tiles[key] else nil
+		for i, label in labels do
+			local t = tiles and tiles[i]
+			if t and t.id ~= 0 then
+				label.Visible = true
+				label.Position = UDim2.fromScale(t.x, t.y)
+				label.Size = UDim2.fromScale(t.w, t.h)
+				set(label, t.id, `{key}-t{i}`)
+			else
+				label.Visible = false
+				label.Image = ""
+			end
+		end
 	end
 	set(p.town, Images.town[self.tod][kind], `town-{self.tod}-{kind}`)
 	set(p.sun, Images.sun[self.tod][kind], `sun-{self.tod}-{kind}`)
+	setTiles(p.townTiles, `town-{self.tod}-{kind}`)
+	setTiles(p.sunTiles, `sun-{self.tod}-{kind}`)
 	set(p.vignette, Images.vignette, "vignette")
 	set(p.wordmark, Images.wordmark, "wordmark")
+	set(p.shadow, (Images :: any).shadow or 0, "shadow")
 	local car = self.model and Images.cars[self.model]
 	set(p.body, if car then car.car else 0, `car-{self.model}`)
 	set(p.paint, if car then car.paint else 0, `paint-{self.model}`)
@@ -376,7 +453,7 @@ end
 -- Every image the screen shows, for ContentProvider:PreloadAsync.
 function LoadingScreen.images(self: LoadingScreen): { Instance }
 	local p = self.parts
-	return { p.town, p.sun, p.vignette, p.wordmark, p.body, p.paint }
+	return { p.town, p.sun, p.wordmark, p.body, p.paint, p.vignette, p.shadow }
 end
 
 -- Day, dusk or night: the town render, the sun and the stars change with the town clock.
@@ -433,14 +510,18 @@ end
 -- Lays everything out for a w by h screen, as the web's CSS does for wide and tall screens.
 function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 	local p = self.parts
-	local wide = w >= h
-	local kindChanged = (self.w >= self.h) ~= wide
+	local kindChanged = (self.w >= self.h) ~= (w >= h)
+	-- Centred: a wide screen laid out down the middle (see LoadingScreen.centred).
+	local centred = w >= h and self.centred
+	local wide = w >= h and not centred
 	self.w, self.h = w, h
 	local box: { [string]: Rect } = {}
 
 	-- The sun panel, and its picture with the margin round it for the rim and glow.
 	local sx, sy, sw, sh
-	if wide then
+	if centred then
+		sx, sy, sw, sh = -0.1 * w, -0.45 * h, 1.2 * w, 1.05 * h
+	elseif wide then
 		sx, sy, sw, sh = -0.24 * w, -0.3 * h, 0.7 * w, 1.6 * h
 	else
 		sx, sy, sw, sh = -0.3 * w, -0.24 * h, 1.6 * w, 0.7 * h
@@ -457,14 +538,20 @@ function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 	end
 
 	-- Wordmark, tag line and pill, stacked.
-	local wmw = if wide then math.min(0.36 * w, 520) else math.min(0.8 * w, 560)
-	local fs = if wide then clamp(0.021 * w, 18, 30) else clamp(0.046 * w, 15, 24)
+	local wmw = if centred
+		then math.min(0.4 * w, 520, 0.22 * h / WORDMARK_AR)
+		elseif wide then math.min(0.36 * w, 520)
+		else math.min(0.8 * w, 560)
+	local fs = if centred
+		then clamp(0.03 * h, 15, 26)
+		elseif wide then clamp(0.021 * w, 18, 30)
+		else clamp(0.046 * w, 15, 24)
 	local cx = if wide then 0.23 * w else 0.5 * w
-	local top = if wide then 0.15 * h else 0.06 * h
+	local top = if centred then 0.07 * h elseif wide then 0.15 * h else 0.06 * h
 	local wmh = wmw * WORDMARK_AR
 	box.wordmark = Rect.new(cx - wmw / 2, top, cx + wmw / 2, top + wmh)
-	local tagTop = top + wmw * (if wide then 0.32 else 0.3)
-	local tagHidden = (wide and h <= 520) or (not wide and h <= 640)
+	local tagTop = if centred then top + wmh + 0.02 * h else top + wmw * (if wide then 0.32 else 0.3)
+	local tagHidden = (w >= h and h <= 520) or (w < h and h <= 640)
 	local tagW = if wide then 0.46 * w else w
 	local tagCx = tagW / 2
 	for i, pair in p.tag do
@@ -484,7 +571,7 @@ function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 		pillTop = if tagHidden then tagTop + 12 else tagTop + fs * 4.6
 		box.pill = Rect.new(cx - pw / 2, pillTop, cx + pw / 2, pillTop + ph)
 	else
-		pillTop = h - 0.06 * h - ph
+		pillTop = h - (if centred then 0.07 else 0.06) * h - ph
 		box.pill = Rect.new(w / 2 - pw / 2, pillTop, w / 2 + pw / 2, pillTop + ph)
 	end
 	p.pill.Position = UDim2.fromOffset(box.pill.Min.X, box.pill.Min.Y)
@@ -501,7 +588,14 @@ function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 	local k = clamp(cw0 / HERO_W, 0.8, 1.25)
 	local ar = ch0 / cw0
 	local cw, ctop, ccx
-	if wide then
+	if centred then
+		-- In the gap between the tag line and the pill.
+		local above = if tagHidden then top + wmh + 0.04 * h else tagTop + fs * 3.75 + 0.03 * h
+		local below = pillTop - 0.04 * h
+		cw = math.min(math.min(0.36 * w, 460) * k, (below - above) / ar)
+		ctop = above + (below - above - cw * ar) / 2
+		ccx = 0.5 * w
+	elseif wide then
 		local ldb = if tagHidden then top + wmw * 0.32 + 76 else tagTop + fs * 4.6 + 64
 		local cmax = if tagHidden then math.min(0.22 * w, 300) else math.min(0.3 * w, 460)
 		cw = math.min(cmax * k, (h - ldb - 0.08 * h) / ar)
@@ -514,7 +608,9 @@ function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 	end
 	box.car = Rect.new(ccx - cw / 2, ctop, ccx + cw / 2, ctop + cw * ar)
 	self.box = box
-	if kindChanged then
+	local big = math.max(w, h) >= BIG
+	if kindChanged or big ~= self.big then
+		self.big = big
 		self:refreshImages()
 	end
 end
@@ -530,6 +626,18 @@ function LoadingScreen.step(self: LoadingScreen, dt: number)
 		local cam = workspace.CurrentCamera
 		w, h = if cam then cam.ViewportSize.X else 1280, if cam then cam.ViewportSize.Y else 800
 	end
+	-- The web's layout once the town picture is in; down the middle until then, settled after a
+	-- moment either way.
+	if not self.locked then
+		local townIn = self:_loaded(p.town)
+		if townIn or self.clock > SETTLE then
+			self.locked = true
+		end
+		if self.centred == townIn then
+			self.centred = not townIn
+			self.box = {}
+		end
+	end
 	if w ~= self.w or h ~= self.h or not self.box.pill or not self.box.car then
 		self:_layout(w, h)
 	end
@@ -541,21 +649,53 @@ function LoadingScreen.step(self: LoadingScreen, dt: number)
 		image.ImageTransparency += (want - image.ImageTransparency) * math.min(1, dt * 6)
 		return image.ImageTransparency < 0.99
 	end
+	-- A picture's sharper tiles fade in over it once every one of them is in.
+	local function showTiles(labels: { ImageLabel }, base: ImageLabel)
+		local all = self:_loaded(base) and base.ImageTransparency < 0.5
+		for _, label in labels do
+			if label.Visible and not self:_loaded(label) then
+				all = false
+			end
+		end
+		for _, label in labels do
+			if label.Visible then
+				local want = if all then 0 else 1
+				label.ImageTransparency += (want - label.ImageTransparency) * math.min(1, dt * 6)
+			end
+		end
+	end
+	-- The tiles are fetched once the single town picture is in.
+	if not self.tilesAsked and self:_loaded(p.town) then
+		self.tilesAsked = true
+		self:refreshImages()
+	end
 	-- While the screen fades away (finish) only the car still moves.
 	local fading = self.fading
 	if not fading then
 		show(p.vignette)
-		show(p.sun)
+		if self.centred and w >= h then
+			-- The sun picture is drawn for the web's shapes; the stand-in fits this one.
+			p.sun.ImageTransparency = 1
+		else
+			show(p.sun)
+		end
+		showTiles(p.sunTiles, p.sun)
 		p.sunStandIn.BackgroundTransparency = math.clamp(1 - p.sun.ImageTransparency, 0, 1)
 		show(p.town)
+		showTiles(p.townTiles, p.town)
 	end
 
 	-- The town pans back and forth (40 s each way), slightly zoomed so its edges never show.
 	local pan = easeInOut((t / 40) % 2 <= 1 and (t / 40) % 1 or 1 - (t / 40) % 1)
 	local tw, th = w * 1.08 * 1.1, h * 1.08 * 1.1
 	local dx, dy = (-0.03 + 0.06 * pan) * tw, (0.015 - 0.03 * pan) * th
-	p.town.Size = UDim2.fromOffset(tw, th)
-	p.town.Position = UDim2.fromOffset((w - tw) / 2 + dx, (h - th) / 2 + dy)
+	-- Covering that box, keeping the render's shape (what ScaleType.Crop does, but with a known
+	-- size so the tiles line up over it).
+	local aspect = ((Images :: any).townAspect or {})[if w >= h then "wide" else "tall"] or tw / th
+	local cover = math.max(tw / aspect, th)
+	local dw, dh = aspect * cover, cover
+	p.town.Size = UDim2.fromOffset(dw, dh)
+	p.town.Position = UDim2.fromOffset(w / 2 + dx - dw / 2, h / 2 + dy - dh / 2)
 
 	-- Stars twinkle (3 s).
 	for i, star in p.stars do
@@ -610,7 +750,7 @@ function LoadingScreen.step(self: LoadingScreen, dt: number)
 	if bodyIn and not self.carSince then
 		self.carSince = t
 	end
-	p.shadow.BackgroundTransparency = math.clamp(p.body.ImageTransparency, 0, 1)
+	p.shadow.ImageTransparency = if self:_loaded(p.shadow) then p.body.ImageTransparency else 1
 	self:_moveCar(t, w, h)
 end
 

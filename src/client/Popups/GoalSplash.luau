@@ -11,6 +11,7 @@ local data = require(Game.data) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Thumb = require(script.Parent.Parent.Thumb)
 local Remote = require(script.Parent.Parent.Remote)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 local Kit = require(script.Parent.Kit)
 
 local GoalSplash = {}
@@ -92,6 +93,12 @@ local function show(ctx: any, done: () -> ())
 		done()
 	end
 	overlay = Kit.overlay(ctx, true)
+	-- A short fanfare as the card comes up.
+	task.delay(0.25, function()
+		if overlay.Parent ~= nil then
+			Sfx.levelUp()
+		end
+	end)
 	local W, CW, CH, GAP = 600, 176, 130, 10
 	local h = 80 + 46 + 28 + 36 + 10 + 2 * CH + GAP + 12 + 46 + 16
 	local _, card = Kit.card(overlay, W, h, 50)

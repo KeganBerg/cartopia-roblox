@@ -1,7 +1,9 @@
 --!strict
 -- Car skins (the web's scene/skins.ts): patterns drawn inside the paint. The web draws them live
 -- with a shader; here each is a tile baked from that shader (tools/models/skins.mjs) and laid on the
--- paint's faces: the base, tinted the paint's colour, then the skin's glow over it. A body skin goes
+-- paint's faces: the base, tinted the paint's colour, then the skin's glow over it, drawn at two
+-- moments. On the player's screen SkinMotion (client) brings back the shader's motion: the two glows
+-- fade into each other, and slide with the camera as if they lay under the paint. A body skin goes
 -- on the car's paint and the body-colour parts of its mods; a mod skin (the spoiler, exhaust, body
 -- kit or hood slot) on the whole of the part fitted there.
 
@@ -12,7 +14,7 @@ local data = require(script.Parent.Parent.Game.data) :: any
 local Skins = {}
 
 -- Written by the model build (tools/models/build.mjs); empty in a build from before skins.
-local TEXTURES: { [string]: { image: number, span: number, name: string } } = (Catalog :: any).TEXTURES or {}
+local TEXTURES: { [string]: { image: number, span: number, name: string, depth: number? } } = (Catalog :: any).TEXTURES or {}
 
 local FACES = { Enum.NormalId.Top, Enum.NormalId.Bottom, Enum.NormalId.Left, Enum.NormalId.Right, Enum.NormalId.Front, Enum.NormalId.Back }
 
@@ -28,34 +30,41 @@ function Skins.key(skin: string?, modSkin: any): string
 	return table.concat(bits, ",")
 end
 
--- The base and glow tiles of skin number `n`, or nil when the build has none.
-function Skins.tiles(n: number): (any, any)
-	return TEXTURES[`skin_{n}`], TEXTURES[`skinglow_{n}`]
+-- The base and glow tiles of skin number `n` (the glow at two moments), or nil when the build has none.
+function Skins.tiles(n: number): (any, any, any)
+	return TEXTURES[`skin_{n}`], TEXTURES[`skinglow_{n}`], TEXTURES[`skinglow2_{n}`]
 end
 
 -- Lays skin number `n` on a part (taking off any skin it had).
 function Skins.lay(part: BasePart, n: number)
 	for _, t in part:GetChildren() do
-		if t:IsA("Texture") and t.Name == "Skin" then
+		if t:IsA("Texture") and (t.Name == "Skin" or t.Name == "SkinGlow") then
 			t:Destroy()
 		end
 	end
-	local base, glow = Skins.tiles(n)
+	local base, glow, glow2 = Skins.tiles(n)
 	if n == 0 or not base then
 		return
 	end
 	for _, face in FACES do
-		for i, t in { base, glow } do
+		for i, t in { base, glow, glow2 } do
 			if t then
 				local tex = Instance.new("Texture")
-				tex.Name = "Skin"
+				-- SkinMotion moves the glows (it finds them by name).
+				tex.Name = if i == 1 then "Skin" else "SkinGlow"
 				Pictures.set(tex, "Texture", t.image)
 				tex.Face = face
 				tex.StudsPerTileU = t.span
 				tex.StudsPerTileV = t.span
-				-- Under the custom paint patterns (ZIndex 1), the glow over everything.
-				tex.ZIndex = if i == 1 then 0 else 2
+				-- Under the custom paint patterns (ZIndex 1), the glows over everything; the later
+				-- glow starts hidden and fades in over the first.
+				tex.ZIndex = i == 1 and 0 or i
 				tex.Color3 = if i == 1 then part.Color else Color3.new(1, 1, 1)
+				if i > 1 then
+					tex:SetAttribute("Depth", t.depth or 0)
+					tex:SetAttribute("Moment", i - 1)
+					tex.Transparency = if i == 3 then 1 else 0
+				end
 				-- The previews (tools/emulate) find the image by name.
 				tex:SetAttribute("Pattern", t.name)
 				tex.Parent = part

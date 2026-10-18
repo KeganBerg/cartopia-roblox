@@ -18,6 +18,7 @@ local arcadeMore = require(Game.arcadeMore) :: any
 local data = require(Game.data) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Kit = require(script.Parent.StarKit)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local WASH_QUICK, WASH_SPOTS, WASH_TIME = arcadeMore.WASH_QUICK, arcadeMore.WASH_SPOTS, arcadeMore.WASH_TIME
 
@@ -261,6 +262,7 @@ function Wash.new(ctx: any): Round
 		done = false,
 		endAt = 0,
 		nextBubble = 0,
+		squish = 0,
 		shine = 0,
 		phase = "wash",
 		phaseT = 0,
@@ -347,6 +349,7 @@ function Wash.new(ctx: any): Round
 			local reach = math.max(46, size.Y * 0.085)
 			local need = s.need
 			local on = screenSpots()
+			local hit = false
 			for i, sp in spots do
 				if s.scrub[i] >= need then
 					continue
@@ -355,6 +358,7 @@ function Wash.new(ctx: any): Round
 				if math.sqrt((p.X - s.x) ^ 2 + (p.Y - s.y) ^ 2) > reach then
 					continue
 				end
+				hit = true
 				s.scrub[i] = math.min(need, s.scrub[i] + moved)
 				if s.nextBubble <= 0 then
 					for _, b in bubbles do
@@ -371,9 +375,17 @@ function Wash.new(ctx: any): Round
 				end
 				if s.scrub[i] >= need then
 					s.dirty = math.max(0, s.dirty - 1)
+					Sfx.arcade.ding(1 + (WASH_SPOTS - s.dirty) * 0.05)
 				end
 			end
 			s.nextBubble = if s.nextBubble <= 0 then 0.03 else s.nextBubble - dt
+			if hit then
+				s.squish -= dt
+				if s.squish <= 0 then
+					Sfx.arcade.scrub()
+					s.squish = 0.11
+				end
+			end
 			-- Clean: time back, more for a quick one, and it rolls out through the brushes.
 			if s.dirty <= 0 then
 				local quick = s.carT <= WASH_QUICK
@@ -381,6 +393,7 @@ function Wash.new(ctx: any): Round
 				s.cars += 1
 				s.left += bonus
 				s.shine = 0.001
+				Sfx.arcade.splash()
 				if popNow then
 					popNow.label:Destroy()
 				end

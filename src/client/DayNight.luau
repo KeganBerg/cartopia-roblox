@@ -14,8 +14,11 @@ local Horizon = require(script.Parent.Horizon)
 
 local DayNight = {}
 
--- Set by the race screen while a race runs: its venue's fog colour and distances (studs).
-DayNight.raceFog = nil :: { color: Color3, near: number, far: number }?
+-- Set by the race screen while a race runs: its venue's fog colour and distances (studs). A room
+-- (the Daily Spin's tyre shop) also shuts out the sun: only its own lamps and `ambient` light it.
+export type Fog = { color: Color3, near: number, far: number, room: { ambient: Color3 }? }
+DayNight.raceFog = nil :: Fog?
+DayNight.indoor = nil :: any
 local airKept: Atmosphere? = nil
 
 type Key = {
@@ -147,6 +150,33 @@ local function apply(now: number)
 	bloom.Threshold = look.threshold + 0.25
 	bloom.Size = 24
 
+	-- Indoors (the Crate Depot, closed in high over the town): its own dim light and dark haze, the
+	-- town's air stepping out as for a race.
+	local inside = DayNight.indoor
+	if inside then
+		if airKept == nil then
+			airKept = Lighting:FindFirstChild("Air") :: Atmosphere?
+			if airKept then
+				airKept.Parent = nil
+			end
+		end
+		Lighting.Ambient = inside.ambient
+		Lighting.OutdoorAmbient = inside.ambient
+		Lighting.Brightness = inside.brightness
+		Lighting.ExposureCompensation = inside.exposure
+		Lighting.EnvironmentDiffuseScale = 0.3
+		Lighting.EnvironmentSpecularScale = 0.6
+		bloom.Intensity = inside.bloom
+		bloom.Threshold = inside.threshold
+		grade.Saturation = inside.saturation
+		grade.Contrast = inside.contrast
+		grade.TintColor = Color3.new(1, 1, 1)
+		Lighting.FogColor = inside.fog
+		Lighting.FogStart = inside.fogStart
+		Lighting.FogEnd = inside.fogEnd
+		return
+	end
+
 	-- The web game's sky for this time of day, and the colour the far land fades into.
 	local haze = Horizon.sky(phase)
 
@@ -160,9 +190,23 @@ local function apply(now: number)
 				airKept.Parent = nil
 			end
 		end
-		Lighting.FogColor = race.color:Lerp(Color3.fromHex("#1d2740"), night)
+		Lighting.FogColor = if race.room then race.color else race.color:Lerp(Color3.fromHex("#1d2740"), night)
 		Lighting.FogStart = race.near
 		Lighting.FogEnd = race.far
+		local room = race.room
+		if room then
+			Lighting.Brightness = 0
+			Lighting.Ambient = room.ambient
+			Lighting.OutdoorAmbient = room.ambient
+			Lighting.EnvironmentDiffuseScale = 0
+			Lighting.EnvironmentSpecularScale = 0.3
+			Lighting.ExposureCompensation = math.log(1.15, 2)
+			-- WheelScene's grade: brighter neon glow, a little more colour.
+			bloom.Intensity = 0.9
+			bloom.Threshold = 0.85
+			grade.Saturation = 0.15
+			grade.Contrast = 0.1
+		end
 		return
 	elseif airKept then
 		airKept.Parent = Lighting
@@ -193,8 +237,16 @@ end
 DayNight.apply = apply
 
 -- Starts or ends a race's fog, at once rather than at the next tick.
-function DayNight.setRaceFog(fog: { color: Color3, near: number, far: number }?)
+function DayNight.setRaceFog(fog: Fog?)
 	DayNight.raceFog = fog
+	apply(DateTime.now().UnixTimestampMillis)
+end
+
+export type Indoor = { ambient: Color3, brightness: number, exposure: number, bloom: number, threshold: number, saturation: number, contrast: number, fog: Color3, fogStart: number, fogEnd: number }
+
+-- Starts or ends an indoor scene's light (CrateScene), at once.
+function DayNight.setIndoor(look: Indoor?)
+	DayNight.indoor = look
 	apply(DateTime.now().UnixTimestampMillis)
 end
 

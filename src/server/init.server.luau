@@ -16,6 +16,10 @@
 --                          ("buy", pack id) -> ok, or why not; opens Roblox's purchase prompt
 --   Meshes RemoteFunction  client -> server: (car id) -> loads that car's mod meshes into
 --                          ReplicatedStorage.MeshLibrary, answering once they're in
+--   Social RemoteFunction  client -> server: ("players" | "visit" | "home" | "help" | "join", arg)
+--                          -> ok, result or error text: playing together (see Social)
+--   GetIn  RemoteFunction  client -> server: ("enter", car) | ("exit"): getting in any car on
+--                          foot and out again (see GetIn)
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -26,6 +30,8 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
+local TextChatService = game:GetService("TextChatService")
 local TextService = game:GetService("TextService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
@@ -50,8 +56,13 @@ local Policies = require(script.Policies)
 local Purchases = require(script.Purchases)
 local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
+local Social = require(script.Social)
+local World = require(script.World)
+local Drive = require(script.Drive)
 local Sky = require(script.Sky)
+local Prefs = require(script.Prefs)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
+local GetIn = require(script.GetIn)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
 local TICK = 1 -- seconds between town clock ticks, as on the web
@@ -61,7 +72,7 @@ local saves = Saves.new({
 	job = if RunService:IsStudio() then "studio" else game.JobId,
 	now = os.time,
 })
-local towns = Towns.new(require(Game.store), now)
+local towns = Towns.new(require(Game.store), now, require(Game.lib_sound))
 -- Everyone's ghost (their best time, or their best car for a par) and the taunts left for them.
 local ghosts = Ghosts.new({
 	ghosts = DataStoreService:GetDataStore("Ghosts_v1"),
@@ -153,6 +164,17 @@ local policies = Policies.new(game:GetService("PolicyService"), Policy, task.wai
 local crates = Crates.new(towns, require(Game.store), require(Game.crates), function(userId, pay, free)
 	return Policy.canOpenCrate(policies:get(userId), pay, free)
 end)
+local social = Social.new({
+	towns = towns,
+	data = require(Game.data),
+	today = (require(Game.store) :: any).today,
+	helps = (function()
+		local ok, store = pcall(function()
+			return DataStoreService:GetDataStore("Helps_v1")
+		end)
+		return if ok then store else nil
+	end)(),
+})
 
 -- The arcade: one weekly board per board game, and each player's bests, free plays and claimed
 -- prizes in the Arcade_v1 DataStore.
@@ -233,7 +255,15 @@ bankRemote.Parent = remotes
 local meshRemote = Instance.new("RemoteFunction")
 meshRemote.Name = "Meshes"
 meshRemote.Parent = remotes
+local socialRemote = Instance.new("RemoteFunction")
+socialRemote.Name = "Social"
+socialRemote.Parent = remotes
+local prefsRemote = Instance.new("RemoteEvent")
+prefsRemote.Name = "Prefs"
+prefsRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
+Prefs.start(DataStoreService:GetDataStore("Prefs_v1"), prefsRemote, Players)
+GetIn.start(towns)
 
 Splash.start()
 Sky.start()
@@ -296,32 +326,46 @@ local townsFolder = Instance.new("Folder")
 townsFolder.Name = "Towns"
 townsFolder.Parent = workspace
 
--- Every town gets its own lot, in a grid LOT studs apart; the first is at the spawn. Far enough
--- apart that one town's countryside (out to 2,000 studs, see client/Countryside) never reaches the
--- next town.
-local LOT = 4500
+-- The shared world (server/World): a hub with plots round it. Players pick a free plot when they
+-- join ("claim"), and their town is built there.
+TownView.sharedGround = true
+local world = World.build(workspace, TownView.MEADOW, function(p)
+	TownView.groundTexture(p, "meadow", Vector3.new(80, 0, 80))
+end)
 local views: { [Player]: any } = {}
 local slots: { [number]: Player } = {}
 
-local function takeSlot(player: Player): number
-	local i = 0
-	while slots[i] do
-		i += 1
+local function viewOf(userId: number): any
+	for p, v in views do
+		if p.UserId == userId then
+			return v
+		end
 	end
-	slots[i] = player
-	return i
+	return nil
 end
 
-local function lotOrigin(i: number): Vector3
-	return Vector3.new((i % 4) * LOT, 0, (i // 4) * LOT)
+-- The plot a player owns, or nil before they've claimed one.
+local function slotOf(player: Player): number?
+	for i, p in slots do
+		if p == player then
+			return i
+		end
+	end
+	return nil
 end
 
--- Where a player stands in their town: the cross street in the middle of the starter town.
+-- Where a player stands: the cross street in the middle of their town, or the hub before they
+-- have one. Always on foot: the town view is played from above, and driving starts from there.
 local function spawnAt(player: Player)
 	local view = views[player]
 	local character = player.Character
-	if view and character then
+	if not character then
+		return
+	end
+	if view then
 		character:PivotTo(CFrame.new(view:tileToWorld(11.5, 11) + Vector3.new(0, 5, 0)))
+	else
+		character:PivotTo(CFrame.new(0, 5, 160))
 	end
 end
 
@@ -331,7 +375,7 @@ local sent: { [Player]: string } = {}
 local function push(player: Player, force: boolean?)
 	local snap = towns:snapshot(player.UserId)
 	local key = HttpService:JSONEncode(snap.save)
-	if force or #snap.toasts > 0 or snap.panel ~= nil or snap.need ~= nil or sent[player] ~= key then
+	if force or #snap.toasts > 0 or #snap.sounds > 0 or snap.panel ~= nil or snap.need ~= nil or sent[player] ~= key then
 		sent[player] = key
 		townEvent:FireClient(player, snap)
 		local view = views[player]
@@ -342,6 +386,27 @@ local function push(player: Player, force: boolean?)
 			end
 		end
 	end
+end
+
+-- Players on their way to a friend's server (Social "join"): their save is already written.
+local leaving: { [Player]: boolean } = {}
+
+-- Lending a hand at a business in the town a player is visiting (server/Social).
+local function helpAt(player: Player, uid: string): (any?, string?)
+	local host = player:GetAttribute("Visiting")
+	if type(host) ~= "number" or not towns:isOpen(player.UserId) or leaving[player] then
+		return nil, "not visiting"
+	end
+	local ok, result, why = pcall(social.help, social, player.UserId, host, uid)
+	if not ok then
+		warn(`[Cartopia] {player.Name} help: {result}`)
+		return nil, "error"
+	end
+	if result then
+		player:SetAttribute("Helped", table.concat(result.helped, ","))
+	end
+	push(player)
+	return result, why
 end
 
 -- Clicking a building in the world taps it, like a tap on the web.
@@ -392,6 +457,11 @@ end
 
 Players.PlayerAdded:Connect(function(player)
 	task.spawn(policies.load, policies, player)
+	-- Whether Roblox lets this player chat: the HUD's CHAT button only shows when it does.
+	task.spawn(function()
+		local ok, can = pcall(TextChatService.CanUserChatAsync, TextChatService, player.UserId)
+		player:SetAttribute("CanChat", ok and can == true)
+	end)
 	local ok, data, receipts = pcall(saves.load, saves, player.UserId)
 	if not ok then
 		local failure = if type(data) == "table" then data else { reason = "failed", message = tostring(data) }
@@ -435,15 +505,10 @@ Players.PlayerAdded:Connect(function(player)
 	if not player.Parent then
 		return
 	end
-	local slot = takeSlot(player)
-	views[player] = TownView.new(townsFolder, player.Name, lotOrigin(slot), player.UserId, function(uid)
-		tap(player, uid)
-	end)
-	player:SetAttribute("TownSlot", slot)
 	push(player, true)
+	-- They pick a plot first (the claim screen, Popups/Claim); the loading screen lifts for it.
+	player:SetAttribute("NeedsPlot", true)
 	spawnAt(player)
-	-- The town is drawn: the player's loading screen can wait for it to stream in and lift.
-	player:SetAttribute("TownReady", true)
 	player.CharacterAdded:Connect(function()
 		task.wait()
 		spawnAt(player)
@@ -480,10 +545,20 @@ Players.PlayerRemoving:Connect(function(player)
 	for i, p in slots do
 		if p == player then
 			slots[i] = nil
+			World.setOwner(world, i, nil)
 		end
 	end
 	sent[player] = nil
 	budget[player] = nil
+	leaving[player] = nil
+	social:forget(player.UserId)
+	-- Anyone visiting their town is just on an empty plot now.
+	for _, other in Players:GetPlayers() do
+		if other:GetAttribute("Visiting") == player.UserId then
+			other:SetAttribute("Visiting", nil)
+			other:SetAttribute("Helped", nil)
+		end
+	end
 end)
 
 -- Names players type that others can see (a town's name, a restored car's plate), by action and
@@ -500,7 +575,7 @@ local function filtered(player: Player, text: string): string?
 end
 
 act.OnServerInvoke = function(player: Player, name: any, ...: any)
-	if not towns:isOpen(player.UserId) then
+	if not towns:isOpen(player.UserId) or leaving[player] then
 		return false, "town not loaded"
 	end
 	if not allow(player) then
@@ -631,6 +706,239 @@ crateRemote.OnServerInvoke = function(player: Player, id: any, free: any, count:
 		return false, "error"
 	end
 	push(player)
+	if result == nil then
+		return false, why
+	end
+	return true, result
+end
+
+-- Playing together (server/Social): who's here, visiting their towns, helping, and joining a
+-- friend's server.
+local friendsCache: { [string]: boolean } = {}
+local function areFriends(a: Player, b: number): boolean
+	local key = `{math.min(a.UserId, b)}:{math.max(a.UserId, b)}`
+	if friendsCache[key] == nil then
+		local ok, yes = pcall(a.IsFriendsWith, a, b)
+		if not ok then
+			return false
+		end
+		friendsCache[key] = yes
+	end
+	return friendsCache[key]
+end
+
+-- Who's in whose town: a player standing (or driving) on someone else's plot is visiting them,
+-- which the visit banner and help bubbles follow (Popups/Visit).
+local function setVisiting(player: Player, host: number?)
+	if player:GetAttribute("Visiting") == host then
+		return
+	end
+	player:SetAttribute("Visiting", host)
+	-- The businesses they've already helped there today (the help bubbles show a tick).
+	player:SetAttribute("Helped", if host then table.concat(social:helped(player.UserId, host), ",") else nil)
+end
+
+-- The player's race car, built for driving (server/Drive), or nil for the stand-in.
+local raceCar = require(Game.raceCar) :: any
+local function carFor(player: Player): Model?
+	local save = towns:save(player.UserId)
+	local car = raceCar.raceCarOf(save.cars or {}, save.raceCar)
+	if not car then
+		return nil
+	end
+	local ok, model = pcall(Builder.build, car.model, if car.color then Color3.fromHex(car.color) else nil)
+	return if ok then model else nil
+end
+
+local function startDriving(player: Player)
+	if not Drive.isDriving(player) then
+		Drive.set(player, carFor(player))
+	end
+end
+
+-- Drives the player over to the host's plot: in their car, on the road outside the town.
+local function driveTo(player: Player, host: Player): any
+	local i = slotOf(host)
+	local character = player.Character
+	if not i or not character then
+		return nil
+	end
+	character:PivotTo(World.gate(i) + Vector3.new(0, 6, 0))
+	startDriving(player)
+	setVisiting(player, host.UserId)
+	return social:townInfo(player.UserId, host.UserId)
+end
+
+-- Back to the town view over their own town: out of the car, home, wherever they'd driven to.
+local function goHome(player: Player)
+	Drive.set(player, false)
+	setVisiting(player, nil)
+	spawnAt(player)
+end
+
+-- Claims plot `want` (or the first free one) for the player and builds their town on it.
+local function claim(player: Player, want: any): (number?, string?)
+	local have = slotOf(player)
+	if have then
+		return have, nil
+	end
+	local i: number
+	if type(want) == "number" then
+		if want ~= math.floor(want) or want < 0 or want >= World.COUNT then
+			return nil, "not a plot"
+		end
+		if slots[want] then
+			return nil, "plot taken"
+		end
+		i = want
+	else
+		i = 0
+		while slots[i] do
+			i += 1
+		end
+		if i >= World.COUNT then
+			return nil, "no plots"
+		end
+	end
+	slots[i] = player
+	views[player] = TownView.new(townsFolder, player.Name, World.origin(i), player.UserId, function(uid)
+		tap(player, uid)
+	end, function(visitor, uid)
+		-- Someone visiting lends a hand at one of this town's businesses.
+		if visitor:GetAttribute("Visiting") == player.UserId then
+			helpAt(visitor, uid)
+		end
+	end)
+	World.setOwner(world, i, player.UserId, player.DisplayName)
+	player:SetAttribute("TownSlot", i)
+	player:SetAttribute("NeedsPlot", nil)
+	push(player, true)
+	Drive.set(player, false)
+	spawnAt(player)
+	player:SetAttribute("TownReady", true)
+	return i, nil
+end
+
+-- Every half second: whose plot each player is on.
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		for _, player in Players:GetPlayers() do
+			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root then
+				local i = World.plotAt(root.Position)
+				local owner = if i then slots[i] else nil
+				setVisiting(player, if owner and owner ~= player and towns:isOpen(owner.UserId) then owner.UserId else nil)
+			end
+		end
+	end
+end)
+
+-- Writes the save and lets its lock go, then sends the player to the friend's server. If the
+-- teleport fails the lock is taken back and they play on here.
+local function join(player: Player, friend: number): (any?, string?)
+	if not areFriends(player, friend) then
+		return nil, "not friends"
+	end
+	local ok, _, _, placeId, jobId = pcall(TeleportService.GetPlayerPlaceInstanceAsync, TeleportService, friend)
+	if not ok or not jobId or jobId == "" then
+		return nil, "not playing"
+	end
+	if jobId == game.JobId then
+		local here = Players:GetPlayerByUserId(friend)
+		local town = here and towns:isOpen(friend) and driveTo(player, here)
+		if town then
+			return { here = true, town = town }, nil
+		end
+		return nil, "not playing"
+	end
+	if placeId ~= game.PlaceId then
+		return nil, "not playing"
+	end
+	leaving[player] = true
+	races:close(player.UserId)
+	save(player, true)
+	local options = Instance.new("TeleportOptions")
+	options.ServerInstanceId = jobId
+	local sent, err = pcall(TeleportService.TeleportAsync, TeleportService, placeId, { player }, options)
+	if not sent then
+		warn(`[Cartopia] {player.Name} join: {err}`)
+		pcall(saves.load, saves, player.UserId)
+		leaving[player] = nil
+		return nil, "couldn't join"
+	end
+	return { here = false }, nil
+end
+
+TeleportService.TeleportInitFailed:Connect(function(player: Player)
+	if leaving[player] and player.Parent then
+		pcall(saves.load, saves, player.UserId)
+		leaving[player] = nil
+	end
+end)
+
+socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
+	if not towns:isOpen(player.UserId) or leaving[player] then
+		return false, "town not loaded"
+	end
+	if not allow(player) then
+		return false, "slow down"
+	end
+	local ran, result, why = pcall(function(): (any, any)
+		if op == "players" then
+			-- Everyone else in this server with a town, friends first.
+			local out = {}
+			for _, other in Players:GetPlayers() do
+				if other ~= player and towns:isOpen(other.UserId) and views[other] then
+					local save = towns:save(other.UserId)
+					table.insert(out, {
+						id = other.UserId,
+						name = other.DisplayName,
+						user = other.Name,
+						townName = save.townName,
+						level = save.level,
+						trophies = save.trophies or 0,
+						cars = #(save.cars or {}),
+						friend = areFriends(player, other.UserId),
+						helped = #social:helped(player.UserId, other.UserId),
+					})
+				end
+			end
+			return out, nil
+		elseif op == "visit" and type(arg) == "number" then
+			local host = Players:GetPlayerByUserId(arg)
+			if not host or host == player or not towns:isOpen(arg) or not views[host] then
+				return nil, "not here"
+			end
+			return driveTo(player, host), nil
+		elseif op == "town" and type(arg) == "number" then
+			-- The visit banner's details, for a town they drove into.
+			if player:GetAttribute("Visiting") ~= arg or not towns:isOpen(arg) then
+				return nil, "not here"
+			end
+			return social:townInfo(player.UserId, arg), nil
+		elseif op == "home" then
+			goHome(player)
+			return true, nil
+		elseif op == "drive" then
+			if not views[player] then
+				return nil, "claim first"
+			end
+			startDriving(player)
+			return true, nil
+		elseif op == "claim" then
+			return claim(player, arg)
+		elseif op == "help" and type(arg) == "string" and #arg <= 64 then
+			return helpAt(player, arg)
+		elseif op == "join" and type(arg) == "number" then
+			return join(player, arg)
+		end
+		return nil, "not a social action"
+	end)
+	if not ran then
+		warn(`[Cartopia] {player.Name} social {op}: {result}`)
+		return false, "error"
+	end
 	if result == nil then
 		return false, why
 	end

@@ -8,7 +8,7 @@
 //
 // Uses the web repo's three.js and Playwright. CHROMIUM=<path> picks the browser.
 
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
@@ -65,6 +65,18 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
     find(gui)
     for (const e of list) if (want.has(e.key)) images[e.key] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/splash', e.file)).toString('base64')
   } catch {}
+  // The Call Cards' sheets (tools/callcards/build.mjs), as "callcard:sheet-<n>".
+  const wantCards = new Set()
+  const findCards = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (typeof n.image?.key === 'string' && n.image.key.startsWith('callcard:')) wantCards.add(n.image.key)
+    for (const v of Object.values(n)) if (v && typeof v === 'object') findCards(v)
+  }
+  findCards(gui)
+  for (const key of wantCards) {
+    const file = join(ROOT, 'build/callcards', key.slice(9) + '.png')
+    if (existsSync(file)) images[key] = 'data:image/png;base64,' + readFileSync(file).toString('base64')
+  }
   // The sky's faces (tools/sky/build.mjs) for the step the scene asks for.
   const sky = {}
   if (scene.sky) {
@@ -89,7 +101,7 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
   page.on('pageerror', (e) => console.error(e))
   page.on('console', (m) => m.type() === 'error' && console.error(m.text()))
   await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`, { timeout: 180000 })
-  await page.waitForFunction('window.DONE === true', null, { timeout: 180000 })
+  await page.waitForFunction('window.DONE === true', null, { timeout: 600000 })
   await page.screenshot({ path: out, timeout: 180000 })
   await browser.close()
   server.close()
@@ -113,7 +125,8 @@ document.body.prepend(renderer.domElement)
 const scene = new T.Scene()
 scene.background = new T.Color('#8ec5f0')
 scene.fog = new T.Fog('#bcd9f2', 600, 1600)
-scene.add(new T.HemisphereLight(0xdfefff, 0x5a6a40, 1.5))
+const hemi = new T.HemisphereLight(0xdfefff, 0x5a6a40, 1.5)
+scene.add(hemi)
 const sun = new T.DirectionalLight(0xfff4e0, 2.4)
 sun.position.set(300, 500, 200); sun.castShadow = true
 sun.shadow.mapSize.set(4096, 4096)
@@ -139,6 +152,33 @@ for (const [name, url] of Object.entries(S.textures || {})) {
   t.wrapS = t.wrapT = T.RepeatWrapping
   TEX[name] = t
 }
+// Rough stand-ins for the patterns of Roblox's building materials (Brick, WoodPlanks...), one tile
+// every 8 studs, so a brick wall reads as brick in the preview too.
+const PATTERN = {
+  Brick: (g) => { g.fillStyle = '#c8c8c8'; for (let y = 0; y < 64; y += 8) { g.fillRect(0, y, 64, 1.5); for (let x = (y / 8) % 2 ? 8 : 0; x < 64; x += 16) g.fillRect(x, y, 1.5, 8) } },
+  WoodPlanks: (g) => { g.fillStyle = '#cfcfcf'; for (let y = 0; y < 64; y += 8) g.fillRect(0, y, 64, 1.5) },
+  RoofShingles: (g) => { g.fillStyle = '#b8b8b8'; for (let y = 0; y < 64; y += 8) { g.fillRect(0, y, 64, 2); for (let x = (y / 8) % 2 ? 6 : 0; x < 64; x += 12) g.fillRect(x, y, 1.5, 8) } },
+  Fabric: (g) => { g.fillStyle = '#e0e0e0'; for (let x = 0; x < 64; x += 4) g.fillRect(x, 0, 1, 64) },
+  Concrete: (g) => { for (let i = 0; i < 400; i++) { const v = 205 + ((i * 37) % 50); g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; g.fillRect((i * 53) % 64, (i * 29) % 64, 2, 2) } },
+}
+PATTERN.Pebble = PATTERN.Concrete
+const patternTex = {}
+function patterned(mat, material, size) {
+  const draw = PATTERN[material]
+  if (!draw) return mat
+  patternTex[material] ??= (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 64); draw(g)
+    const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace
+    return t
+  })()
+  // A block's faces in three.js order (+X, -X, +Y, -Y, +Z, -Z), each with its own width and height.
+  const [x, y, z] = size
+  return [[z, y], [z, y], [x, z], [x, z], [x, y], [x, y]].map(([w, h]) => {
+    const m = mat.clone(); m.map = patternTex[material].clone(); m.map.repeat.set(w / 8, h / 8); m.map.needsUpdate = true
+    return m
+  })
+}
 // Every part as Roblox shapes it: blocks, cylinders along X, balls, meshes stretched to their part.
 function addParts(scene, parts) {
 for (const p of parts) {
@@ -152,7 +192,7 @@ for (const p of parts) {
   const look = MAT[p.material] || {}
   const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
   if (p.shape === 'Wedge') mat.side = T.DoubleSide
-  let mats = mat
+  let mats = !p.mesh && (p.shape === 'Block' || !p.shape) ? patterned(mat, p.material, p.size) : mat
   if (p.texture && TEX[p.texture.image] && !p.mesh && (p.shape === 'Block' || !p.shape)) {
     const t = TEX[p.texture.image].clone()
     t.repeat.set(p.size[0] / p.texture.span[0], p.size[2] / p.texture.span[1])
@@ -170,11 +210,13 @@ for (const p of parts) {
   mesh.matrix.multiply(new T.Matrix4().makeScale(...scale))
   mesh.castShadow = p.transparency < 0.5 && Math.max(...p.size) < 500
   mesh.receiveShadow = true
-  scene.add(mesh)
+  // A fully see-through part only carries words on its SurfaceGui (drawn below).
+  if (p.transparency < 1) scene.add(mesh)
   // Custom paint patterns: each face's tile laid flat over the triangles facing that way, as
   // Roblox's Texture projects onto a part's face.
   for (const t of [...(p.patterns || [])].sort((a, b) => (a.z ?? 1) - (b.z ?? 1))) {
     if (!TEX[t.image]) continue
+    const TILE = { Front: [[-1, 0, 0], [0, -1, 0]], Back: [[1, 0, 0], [0, -1, 0]], Right: [[0, 0, -1], [0, -1, 0]], Left: [[0, 0, 1], [0, -1, 0]], Top: [[1, 0, 0], [0, 0, 1]], Bottom: [[-1, 0, 0], [0, 0, 1]] }
     const AXIS = { Top: [1, 1], Bottom: [1, -1], Right: [0, 1], Left: [0, -1], Back: [2, 1], Front: [2, -1] }[t.face]
     if (!AXIS) continue
     const src = geo.index ? geo.toNonIndexed() : geo
@@ -190,7 +232,11 @@ for (const p of parts) {
       for (const q of [a, b, c]) {
         keep.push(...q)
         const s = q.map((x, k) => x * scale[k])
-        uv.push(...(dom === 1 ? [s[0], s[2]] : dom === 0 ? [s[2], s[1]] : [s[0], s[1]]).map((x) => x / t.span))
+        // Along the tile's U (across) and V (down) as Roblox lays it on that face, less its offset.
+        const [U, V] = TILE[t.face]
+        const dot = (a) => a[0] * s[0] + a[1] * s[1] + a[2] * s[2]
+        const off = t.offset ?? [0, 0]
+        uv.push((dot(U) - off[0]) / t.span, -(dot(V) - off[1]) / t.span)
       }
     }
     if (!keep.length) continue
@@ -200,7 +246,7 @@ for (const p of parts) {
     og.computeVertexNormals()
     const map = TEX[t.image].clone()
     map.needsUpdate = true
-    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, color: '#' + (t.color ?? 'ffffff'), transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 - (t.z ?? 1), polygonOffsetUnits: -2 - (t.z ?? 1) }))
+    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, color: '#' + (t.color ?? 'ffffff'), transparent: true, opacity: 1 - (t.transparency ?? 0), roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 - (t.z ?? 1), polygonOffsetUnits: -2 - (t.z ?? 1) }))
     over.matrixAutoUpdate = false
     over.matrix.copy(mesh.matrix)
     scene.add(over)
@@ -228,14 +274,15 @@ for (const p of parts) {
     scene.add(face)
   } else if (p.text) {
     const cv = document.createElement('canvas'); cv.width = 512; cv.height = Math.max(64, Math.round(512 * p.size[1] / Math.max(p.size[0], 0.01)))
-    const x2 = cv.getContext('2d'); x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height); x2.fillStyle = '#' + p.text.fg
+    const x2 = cv.getContext('2d'); if (!p.text.clear) { x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height) } x2.fillStyle = '#' + p.text.fg
     // Chequers (the finish line): two rows of squares, as Builder draws them.
     if (p.text.checker) for (let i = 0; i < p.text.checker; i++) for (let j = 0; j < 2; j++) if ((i + j) % 2) x2.fillRect(i * cv.width / p.text.checker, j * cv.height / 2, cv.width / p.text.checker + 1, cv.height / 2 + 1)
     let fs = cv.height * 0.7; x2.font = '900 ' + fs + 'px Arial Black, sans-serif'; x2.textAlign = 'center'; x2.textBaseline = 'middle'
     while (x2.measureText(p.text.text).width > cv.width * 0.88 && fs > 10) { fs -= 2; x2.font = '900 ' + fs + 'px Arial Black, sans-serif' }
+    if (p.text.stroke) { x2.lineJoin = 'round'; x2.lineWidth = fs * 0.18; x2.strokeStyle = '#' + p.text.stroke; x2.strokeText(p.text.text, cv.width / 2, cv.height / 2 + 2) }
     if (!p.text.checker) x2.fillText(p.text.text, cv.width / 2, cv.height / 2 + 2)
     const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace
-    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex }))
+    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex, transparent: !!p.text.clear }))
     face.matrixAutoUpdate = false
     face.matrix.copy(m4).multiply(new T.Matrix4().makeTranslation(0, 0, p.size[2] / 2 + 0.02)).multiply(new T.Matrix4().makeScale(p.size[0], p.size[1], 1))
     scene.add(face)
@@ -243,18 +290,35 @@ for (const p of parts) {
 }
 }
 addParts(scene, S.parts)
+// A room (the Daily Spin's tyre shop): no sun or sky light, only its ambient and its own lamps.
+if (S.room) {
+  scene.background = new T.Color('#' + (S.fog?.color ?? '120c1c'))
+  hemi.color.set('#' + S.room.ambient); hemi.groundColor.set('#' + S.room.ambient); hemi.intensity = 1.2
+  sun.visible = false
+}
+for (const l of S.lights || []) {
+  const color = '#' + l.color
+  const light = l.kind === 'SpotLight'
+    ? new T.SpotLight(color, l.brightness * 260, l.range * 1.6, (l.angle / 2) * Math.PI / 180, 0.5, 1.2)
+    : new T.PointLight(color, l.brightness * 180, l.range * 1.6, 1.2)
+  light.position.set(...l.at)
+  if (l.kind === 'SpotLight') { light.target.position.set(l.at[0] + l.dir[0] * 50, l.at[1] + l.dir[1] * 50, l.at[2] + l.dir[2] * 50); scene.add(light.target) }
+  scene.add(light)
+}
 // A near plane well out from the camera: the software renderer's depth buffer is coarse, and road
 // paint a tenth of a stud above the asphalt sank into it.
-const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.sky?.Up ? 40000 : 6000)
+const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.camera?.far ?? (S.sky?.Up ? 40000 : 6000))
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 // Haze starts past what the camera looks at, as the game's light Atmosphere does.
 const reach = cam.position.distanceTo(new T.Vector3(...c.at))
 scene.fog = S.fog ? new T.Fog('#' + S.fog.color, S.fog.start, S.fog.end) : new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
 // The sky: each face is a picture of what a camera looking that way saw (tools/sky/build.mjs),
-// so each hangs square in front of the camera that way, a skybox round where it stands.
+// so each hangs square in front of the camera that way, a skybox round where it stands. Hung the
+// way Roblox hangs them: Left, Back, Right, Front an upright strip, Up's top edge on Left and
+// Down's top edge on Right (a cubemap's py turned clockwise, ny anticlockwise).
 if (S.sky?.Up) {
-  const FACES = { Lf: [[1, 0, 0], [0, 1, 0]], Bk: [[0, 0, 1], [0, 1, 0]], Rt: [[-1, 0, 0], [0, 1, 0]], Ft: [[0, 0, -1], [0, 1, 0]], Up: [[0, 1, 0], [-1, 0, 0]], Dn: [[0, -1, 0], [1, 0, 0]] }
+  const FACES = { Lf: [[1, 0, 0], [0, 1, 0]], Bk: [[0, 0, 1], [0, 1, 0]], Rt: [[-1, 0, 0], [0, 1, 0]], Ft: [[0, 0, -1], [0, 1, 0]], Up: [[0, 1, 0], [1, 0, 0]], Dn: [[0, -1, 0], [-1, 0, 0]] }
   const D = 20000
   for (const [face, [look, up]] of Object.entries(FACES)) {
     const t = await new T.TextureLoader().loadAsync(S.sky[face])
@@ -340,19 +404,24 @@ function draw(node, into = ui, ox = 0, oy = 0) {
     const fit = { Crop: 'cover', Fit: 'contain' }[node.image.scale] || 'fill'
     const wrap = document.createElement('div')
     Object.assign(wrap.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 1 - node.image.t, isolation: 'isolate' })
-    const img = document.createElement('img')
-    img.src = src
-    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit })
+    const r = node.image.rect
+    // A sheet's piece: the sheet drawn scaled so the piece fills the box.
+    const piece = r && { backgroundImage: 'url(' + src + ')', backgroundSize: (1024 * pw / r[2]) + 'px ' + (1024 * ph / r[3]) + 'px', backgroundPosition: (-r[0] * pw / r[2]) + 'px ' + (-r[1] * ph / r[3]) + 'px', backgroundRepeat: 'no-repeat' }
+    const img = document.createElement(r ? 'div' : 'img')
+    if (!r) img.src = src
+    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit }, piece || {})
     wrap.append(img)
     if (node.image.color && node.image.color.toLowerCase() !== 'ffffff') {
       const tint = document.createElement('div')
-      const mask = { WebkitMaskImage: 'url(' + src + ')', maskImage: 'url(' + src + ')', WebkitMaskSize: '100% 100%', maskSize: '100% 100%' }
+      const mask = r
+        ? { WebkitMaskImage: piece.backgroundImage, maskImage: piece.backgroundImage, WebkitMaskSize: piece.backgroundSize, maskSize: piece.backgroundSize, WebkitMaskPosition: piece.backgroundPosition, maskPosition: piece.backgroundPosition, WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat' }
+        : { WebkitMaskImage: 'url(' + src + ')', maskImage: 'url(' + src + ')', WebkitMaskSize: '100% 100%', maskSize: '100% 100%' }
       Object.assign(tint.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', background: '#' + node.image.color, mixBlendMode: 'multiply' }, mask)
       wrap.append(tint)
     }
     el.append(wrap)
   }
-  if (node.clip) el.style.overflow = 'hidden'
+  if (node.clip || (node.image && node.corner != null)) el.style.overflow = 'hidden'
   into.append(el)
   // Children nest inside so a clipping frame (a scrolling list) hides what runs past it.
   const kids = (Array.isArray(node.children) ? node.children : []).map((k, i) => [k, i]).sort((a, b) => (a[0].z ?? 1) - (b[0].z ?? 1) || a[1] - b[1])
