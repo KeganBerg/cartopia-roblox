@@ -769,9 +769,9 @@ if SHOTS then
 		runRace(`venue-{v.id}`, { [60] = true, [400] = true })
 		local screen = raceScreen()
 		local collect = screen and find(screen, function(d)
-			return d:IsA("TextButton") and string.find(label(d), "Collect") ~= nil
+			return d:IsA("TextButton") and (label(d) == "Collect" or label(d) == "Back")
 		end)
-		assert(collect, `the race at {v.id} has no Collect button`)
+		assert(collect, `the race at {v.id} has no Collect or Back button`)
 		signalFor(collect, "Activated"):Fire()
 		Emu.resumeWaits()
 		assert(not raceScreen(), `the race at {v.id} didn't close`)
