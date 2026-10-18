@@ -37,6 +37,7 @@ type Badge = {
 	lvl: Frame,
 	lvlText: TextLabel,
 	driver: TextLabel,
+	merged: TextLabel,
 	look: string,
 }
 local badges: { [string]: Badge } = {}
@@ -123,6 +124,10 @@ local function make(uid: string, model: Model, parent: Instance): Badge
 	local driver = Ui.text({ Name = "Driver", Text = "", TextSize = 11, BackgroundTransparency = 0, BackgroundColor3 = Ui.WHITE, Size = UDim2.fromOffset(20, 20), Visible = false, ZIndex = 4, Parent = gui })
 	Ui.round().Parent = driver
 	Ui.stroke(2, Color3.fromHex("#ec407a")).Parent = driver
+	-- A merged block's bonus, top left (badge-merge): "+25%".
+	local merged = Ui.text({ Name = "Merged", Text = "", TextSize = 11, TextColor3 = Color3.fromHex("#3e2723"), BackgroundTransparency = 0, BackgroundColor3 = Color3.fromHex("#ffb300"), Size = UDim2.fromOffset(36, 18), Visible = false, ZIndex = 4, Parent = gui })
+	Ui.round().Parent = merged
+	Ui.stroke(2, Ui.WHITE).Parent = merged
 	return {
 		gui = gui,
 		idle = idle,
@@ -135,6 +140,7 @@ local function make(uid: string, model: Model, parent: Instance): Badge
 		lvl = lvl,
 		lvlText = lvlText,
 		driver = driver,
+		merged = merged,
 		look = "",
 	}
 end
@@ -152,6 +158,11 @@ local function setLook(b: Badge, look: string)
 	local w = shown.Size.X.Offset
 	b.lvl.Position = UDim2.new(0.5, w / 2 - 10, 0, -5)
 	b.driver.Position = UDim2.new(0.5, -w / 2 - 10, 0, -6)
+	-- The merge chip takes the corner; the driver sits just right of it.
+	b.merged.Position = UDim2.new(0.5, -w / 2 - 10, 0, -5)
+	if b.merged.Visible then
+		b.driver.Position = UDim2.new(0.5, -w / 2 - 10 + b.merged.Size.X.Offset + 2, 0, -6)
+	end
 end
 
 local function modelsByUid(): { [string]: Model }
@@ -202,6 +213,12 @@ local function update(holder: Instance)
 			badge = make(b.uid, m, holder)
 			badges[b.uid] = badge
 		end
+		-- The building was drawn again (an upgrade, a merge, a turn): follow the new model.
+		local spot = m.PrimaryPart or m
+		if badge.gui.Adornee ~= spot then
+			badge.gui.Adornee = spot
+			badge.gui.StudsOffsetWorldSpace = Vector3.new(0, ((m:GetAttribute("Height") :: number?) or 10) + 4, 0)
+		end
 		if badge.gui.Enabled ~= shown then
 			badge.gui.Enabled = shown
 		end
@@ -246,6 +263,19 @@ local function update(holder: Instance)
 				badge.look = ""
 				setLook(badge, "idle")
 			end
+		end
+		local n = #members
+		if n > 1 then
+			local text = `+{math.round(data.mergeBonus(n) * 100)}%`
+			if badge.merged.Text ~= text then
+				Ui.setText(badge.merged, text)
+				badge.merged.Size = UDim2.fromOffset(Ui.textWidth(text, 11) + 10, 18)
+			end
+		end
+		if badge.merged.Visible ~= (n > 1) then
+			badge.merged.Visible = n > 1
+			badge.look = ""
+			setLook(badge, if ready then "ready" elseif idle == 0 then "working" else "idle")
 		end
 		local lvl = data.buildingLevel(b)
 		badge.lvl.Visible = lvl > 1
