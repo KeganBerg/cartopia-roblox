@@ -5,6 +5,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Paint = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Paint"))
+
 local Thumb = {}
 
 function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: Color3?): ViewportFrame
@@ -36,6 +38,18 @@ function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: C
 	cam.CFrame = CFrame.lookAt(cf.Position + dir * r * 3.6, cf.Position)
 	cam.Parent = vp
 	vp.CurrentCamera = cam
+	return vp
+end
+
+-- A car in a whole paint job: its colour in its finish, and its stripes.
+function Thumb.car(id: string, size: UDim2, job: Paint.Job): ViewportFrame
+	local vp = Thumb.new("Cars", id, size)
+	local m = vp:FindFirstChildOfClass("Model")
+	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
+	local stripes = lib and lib:FindFirstChild("Stripes") and (lib :: any).Stripes:FindFirstChild(id)
+	if m then
+		Paint.apply(m, job, stripes)
+		end
 	return vp
 end
 

@@ -19,6 +19,8 @@ local Thumb = require(script.Parent.Thumb)
 local Collection = require(script.Parent.Collection)
 local CrateDepot = require(script.Parent.Crates)
 local CallCards = require(script.Parent.CallCards)
+local PaintShop = require(script.Parent.PaintShop)
+local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 
 local Cars = {}
 
@@ -234,8 +236,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	end
 
 	-- The car on the turntable, turning slowly, framed in the space between the two cards.
-	local function stage(model: string, color: string, pi: number, owned: number?)
-		local v = Thumb.new("Cars", model, UDim2.new(1, -700, 1, -40), Color3.fromHex(color))
+	local function stage(model: string, job: Paint.Job, pi: number, owned: number?)
+		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job)
 		v.Position = UDim2.fromOffset(280, 10)
 		v.ZIndex = 1
 		v.Parent = content
@@ -279,6 +281,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	-- ── My Cars ───────────────────────────────────────────────────────────────────────────────
 	local selected: string? = s0.selectedCar
 	local garageTab = "tune"
+	-- A paint job being tried on in the Paint tab (the car's uid and the job).
+	local painting: { uid: string, job: Paint.Job }? = nil
 	local function garage()
 		local s = store.useGame.getState()
 		local rows = {}
@@ -338,7 +342,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 			Ui.text({ Text = "🚗 No cars yet. Buy one under For Sale.", TextSize = 18, TextColor3 = LINE, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = empty })
 			return
 		end
-		stage(car.c.model, car.c.color, car.pi, nil)
+		local tryJob = if painting and painting.uid == car.c.uid and garageTab == "paint" then painting.job else nil
+		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil)
 
 		local listCard = glass(content, "List", { Position = UDim2.fromOffset(12, 16), Size = UDim2.new(0, 260, 1, -28) })
 		local filters = Ui.new("Frame", { Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, 34), BackgroundTransparency = 1, ZIndex = 3, Parent = listCard })
@@ -410,7 +415,7 @@ function Cars.open(ctx: any, tab: string?): Instance
 		local GTABS = { { "tune", "🔧", "Upgrades" }, { "mods", "🪽", "Mods" }, { "paint", "🎨", "Paint" }, { "custom", "🖌️", "Custom" }, { "trim", "✨", "Trim" }, { "hats", "🎩", "Hats" } }
 		for i, t in GTABS do
 			local on = garageTab == t[1]
-			local b = Ui.new("TextButton", { Text = "", AutoButtonColor = false, LayoutOrder = i, Size = UDim2.fromOffset(40, 44), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = if on then 0 else 1, ZIndex = 3, Parent = tabs }, { Ui.corner(9) })
+			local b = Ui.new("TextButton", { Name = t[1], Text = "", AutoButtonColor = false, LayoutOrder = i, Size = UDim2.fromOffset(40, 44), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = if on then 0 else 1, ZIndex = 3, Parent = tabs }, { Ui.corner(9) })
 			Ui.text({ Text = t[2], TextSize = 16, Position = UDim2.fromOffset(0, 3), Size = UDim2.new(1, 0, 0, 20), ZIndex = 3, Parent = b })
 			Ui.text({ Text = t[3], TextSize = 12, TextColor3 = if on then Color3.fromHex("#263238") else Color3.fromHex("#546e7a"), Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, 0, 0, 16), ZIndex = 3, Parent = b })
 			b.Activated:Connect(function()
@@ -448,6 +453,13 @@ function Cars.open(ctx: any, tab: string?): Instance
 				end
 				y += 46
 			end
+		elseif garageTab == "paint" then
+			local space = Ui.new("Frame", { Name = "Shop", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 4, 1, -y), BackgroundTransparency = 1, ZIndex = 3, Parent = pad })
+			PaintShop.draw(space, ctx, car.c, tryJob or Paint.jobOf(car.c), function(job: Paint.Job?)
+				painting = if job then { uid = car.c.uid, job = job } else nil
+				render()
+			end)
+			return
 		else
 			Ui.text({ Text = "🛠 This shop is coming to Roblox soon.", Body = true, TextSize = 14, TextColor3 = Color3.fromHex("#546e7a"), TextWrapped = true, Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 0, 40), ZIndex = 3, Parent = pad })
 			y += 46
@@ -553,7 +565,7 @@ function Cars.open(ctx: any, tab: string?): Instance
 		lastSale = c.id
 		local color = colorFor[c.id] or c.colors[1]
 		local locked = gate < c.unlockLevel
-		stage(c.id, color, row.pi, owned[c.id])
+		stage(c.id, { color = color }, row.pi, owned[c.id])
 
 		local listCard = glass(content, "List", { Position = UDim2.fromOffset(12, 16), Size = UDim2.new(0, 260, 1, -28) })
 		local filters = Ui.new("Frame", { Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, 34), BackgroundTransparency = 1, ZIndex = 3, Parent = listCard })
@@ -694,7 +706,7 @@ function Cars.open(ctx: any, tab: string?): Instance
 			local car = raceCar.raceCarOf(s.cars, s.raceCar)
 			if car then
 				local d = data.carDef(car.model)
-				stage(car.model, car.color, data.performance(d, car.upgrades, car.mods))
+				stage(car.model, Paint.jobOf(car), data.performance(d, car.upgrades, car.mods))
 			end
 			CallCards.draw(content, ctx, function()
 				CrateDepot.reset()

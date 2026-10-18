@@ -82,7 +82,7 @@ task.spawn(function()
 	-- A copy of every car and building for the client's shop pictures and placement ghost.
 	local library = Instance.new("Folder")
 	library.Name = "ModelLibrary"
-	for _, kind in { "Cars", "Buildings" } do
+	for _, kind in { "Cars", "Buildings", "Stripes" } do
 		local f = Instance.new("Folder")
 		f.Name = kind
 		f.Parent = library
@@ -93,6 +93,11 @@ task.spawn(function()
 		if m then
 			m.Name = car.id
 			m.Parent = library.Cars
+		end
+		local stripes = Builder.build(`stripe:{car.id}`)
+		if stripes then
+			stripes.Name = car.id
+			stripes.Parent = library.Stripes
 		end
 	end
 	for _, def in data.BUILDINGS do

@@ -167,7 +167,7 @@ end)
 remotes.Parent = RS
 local lib = Instance.new("Folder")
 lib.Name = "ModelLibrary"
-for _, kind in { "Cars", "Buildings" } do
+for _, kind in { "Cars", "Buildings", "Stripes" } do
 	local f = Instance.new("Folder")
 	f.Name = kind
 	f.Parent = lib
@@ -184,6 +184,11 @@ if SHOTS then
 		if m then
 			m.Name = car.id
 			m.Parent = lib.Cars
+		end
+		local stripes = Builder.build(`stripe:{car.id}`)
+		if stripes then
+			stripes.Name = car.id
+			stripes.Parent = lib.Stripes
 		end
 	end
 	for _, def in data.BUILDINGS do
@@ -451,6 +456,13 @@ end
 clickAll("cards", function()
 	hud.openPanel("cars", "cards")
 end)
+clickAll("paint", function()
+	hud.openPanel("cars", "garage")
+	local b = hud.gui:FindFirstChild("paint", true)
+	if b then
+		signalFor(b, "Activated"):Fire()
+	end
+end)
 print(`{total} buttons pressed, {bad} problems, {silent} not wired`)
 
 local fs = require("@lune/fs")
@@ -498,6 +510,30 @@ if SHOTS then
 	hud.ctx.close()
 	hud.openPanel("book")
 	shot("book", nil)
+	-- Paint: try chrome with white stripes on the first car, look at a locked colour, then buy.
+	towns:_with(1, function()
+		store.useGame.setState({ coins = 1000000, level = 10 })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("cars", "garage")
+	local function tap(name)
+		local b = hud.gui:FindFirstChild(name, true)
+		assert(b, `no {name} button`)
+		signalFor(b, "Activated"):Fire()
+	end
+	tap("paint")
+	shot("paint", nil)
+	tap("chrome")
+	tap("stripe2")
+	shot("paint-try", nil)
+	tap("#8c1d40")
+	shot("paint-locked", nil)
+	tap("#1e88e5")
+	tap("Go")
+	local painted = towns:snapshot(1).save.cars[1]
+	assert(painted.finish == "chrome" and painted.stripe == "#fafafa" and painted.color == "#1e88e5", `paint job didn't stick: {painted.color} {painted.finish} {painted.stripe}`)
+	shot("paint-bought", nil)
 	-- Call Cards: wearing one you won, then looking at one still locked.
 	towns:_with(1, function()
 		store.useGame.setState({ callCards = { "neonalley", "plasma", "goldrush" }, callCard = "neonalley" })

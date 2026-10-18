@@ -354,6 +354,11 @@ it('exports every building and car', async () => {
     const paint = a.flatMap((p, i) => (b[i] && b[i].look.c !== p.look.c ? [i] : []))
     const pieces = await render(<CarModel body={c.body} model={c.id} color={c.colors[0]} />)
     models.push({ id: c.id, kind: 'car', pieces, paint })
+    // Its racing stripes (drawn only when painted on), in a colour nothing else on a car uses: the
+    // game lays them over the car and paints them the stripe colour.
+    const striped = await render(<CarModel body={c.body} model={c.id} color={c.colors[0]} stripe="#0000fe" />)
+    const stripes = striped.filter((p) => p.look.c === '#0000fe')
+    if (stripes.length) models.push({ id: `stripe:${c.id}`, kind: 'piece', pieces: stripes })
   }
   // Street pieces the town is assembled from (TownView draws each road tile from these, the way
   // World.tsx's RoadTile does): sidewalks for every side and pair of ends, the rounded corners,
