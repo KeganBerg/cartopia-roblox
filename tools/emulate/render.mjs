@@ -175,6 +175,7 @@ for (const p of parts) {
   // Roblox's Texture projects onto a part's face.
   for (const t of [...(p.patterns || [])].sort((a, b) => (a.z ?? 1) - (b.z ?? 1))) {
     if (!TEX[t.image]) continue
+    const TILE = { Front: [[-1, 0, 0], [0, -1, 0]], Back: [[1, 0, 0], [0, -1, 0]], Right: [[0, 0, -1], [0, -1, 0]], Left: [[0, 0, 1], [0, -1, 0]], Top: [[1, 0, 0], [0, 0, 1]], Bottom: [[-1, 0, 0], [0, 0, 1]] }
     const AXIS = { Top: [1, 1], Bottom: [1, -1], Right: [0, 1], Left: [0, -1], Back: [2, 1], Front: [2, -1] }[t.face]
     if (!AXIS) continue
     const src = geo.index ? geo.toNonIndexed() : geo
@@ -190,7 +191,11 @@ for (const p of parts) {
       for (const q of [a, b, c]) {
         keep.push(...q)
         const s = q.map((x, k) => x * scale[k])
-        uv.push(...(dom === 1 ? [s[0], s[2]] : dom === 0 ? [s[2], s[1]] : [s[0], s[1]]).map((x) => x / t.span))
+        // Along the tile's U (across) and V (down) as Roblox lays it on that face, less its offset.
+        const [U, V] = TILE[t.face]
+        const dot = (a) => a[0] * s[0] + a[1] * s[1] + a[2] * s[2]
+        const off = t.offset ?? [0, 0]
+        uv.push((dot(U) - off[0]) / t.span, -(dot(V) - off[1]) / t.span)
       }
     }
     if (!keep.length) continue
@@ -200,7 +205,7 @@ for (const p of parts) {
     og.computeVertexNormals()
     const map = TEX[t.image].clone()
     map.needsUpdate = true
-    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, color: '#' + (t.color ?? 'ffffff'), transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 - (t.z ?? 1), polygonOffsetUnits: -2 - (t.z ?? 1) }))
+    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, color: '#' + (t.color ?? 'ffffff'), transparent: true, opacity: 1 - (t.transparency ?? 0), roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 - (t.z ?? 1), polygonOffsetUnits: -2 - (t.z ?? 1) }))
     over.matrixAutoUpdate = false
     over.matrix.copy(mesh.matrix)
     scene.add(over)
