@@ -186,7 +186,23 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 			return raceClock
 		end),
 	},
+	ghosts = emu.require(SSS.Server.Ghosts).new(nil, function()
+		return NOW // 1000 + raceClock
+	end),
+	-- Two other players to race: one here with a time, a friend with only a par.
+	people = function()
+		return { { userId = 2, name = "Mika", here = true }, { userId = 3, name = "Juno" } }
+	end,
 })
+do
+	local g = races.mods.ghosts
+	g:card(2, { car = "Pip", model = "pip", color = "#1e88e5", pi = 14, town = "Gearville" })
+	g:record(2, 14.212, 14, "Pip", "pip", "#1e88e5")
+	g:card(3, { car = "Pip", model = "pip", color = "#43a047", pi = 12, town = "Nitro Bay" })
+	-- Mika left a taunt after beating Player1's ghost.
+	g:finished(2, 1, 13.9, 14.4, true)
+	g:taunt(2, 0, "Gearville")
+end
 -- Render steps, run by hand.
 local renderSteps = {}
 roblox.implementMethod("RunService", "BindToRenderStep", function(_, name, _, fn)
@@ -1271,7 +1287,7 @@ print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; 
 
 -- A race from one of the other modes' pages (client/RacePages): opens the page from the front
 -- page's small button, presses the first button whose words match `go`, and races.
-local function modeRace(tag, mini, go, shotAt)
+local function modeRace(tag, mini, go, shotAt, keep)
 	topUp()
 	hud.ctx.close()
 	local f, _, res = runRace(tag, shotAt or { [60] = true }, function()
@@ -1292,7 +1308,9 @@ local function modeRace(tag, mini, go, shotAt)
 	end)
 	print(`{tag}: {f} frames; card: {cardText(res)}`)
 	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
-	closeRace()
+	if not keep then
+		closeRace()
+	end
 	return res
 end
 
@@ -1460,6 +1478,27 @@ local function modePage(tag, mini, press, byName)
 		shot(`page-{tag}-after`, nil)
 	end
 	hud.ctx.close()
+end
+
+-- Ghost races: the page (players here, friends, a taunt left for you), a run against Mika's
+-- best, and a taunt sent back from the result card.
+do
+	local gres = modeRace("ghost", "Ghosts", "👻 Best", { [60] = true }, true)
+	assert(gres, "no ghost race result card")
+	local chip = find(gres, function(d)
+		return d:IsA("TextButton") and string.sub(d.Name, 1, 5) == "Taunt"
+	end)
+	assert(chip, "no taunt chips on the ghost result card")
+	calls = {}
+	signalFor(chip, "Activated"):Fire()
+	Emu.resumeWaits()
+	print(`ghost taunt calls: {table.concat(calls, ", ")}`)
+	if SHOTS then
+		shot("ghost-taunted", nil)
+	end
+	local inbox = races.mods.ghosts:inbox(2)
+	assert(#inbox == 1 and inbox[1].from == 1, "the taunt didn't reach Mika")
+	closeRace()
 end
 
 -- The Trophy Road: claim every stop the trophies reach.

@@ -84,6 +84,10 @@ export type Mods = {
 	game: ((string) -> any)?,
 	-- Weekly time boards by name (server/Boards), for the modes.
 	boards: { [string]: any }?,
+	-- Everyone's ghosts and taunts (server/Ghosts), and whose ghosts a player can race:
+	-- { userId, name, here? } for everyone else in the server and their friends.
+	ghosts: any?,
+	people: ((userId: number) -> { any })?,
 }
 
 -- A race mode beyond the ones built in here (server/Modes/*.luau). Each is a table of functions

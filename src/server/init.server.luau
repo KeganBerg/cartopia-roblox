@@ -35,6 +35,7 @@ local Towns = require(script.Towns)
 local TownView = require(script.TownView)
 local Races = require(script.Races)
 local Boards = require(script.Boards)
+local Ghosts = require(script.Ghosts)
 local Crates = require(script.Crates)
 local Policies = require(script.Policies)
 local Policy = require(ReplicatedStorage.Shared.Policy)
@@ -51,6 +52,34 @@ local saves = Saves.new({
 	now = os.time,
 })
 local towns = Towns.new(require(Game.store), now)
+-- Everyone's ghost (their best time, or their best car for a par) and the taunts left for them.
+local ghosts = Ghosts.new({
+	ghosts = DataStoreService:GetDataStore("Ghosts_v1"),
+	taunts = DataStoreService:GetDataStore("GhostTaunts_v1"),
+}, os.time)
+-- Each player's Roblox friends (the first 200), kept for a while: whose ghosts they can race.
+local friendsOf: { [number]: { at: number, list: { any } } } = {}
+local function friends(userId: number): { any }
+	local known = friendsOf[userId]
+	if known and os.clock() - known.at < 300 then
+		return known.list
+	end
+	local list = {}
+	pcall(function()
+		local pages = Players:GetFriendsAsync(userId)
+		for _ = 1, 2 do
+			for _, f in pages:GetCurrentPage() do
+				table.insert(list, { userId = f.Id, name = f.DisplayName })
+			end
+			if pages.IsFinished then
+				break
+			end
+			pages:AdvanceToNextPageAsync()
+		end
+	end)
+	friendsOf[userId] = { at = os.clock(), list = list }
+	return list
+end
 local races = Races.new(towns, {
 	store = require(Game.store),
 	data = require(Game.data),
@@ -90,6 +119,24 @@ local races = Races.new(towns, {
 			end,
 		}, os.clock),
 	},
+	ghosts = ghosts,
+	-- Whose ghosts a player can race: everyone else in this server, then their friends.
+	people = function(userId: number): { any }
+		local out, seen = {}, { [userId] = true }
+		for _, p in Players:GetPlayers() do
+			if not seen[p.UserId] then
+				seen[p.UserId] = true
+				table.insert(out, { userId = p.UserId, name = p.DisplayName, here = true })
+			end
+		end
+		for _, f in friends(userId) do
+			if not seen[f.userId] then
+				seen[f.userId] = true
+				table.insert(out, f)
+			end
+		end
+		return out
+	end,
 })
 -- Each player's Roblox rules (PolicyService), strict until known; crates check them before opening.
 local policies = Policies.new(game:GetService("PolicyService"), Policy, task.wait)
@@ -229,9 +276,22 @@ local function tap(player: Player, uid: string)
 	push(player)
 end
 
+-- A player's best car and town name, so others can race their ghost (as a par for that car)
+-- before they have a time of their own.
+local function ghostCard(userId: number)
+	local card = towns:_with(userId, function(s: any)
+		local car, pi = races:_car(s)
+		return if car then { car = (require(Game.data) :: any).carDef(car.model).name, model = car.model, color = car.color, pi = pi, town = s.townName } else nil
+	end)
+	if card then
+		ghosts:card(userId, card)
+	end
+end
+
 local function save(player: Player, release: boolean?)
 	if towns:isOpen(player.UserId) and saves:holds(player.UserId) then
 		saves:write(player.UserId, towns:save(player.UserId), release)
+		pcall(ghostCard, player.UserId)
 	end
 end
 

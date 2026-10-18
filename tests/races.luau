@@ -37,7 +37,11 @@ local function setup()
 		return NOW
 	end)
 	towns:open(1, nil)
+	towns:open(2, nil)
 	local t = 0
+	local ghosts = require("../src/server/Ghosts").new(nil, function()
+		return 1700000000 + t
+	end)
 	local races = Races.new(towns, {
 		store = store,
 		data = require(G .. "data"),
@@ -61,7 +65,18 @@ local function setup()
 			tuner = require("../src/server/Modes/Tuner"),
 			daily = require("../src/server/Modes/Daily"),
 			trial = require("../src/server/Modes/Trial"),
+			ghost = require("../src/server/Modes/Ghost"),
 		},
+		ghosts = ghosts,
+		people = function(userId)
+			local out = {}
+			for _, id in { 1, 2 } do
+				if id ~= userId then
+					table.insert(out, { userId = id, name = `Player{id}`, here = true })
+				end
+			end
+			return out
+		end,
 		boards = {
 			trial = require("../src/server/Boards").new("Trial", nil, function()
 				return t
@@ -300,6 +315,69 @@ return function(test)
 		assert(#races:list(1, "trial").prizes == 0, "claimed")
 		NOW -= 7 * 86400000
 		local _ = Js
+	end)
+
+	test("races: ghost races chase a par until there's a time, keep your best and send taunts", function()
+		local races, towns, wait = setup()
+		-- Player 2 has never opened the page: nothing to race yet.
+		assert(#races:list(1, "ghost").people == 0, "no ghosts yet")
+		assert(races:start(1, "ghost", { vs = 2 }) == nil, "can't race an unknown ghost")
+		assert(races:start(1, "ghost", { vs = 1 }) == nil, "can't race yourself")
+		-- Once they have (or save), their best car races as a par.
+		races:list(2, "ghost")
+		local page = races:list(1, "ghost")
+		local g = page.people[1]
+		assert(#page.people == 1 and g.owner == 2 and g.par and g.t == math.round(race.raceFloor(g.pi) * 1.3 * 100) / 100, "par ghost")
+		local fuel = towns:snapshot(1).save.fuel
+		local started, why = races:start(1, "ghost", { vs = 2 })
+		assert(started, `start: {why}`)
+		assert(started.spec.ghost == g.t and started.rival.id == "ghost", "chases their par")
+		assert(towns:snapshot(1).save.fuel == fuel - require(G .. "data").RACE_FUEL, "fuel")
+		local coins = towns:snapshot(1).save.coins
+		local run = drive(started.spec)
+		local mine = DragRace.times(run)
+		wait(60)
+		local result = assert(races:finish(1, run.events))
+		local r = result.ghost
+		assert(r and r.kept == math.round(math.max(mine, race.raceFloor(started.spec.myPi)) * 1000) / 1000, "kept time")
+		assert(r.won == (r.kept < g.t) and result.won == r.won and r.best == r.kept, "won and best")
+		assert(towns:snapshot(1).save.coins == coins and result.xp == 0, "no prizes")
+		-- Brag taunts only after a win.
+		for _, t in r.taunts do
+			assert(r.won or t.id >= 10, "brag taunt offered after a loss")
+		end
+		assert(races:act(1, "ghost", { taunt = 0 }) == (if r.won then "sent" else "no"), "brag taunt")
+		if not r.won then
+			assert(races:act(1, "ghost", { taunt = 10 }) == "sent", "taunt sent")
+		end
+		assert(races:act(1, "ghost", { taunt = 11 }) == "no", "one taunt a run")
+		local inbox = races:list(2, "ghost").inbox
+		assert(#inbox == 1 and inbox[1].from == 1 and inbox[1].t == r.kept and inbox[1].text, "inbox")
+		-- Player 1 now races as their best for player 2.
+		local theirs = races:list(2, "ghost").people[1]
+		assert(theirs.owner == 1 and not theirs.par and theirs.t == r.kept, "best is the ghost")
+		-- Three taunts a day to the same player.
+		for i = 2, 4 do
+			local again = assert(races:start(1, "ghost", { vs = 2 }))
+			local rr = drive(again.spec)
+			wait(60)
+			assert(races:finish(1, rr.events))
+			assert(races:act(1, "ghost", { taunt = 12 }) == (if i <= 3 then "sent" else "limit"), `taunt {i}`)
+		end
+		inbox = races:list(2, "ghost").inbox
+		assert(#inbox == 3, `{#inbox} taunts`)
+		assert(races:act(2, "ghost", { seen = { inbox[1].id, inbox[2].id } }))
+		assert(#races:list(2, "ghost").inbox == 1, "seen ones cleared")
+	end)
+
+	test("races: a Time Trial time becomes your ghost", function()
+		local races, _, wait = setup()
+		local started = assert(races:start(1, "trial"))
+		local run = drive(started.spec)
+		wait(60)
+		local result = assert(races:finish(1, run.events))
+		local g = races:list(2, "ghost").people[1]
+		assert(g and g.owner == 1 and not g.par and g.t == result.trial.kept, `trial time is the ghost {g and g.t} {g and g.par} {result.trial.kept} {result.trial.t}`)
 	end)
 
 	test("races: a Tuner Trial needs its build, races the built host and pays through tunerResult", function()
