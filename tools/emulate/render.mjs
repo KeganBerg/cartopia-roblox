@@ -135,9 +135,11 @@ for (const p of parts) {
   if (p.text) {
     const cv = document.createElement('canvas'); cv.width = 512; cv.height = Math.max(64, Math.round(512 * p.size[1] / Math.max(p.size[0], 0.01)))
     const x2 = cv.getContext('2d'); x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height); x2.fillStyle = '#' + p.text.fg
+    // Chequers (the finish line): two rows of squares, as Builder draws them.
+    if (p.text.checker) for (let i = 0; i < p.text.checker; i++) for (let j = 0; j < 2; j++) if ((i + j) % 2) x2.fillRect(i * cv.width / p.text.checker, j * cv.height / 2, cv.width / p.text.checker + 1, cv.height / 2 + 1)
     let fs = cv.height * 0.7; x2.font = '900 ' + fs + 'px Arial Black, sans-serif'; x2.textAlign = 'center'; x2.textBaseline = 'middle'
     while (x2.measureText(p.text.text).width > cv.width * 0.88 && fs > 10) { fs -= 2; x2.font = '900 ' + fs + 'px Arial Black, sans-serif' }
-    x2.fillText(p.text.text, cv.width / 2, cv.height / 2 + 2)
+    if (!p.text.checker) x2.fillText(p.text.text, cv.width / 2, cv.height / 2 + 2)
     const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace
     const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex }))
     face.matrixAutoUpdate = false
@@ -147,12 +149,14 @@ for (const p of parts) {
 }
 }
 addParts(scene, S.parts)
-const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 1, 5000)
+// A near plane well out from the camera: the software renderer's depth buffer is coarse, and road
+// paint a tenth of a stud above the asphalt sank into it.
+const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, 6000)
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 // Haze starts past what the camera looks at, as the game's light Atmosphere does.
 const reach = cam.position.distanceTo(new T.Vector3(...c.at))
-scene.fog = new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
+scene.fog = S.fog ? new T.Fog('#' + S.fog.color, S.fog.start, S.fog.end) : new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
 renderer.render(scene, cam)
 
 // Screens: ScreenGui frames as absolutely placed boxes, drawn as Roblox would: children over

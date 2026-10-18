@@ -14,29 +14,34 @@ local race = require(Game.race) :: any
 local data = require(Game.data) :: any
 local DragRace = require(ReplicatedStorage.Shared.DragRace)
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
-local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local TownCamera = require(script.Parent.TownCamera)
+local DayNight = require(script.Parent.DayNight)
+local Builder = require(ReplicatedStorage.Shared.Models.Builder) :: any
+local venues = require(Game.scene_venues) :: any
 
 local DragStrip = {}
 
 -- The web's race scene in studs: 0.25 world units per metre of race, 10 studs per unit.
-local STUDS_PER_M = 2.5
-local LANE = 7.5 -- each car's lane, either side of the middle
-local ROAD = 16 -- half the street's width
-local WALK = 10 -- the sidewalk
+local S = 10 -- studs per web unit
+local STUDS_PER_M = 0.25 * S
+local LANE = 0.75 * S -- each car's lane, either side of the middle
+local ROAD = 1.6 * S -- half the street's width (RaceVenues ROAD)
+local WALK = 1.0 * S -- the sidewalk or shoulder (RaceVenues WALK)
 local RUN_OUT = 150 * STUDS_PER_M -- past the line, where the cars slow to a stop
-local TAIL = 120 -- street behind the start line
+local DRESS = 150 * S -- how far past the finish the street is lined (RaceScene DRESS)
+local CAR_SCALE = 1.4
 local ORIGIN = Vector3.new(-30000, 0, 0) -- far from every town and its countryside
 
--- Ground colours by venue (the web's venues each have their own scenery).
-local GROUND = { beach = "#e8d79a", desert = "#d9b277", snow = "#eef4fa", farm = "#8fbf5a", docks = "#8a96a3" }
--- The buildings along the street: the web's FALLBACK row.
-local ROW = { "pizza", "donut", "burger", "diner", "house", "motel", "carwash", "tires", "gas", "bowling", "icecream", "house" }
+-- Main Street is lined with shops (RaceScene useStreet's FALLBACK row), a tree or palm after each.
+local FALLBACK = { "pizza", "donut", "burger", "diner", "house", "motel", "carwash", "tires", "gas", "bowling", "icecream", "house" }
+
+local LIT = { "#ff1744", "#ff1744", "#ffab00" } -- the countdown's lamps, lit
 
 local strip: Model? = nil
-local stripLength = 0
+local horizon: Model? = nil
+local stripKey = ""
 
 local function part(props: { [string]: any }, parent: Instance): Part
 	local p = Instance.new("Part")
@@ -77,107 +82,91 @@ local function library(kind: string, id: string): Model?
 	return m
 end
 
--- The street: asphalt with lane lines, sidewalks and kerbs, the start line and its light tree,
--- a chequered finish under a banner, shops along both sides and grass beyond. Built once, then
--- kept; only the ground colour follows the venue.
-local function buildStrip(track: number): Model
-	local len = track * STUDS_PER_M
-	if strip and stripLength == len then
-		return strip
+-- Main Street's shops on their paving, facing the road, with a tree or palm in the gap after each
+-- (RaceScene useStreet and StreetShops streetPieces).
+local function mainStreet(into: Model)
+	local slots = {}
+	for _, side in { -1, 1 } do
+		local z = -10 + (if side > 0 then 1.5 else 0)
+		local i = if side > 0 then 3 else 0
+		while z < (DRESS / S + 100) + 30 do
+			local def = FALLBACK[i % #FALLBACK + 1]
+			i += 1
+			local w = data.buildingDef(def).w * data.TILE
+			table.insert(slots, { z = z + w / 2, side = side, def = def })
+			z += w + 1.4
+		end
+	end
+	for i, sl in slots do
+		local d = data.buildingDef(sl.def)
+		local depth = d.h * data.TILE
+		local turn = if sl.side < 0 then math.pi / 2 else -math.pi / 2
+		local at = CFrame.new(ORIGIN + Vector3.new(sl.side * (1.6 + 1.0 + depth / 2 + 0.1), 0, sl.z) * S) * CFrame.Angles(0, turn, 0)
+		part({ Name = "Paving", Size = Vector3.new(d.w * data.TILE - 0.1, 0.05, depth - 0.1) * S, CFrame = at * CFrame.new(0, 0.2, 0), Color = hex("#eadfc8"), Material = Enum.Material.Pavement }, into)
+		local b = library("Buildings", sl.def)
+		if b then
+			b:PivotTo(at)
+			b.Parent = into
+		end
+		local tree = library("Buildings", if (i - 1) % 3 ~= 0 then "tree" else "palm")
+		if tree then
+			tree:PivotTo(CFrame.new(ORIGIN + Vector3.new(sl.side * (1.6 + 1.0 + 0.9), 0, sl.z + d.w + 0.7) * S))
+			tree.Parent = into
+		end
+	end
+end
+
+-- The countdown bar hanging under the START banner (RaceScene StartLights): three lamps, the reds
+-- coming on with the count and all green at GO. Returns the bar and its lamps, left to right as the
+-- drivers see them.
+local function startLights(into: Model): (Model, { BasePart })
+	local bar = Instance.new("Model")
+	bar.Name = "StartLights"
+	bar.Parent = into
+	local at = function(x: number, y: number, z: number): CFrame
+		return CFrame.new(ORIGIN + Vector3.new(x, 2.5 + y, -0.85 + z) * S)
+	end
+	part({ Name = "Hanger", Size = Vector3.new(0.05, 0.3, 0.05) * S, CFrame = at(0, 0.32, 0), Color = hex("#263238") }, bar)
+	part({ Name = "Box", Size = Vector3.new(1.25, 0.36, 0.14) * S, CFrame = at(0, 0, 0), Color = hex("#212121") }, bar)
+	local lamps = {}
+	for i = 0, 2 do
+		local lamp = part({ Name = `Lamp{i + 1}`, Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.05, 0.26, 0.26) * S, CFrame = at((1 - i) * 0.38, 0, -0.08) * CFrame.Angles(0, math.pi / 2, 0), Color = hex("#3a1010") }, bar)
+		lamps[i + 1] = lamp
+	end
+	return bar, lamps
+end
+
+-- The strip at a venue: the web game's own drag strip and scenery (Shared.Models.RaceScenery,
+-- converted from RaceScene.tsx and RaceVenues.tsx), Main Street's shops, and the far horizon, which
+-- rides along with the camera. Built once per venue, then kept.
+local function buildStrip(venueId: string): (Model, Model?)
+	if strip and stripKey == venueId then
+		return strip, horizon
 	end
 	if strip then
 		strip:Destroy()
 	end
 	local m = Instance.new("Model")
 	m.Name = "DragStrip"
-	local z0, z1 = -TAIL, len + RUN_OUT + 60
-	local mid, long = (z0 + z1) / 2, z1 - z0
-	local at = function(x: number, y: number, z: number): CFrame
-		return CFrame.new(ORIGIN + Vector3.new(x, y, z))
+	local scene = Builder.build(`race:{venueId}`) or Builder.build("race:main")
+	if scene then
+		scene.Name = "Scene"
+		scene:PivotTo(CFrame.new(ORIGIN))
+		scene.Parent = m
 	end
-	part({ Name = "Ground", Size = Vector3.new(1400, 2, long + 800), CFrame = at(0, -1.2, mid), Color = hex("#7cb342"), Material = Enum.Material.Grass }, m)
-	part({ Name = "Asphalt", Size = Vector3.new(ROAD * 2, 1, long), CFrame = at(0, -0.4, mid), Color = hex("#3b4048"), Material = Enum.Material.Asphalt }, m)
-	for _, side in { -1, 1 } do
-		part({ Name = "Kerb", Size = Vector3.new(1.2, 1.4, long), CFrame = at(side * (ROAD + 0.6), -0.2, mid), Color = hex("#d7dde3") }, m)
-		part({ Name = "Walk", Size = Vector3.new(WALK, 1.2, long), CFrame = at(side * (ROAD + 1.2 + WALK / 2), -0.3, mid), Color = hex("#b9c0c8"), Material = Enum.Material.Concrete }, m)
-		-- Lane edges.
-		part({ Name = "Edge", Size = Vector3.new(0.6, 0.1, long), CFrame = at(side * (ROAD - 1.5), 0.12, mid), Color = hex("#f5f5f5") }, m)
+	local far = Builder.build(`race:{venueId}:far`)
+	if far then
+		far.Name = "Horizon"
+		far:PivotTo(CFrame.new(ORIGIN))
+		far.Parent = m
 	end
-	-- The dashed middle line.
-	for z = z0, z1, 24 do
-		part({ Name = "Dash", Size = Vector3.new(0.6, 0.1, 12), CFrame = at(0, 0.12, z + 6), Color = hex("#ffd54f") }, m)
+	if venueId == "main" then
+		mainStreet(m)
 	end
-	-- Start line, and the light tree beside it.
-	part({ Name = "StartLine", Size = Vector3.new(ROAD * 2, 0.1, 1.6), CFrame = at(0, 0.13, 0), Color = hex("#ffffff") }, m)
-	local tree = Instance.new("Model")
-	tree.Name = "Tree"
-	tree.Parent = m
-	local tx = -(ROAD + 4) -- on the sidewalk, to the right of the cars
-	part({ Name = "Pole", Size = Vector3.new(1, 18, 1), CFrame = at(tx, 9, 8), Color = hex("#263238") }, tree)
-	part({ Name = "Box", Size = Vector3.new(3.4, 9, 1.6), CFrame = at(tx, 16, 8), Color = hex("#1b1f24") }, tree)
-	for i = 1, 3 do
-		local lamp = part({ Name = `Lamp{i}`, Shape = Enum.PartType.Ball, Size = Vector3.new(2, 2, 2), CFrame = at(tx, 19.5 - i * 2.4, 7.1), Color = hex("#3a1010"), Material = Enum.Material.SmoothPlastic }, tree)
-		lamp:SetAttribute("Lamp", i)
-	end
-	-- The finish: a chequered band across the road under a banner on two posts.
-	local cells = 16
-	for i = 0, cells - 1 do
-		for j = 0, 1 do
-			part({ Name = "Check", Size = Vector3.new(ROAD * 2 / cells, 0.1, 2), CFrame = at(-ROAD + (i + 0.5) * ROAD * 2 / cells, 0.14, len + (j - 0.5) * 2), Color = if (i + j) % 2 == 0 then hex("#ffffff") else hex("#111111") }, m)
-		end
-	end
-	for _, side in { -1, 1 } do
-		part({ Name = "Post", Size = Vector3.new(1.4, 30, 1.4), CFrame = at(side * (ROAD + 2), 15, len), Color = hex("#eceff1") }, m)
-	end
-	local banner = part({ Name = "Banner", Size = Vector3.new(ROAD * 2 + 5, 5.5, 0.6), CFrame = at(0, 27, len), Color = hex("#d32f2f") }, m)
-	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
-		local g = Instance.new("SurfaceGui")
-		g.Face = face
-		g.CanvasSize = Vector2.new(400, 60)
-		g.Parent = banner
-		local t = Instance.new("TextLabel")
-		t.Size = UDim2.fromScale(1, 1)
-		t.BackgroundTransparency = 1
-		t.Text = "FINISH"
-		t.TextScaled = true
-		t.FontFace = Ui.DISPLAY
-		t.TextColor3 = Color3.new(1, 1, 1)
-		t.Parent = g
-	end
-	-- Bunting over the start.
-	for i = 0, 11 do
-		local x = -ROAD - 2 + (i + 0.5) * (ROAD * 2 + 4) / 12
-		local sag = 1.6 * (1 - ((i + 0.5) / 6 - 1) ^ 2)
-		part({ Name = "Flag", Size = Vector3.new(2, 2.2, 0.2), CFrame = at(x, 30 - sag, 4) * CFrame.Angles(0, 0, math.rad(45)), Color = hex(({ "#ff1744", "#ffd54f", "#2979ff", "#00e676" })[i % 4 + 1]) }, m)
-	end
-	for _, side in { -1, 1 } do
-		part({ Name = "Post", Size = Vector3.new(1, 31, 1), CFrame = at(side * (ROAD + 2), 15.5, 4), Color = hex("#eceff1") }, m)
-	end
-	-- Shops along both sides, facing the street, with lamps between.
-	for _, side in { -1, 1 } do
-		local z = z0 + 10
-		local n = if side > 0 then 0 else 5
-		while z < z1 - 20 do
-			n += 1
-			local id = ROW[n % #ROW + 1]
-			local b = library("Buildings", id)
-			if b then
-				local _, size = b:GetBoundingBox()
-				local depth, width = size.Z, size.X
-				local turn = if side > 0 then -math.pi / 2 else math.pi / 2
-				b:PivotTo(at(side * (ROAD + 1.2 + WALK + 4 + depth / 2), 0, z + width / 2) * CFrame.Angles(0, turn, 0))
-				b.Parent = m
-				z += width + 8
-			else
-				z += 40
-			end
-			part({ Name = "LampPost", Size = Vector3.new(0.6, 14, 0.6), CFrame = at(side * (ROAD + 2.5), 7, z - 4), Color = hex("#37474f") }, m)
-			part({ Name = "LampHead", Size = Vector3.new(3, 0.8, 1.4), CFrame = at(side * (ROAD + 1.2), 14, z - 4), Color = hex("#fff59d"), Material = Enum.Material.Neon }, m)
-		end
-	end
+	startLights(m)
 	m.Parent = workspace
-	strip, stripLength = m, len
-	return m
+	strip, horizon, stripKey = m, far, venueId
+	return m, far
 end
 
 -- A car on the strip, with its boost flame and wheelspin smoke.
@@ -185,6 +174,15 @@ local function placeCar(model: string, job: Paint.Job, hat: any, x: number, pare
 	local m = library("Cars", model) or Instance.new("Model")
 	Paint.apply(m, job, library("Stripes", model))
 	Paint.wearHat(m, model, hat, Builder.build)
+	-- The racers are drawn 1.4 times their town size, as RaceScene draws them.
+	local pivot = m:GetPivot()
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			local rel = pivot:ToObjectSpace(d.CFrame)
+			d.Size *= CAR_SCALE
+			d.CFrame = pivot * (rel - rel.Position + rel.Position * CAR_SCALE)
+		end
+	end
 	m.Parent = parent
 	local flame = part({ Name = "Flame", Size = Vector3.new(2.2, 1.2, 4), Color = hex("#ff9100"), Material = Enum.Material.Neon, Transparency = 1 }, parent)
 	local smokeAt = part({ Name = "Smoke", Size = Vector3.new(1, 1, 1), Transparency = 1 }, parent)
@@ -215,21 +213,19 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 	local spec, rival, venue = started.spec, started.rival, started.venue or {}
 	local r = DragRace.new(spec)
 	local len = spec.track * STUDS_PER_M
-	local world = buildStrip(spec.track)
-	local ground = world:FindFirstChild("Ground") :: BasePart
-	ground.Color = hex(GROUND[venue.id] or "#7cb342")
-	ground.Material = if GROUND[venue.id] and venue.id ~= "farm" then Enum.Material.Sand else Enum.Material.Grass
+	local look = venues.venue(venue.id or "main")
+	local world, far = buildStrip(look.id)
+	-- The venue's haze, as RaceScene's fog: the far end of the road is lost in it.
+	DayNight.setRaceFog({ color = hex(look.fog), near = look.fogNear * S, far = look.fogFar * S })
 	local carsFolder = Instance.new("Folder")
 	carsFolder.Name = "RaceCars"
 	carsFolder.Parent = world
 	local meModel, meFlame, meSmoke = placeCar(car.model, Paint.jobOf(car), car.hat, LANE, carsFolder)
 	local themModel, themFlame, themSmoke = placeCar(rival.model, { color = rival.color }, nil, -LANE, carsFolder)
+	local bar = world:FindFirstChild("StartLights") :: Model
 	local lamps = {}
-	for _, d in (world:FindFirstChild("Tree") :: Model):GetChildren() do
-		local i = d:GetAttribute("Lamp")
-		if i then
-			lamps[i :: number] = d :: BasePart
-		end
+	for i = 1, 3 do
+		lamps[i] = bar:FindFirstChild(`Lamp{i}`) :: BasePart
 	end
 
 	-- The town's HUD steps aside for the race's own screen, laid out the same way (the web's
@@ -266,6 +262,7 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 		raceGui:Destroy()
 		carsFolder:Destroy()
 		hudGui.Enabled = true
+		DayNight.setRaceFog(nil)
 		cam.FieldOfView = oldFov
 		TownCamera.setPaused(false)
 		onExit()
@@ -507,12 +504,12 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 		local mz, tz = carZ(1, me), carZ(2, th)
 		meModel:PivotTo(CFrame.new(ORIGIN + Vector3.new(LANE, 0, mz)))
 		themModel:PivotTo(CFrame.new(ORIGIN + Vector3.new(-LANE, 0, tz)))
-		meFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 1.6, mz - 12))
+		meFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 1.6 * CAR_SCALE, mz - 12 * CAR_SCALE))
 		meFlame.Transparency = if me.burning then 0.15 else 1
-		themFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 1.6, tz - 12))
+		themFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 1.6 * CAR_SCALE, tz - 12 * CAR_SCALE))
 		themFlame.Transparency = if th.burning then 0.15 else 1
-		;(meSmoke.Parent :: BasePart).CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 0.6, mz - 9))
-		;(themSmoke.Parent :: BasePart).CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 0.6, tz - 9))
+		;(meSmoke.Parent :: BasePart).CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 0.6, mz - 9 * CAR_SCALE))
+		;(themSmoke.Parent :: BasePart).CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 0.6, tz - 9 * CAR_SCALE))
 		local t = DragRace.time(r)
 		meSmoke.Enabled = r.spin or (me.launched and t < 0.6)
 		themSmoke.Enabled = th.launched and t < 0.6
@@ -525,12 +522,25 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 		camPos = if camPos then camPos:Lerp(want, math.min(1, dt * 8)) else want
 		cam.CFrame = CFrame.lookAt(camPos :: Vector3, look)
 
-		-- The light tree: one red lamp per count, all amber at GO.
+		-- The far hills and skyline ride along with the camera (RaceVenues Horizon).
+		if far then
+			far:PivotTo(CFrame.new(ORIGIN.X, ORIGIN.Y, (camPos :: Vector3).Z))
+		end
+
+		-- The countdown bar: the reds come on with the count (amber on the last), all green at GO.
+		-- It drops out of sight just before the camera reaches it, as on the web.
 		local n = if r.tick < DragRace.GO_TICK then 3 - math.floor(r.tick * DragRace.DT / DragRace.COUNT_STEP) else 0
 		for i, lamp in lamps do
-			local on = counting and ((n > 0 and i <= 4 - n) or (n == 0 and t < 1.5))
-			lamp.Color = if not on then hex("#3a1010") elseif n == 0 then hex("#00e676") else hex("#ff1744")
+			local on = counting and (n == 0 or i <= 4 - n)
+			lamp.Color = if not on then hex("#3a1010") elseif n == 0 then hex("#00e676") else hex(LIT[i])
 			lamp.Material = if on then Enum.Material.Neon else Enum.Material.SmoothPlastic
+		end
+		local camAt = (camPos :: Vector3) - ORIGIN
+		local shown = camAt.Z < (-0.85 - 1.6) * S or camAt.Y < 2 * S or camAt.Y > 3.6 * S
+		for _, d in bar:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = if shown then 0 else 1
+			end
 		end
 
 		-- Overlay.

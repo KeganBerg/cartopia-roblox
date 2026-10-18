@@ -11,6 +11,7 @@
 local Catalog = require(script.Parent.Catalog)
 local Meshes = require(script.Parent.Meshes)
 local Scenery = require(script.Parent.Scenery)
+local RaceScenery = require(script.Parent.RaceScenery)
 
 local Builder = {}
 
@@ -105,6 +106,32 @@ local function addText(part: BasePart, text: { text: string, fg: string, bg: str
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	gui.PixelsPerStud = 40
 	gui.LightInfluence = 0
+	-- The web game paints chequers (the finish line, the flag) as rows of ▚ in its sign font; Roblox's
+	-- fonts have no such letter, so they're drawn as squares: two rows, two squares a letter.
+	local _, checks = string.gsub(text.text, "▚", "")
+	if checks > 0 and string.gsub(text.text, "[▚%s]", "") == "" then
+		local cols = checks * 2
+		gui:SetAttribute("Checker", cols)
+		local back = Instance.new("Frame")
+		back.Size = UDim2.fromScale(1, 1)
+		back.BackgroundColor3 = color(text.bg)
+		back.BorderSizePixel = 0
+		back.Parent = gui
+		for i = 0, cols - 1 do
+			for j = 0, 1 do
+				if (i + j) % 2 == 1 then
+					local cell = Instance.new("Frame")
+					cell.Position = UDim2.fromScale(i / cols, j / 2)
+					cell.Size = UDim2.fromScale(1 / cols, 0.5)
+					cell.BackgroundColor3 = color(text.fg)
+					cell.BorderSizePixel = 0
+					cell.Parent = back
+				end
+			end
+		end
+		gui.Parent = part
+		return
+	end
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundColor3 = color(text.bg)
@@ -196,7 +223,7 @@ Builder.previewMeshes = false
 
 -- Whether a model of that name exists: "pizza@1" for buildings (id@level), "pip" for cars.
 function Builder.has(name: string): boolean
-	return Catalog.MODELS[name] ~= nil or Scenery.MODELS[name] ~= nil
+	return Catalog.MODELS[name] ~= nil or Scenery.MODELS[name] ~= nil or RaceScenery.MODELS[name] ~= nil
 end
 
 -- A building's model at a level, falling back to the nearest level converted.
@@ -215,16 +242,17 @@ local function template(name: string): Model?
 	if hit then
 		return hit
 	end
-	local parts = Catalog.MODELS[name] or Scenery.MODELS[name]
+	local merged = Scenery.MODELS[name] or RaceScenery.MODELS[name]
+	local parts = Catalog.MODELS[name] or merged
 	if not parts then
 		return nil
 	end
 	local model = Instance.new("Model")
 	model.Name = name
-	-- A countryside mesh covers a whole patch of ground, so a stand-in box would bury the town:
-	-- those are left out until their mesh is uploaded.
+	-- A countryside or race venue mesh covers a whole patch of ground, so a stand-in box would bury
+	-- the town or the road: those are left out until their mesh is uploaded.
 	-- Racing stripes and hats as boxes would bury the car, so they wait for their meshes too.
-	local scenery = (Scenery.MODELS[name] ~= nil or name:sub(1, 7) == "stripe:" or name:sub(1, 4) == "hat:") and not Builder.previewMeshes
+	local scenery = (merged ~= nil or name:sub(1, 7) == "stripe:" or name:sub(1, 4) == "hat:") and not Builder.previewMeshes
 	for _, p in parts do
 		if not (scenery and p[1] == "m" and not meshParts[p[13]]) then
 			makePart(p).Parent = model

@@ -13,6 +13,10 @@ local Catalog = require(Shared:WaitForChild("Models"):WaitForChild("Catalog")) :
 
 local DayNight = {}
 
+-- Set by the race screen while a race runs: its venue's fog colour and distances (studs).
+DayNight.raceFog = nil :: { color: Color3, near: number, far: number }?
+local airKept: Atmosphere? = nil
+
 type Key = {
 	sun: Color3,
 	sunIntensity: number,
@@ -142,6 +146,25 @@ local function apply(now: number)
 	bloom.Threshold = look.threshold + 0.25
 	bloom.Size = 24
 
+	-- A race brings its venue's haze (RaceScene's linear fog). Roblox ignores Lighting's fog while an
+	-- Atmosphere is in Lighting, so the town's air steps out for the race.
+	local race = DayNight.raceFog
+	if race then
+		if airKept == nil then
+			airKept = Lighting:FindFirstChild("Air") :: Atmosphere?
+			if airKept then
+				airKept.Parent = nil
+			end
+		end
+		Lighting.FogColor = race.color:Lerp(Color3.fromHex("#1d2740"), night)
+		Lighting.FogStart = race.near
+		Lighting.FogEnd = race.far
+		return
+	elseif airKept then
+		airKept.Parent = Lighting
+		airKept = nil
+	end
+	Lighting.FogEnd = 100000
 	local air = effect("Atmosphere", "Air") :: Atmosphere
 	-- Light: the town camera stands several hundred studs back (TownCamera), and thick air would
 	-- wash the whole town out.
@@ -164,5 +187,11 @@ function DayNight.start()
 end
 
 DayNight.apply = apply
+
+-- Starts or ends a race's fog, at once rather than at the next tick.
+function DayNight.setRaceFog(fog: { color: Color3, near: number, far: number }?)
+	DayNight.raceFog = fog
+	apply(DateTime.now().UnixTimestampMillis)
+end
 
 return DayNight
