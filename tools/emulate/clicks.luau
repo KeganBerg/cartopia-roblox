@@ -161,6 +161,22 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 	clock = function()
 		return raceClock
 	end,
+	modes = (function()
+		local out = {}
+		for _, m in SSS.Server.Modes:GetChildren() do
+			local mode = emu.require(m)
+			out[mode.id] = mode
+		end
+		return out
+	end)(),
+	game = function(name)
+		return emu.require(G[name])
+	end,
+	boards = {
+		trial = emu.require(SSS.Server.Boards).new("Trial", nil, function()
+			return raceClock
+		end),
+	},
 })
 -- Render steps, run by hand.
 local renderSteps = {}
@@ -256,6 +272,10 @@ local function raceDesk(op, arg)
 			return races:campaign(1), nil
 		elseif op == "rows" then
 			return races:rows(1), nil
+		elseif op == "list" and type(arg) == "table" then
+			return races:list(1, arg.mode, arg.which), nil
+		elseif op == "act" and type(arg) == "table" then
+			return races:act(1, arg.mode, arg.which)
 		elseif op == "keep" then
 			races:keep(1)
 			return true, nil
@@ -984,7 +1004,7 @@ local function closeRace()
 	if not screen then
 		return
 	end
-	local b = cardButton("Collect") or cardButton("Back")
+	local b = cardButton("Collect") or cardButton("Back") or cardButton("Board")
 	if b then
 		signalFor(b, "Activated"):Fire()
 		Emu.resumeWaits()
@@ -1100,3 +1120,208 @@ else
 	print("town rival: no double or nothing offered")
 end
 print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+
+-- A race from one of the other modes' pages (client/RacePages): opens the page from the front
+-- page's small button, presses the first button whose words match `go`, and races.
+local function modeRace(tag, mini, go, shotAt)
+	topUp()
+	hud.ctx.close()
+	local f, _, res = runRace(tag, shotAt or { [60] = true }, function()
+		hud.openPanel("race", "hub")
+		local m = find(hud.gui, function(d)
+			return d:IsA("TextButton") and string.find(label(d), mini, 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+		end)
+		assert(m, `no {mini} button on the front page`)
+		signalFor(m, "Activated"):Fire()
+		if SHOTS then
+			shot(`page-{tag}`, nil)
+		end
+		local b = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Visible and string.find(label(d), go) ~= nil
+		end)
+		assert(b, `no race button on the {mini} page`)
+		signalFor(b, "Activated"):Fire()
+	end)
+	print(`{tag}: {f} frames; card: {cardText(res)}`)
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	closeRace()
+	return res
+end
+
+-- The World Tour: Street Racer reputation opens it; race Egypt.
+towns:_with(1, function()
+	store.useGame.setState({ trophies = math.max(store.useGame.getState().trophies, 400) })
+end)
+modeRace("world", "World Tour", "🏁 %$")
+print(`world tour beaten: {towns:snapshot(1).save.worldTour or 0}`)
+
+-- The Time Trial: the hub's tile opens the board; run against par, then your best.
+local function trialRun(tag)
+	topUp()
+	hud.ctx.close()
+	local f, _, res = runRace(tag, { [60] = true }, function()
+		hud.openPanel("race", "hub")
+		local tile = find(hud.gui, function(d)
+			return d:IsA("TextButton") and (d.Name == "Trial" or (d.Parent and d.Parent.Name == "Trial"))
+		end)
+		assert(tile, "no Time Trial tile")
+		signalFor(tile, "Activated"):Fire()
+		Emu.resumeWaits()
+		if SHOTS then
+			shot(`page-{tag}`, nil)
+		end
+		local run = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Visible and string.find(label(d), "Run vs") ~= nil
+		end)
+		assert(run, `no Run button on the Time Trial page ({table.concat(calls, ", ")})`)
+		signalFor(run, "Activated"):Fire()
+	end)
+	print(`{tag}: {f} frames; card: {cardText(res)}`)
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	closeRace()
+end
+trialRun("trial")
+trialRun("trial2")
+-- The Daily Run: the day's loaner against par; the first run of the day pays.
+modeRace("daily", "Daily Run", "🏁 %$")
+print(`daily run: {(towns:snapshot(1).save.daily or {}).best or "no time"}`)
+-- Tuner Trials: with the build missing, the race button opens the Garage; then the race car gets
+-- Downforce Dash's build (a spoiler, snow studs, tuning) and races it for the Hex pattern.
+do
+	local tdata = emu.require(G.data)
+	local rc = emu.require(G.raceCar)
+	local function build(mods, up)
+		towns:_with(1, function()
+			local s = store.useGame.getState()
+			local car = rc.raceCarOf(s.cars, s.raceCar)
+			local cars = table.clone(s.cars)
+			for i, c in cars do
+				if c.uid == car.uid then
+					local body = tdata.carDef(c.model).body
+					local list = {}
+					for _, slot in mods do
+						if slot == "snowstuds" then
+							table.insert(list, slot)
+						else
+							for _, m in tdata.MODS do
+								if m.slot == slot and tdata.modFits(m, body) and (m.bucks or 0) == 0 then
+									table.insert(list, m.id)
+									break
+								end
+							end
+						end
+					end
+					local c2 = table.clone(c)
+					c2.mods = list
+					c2.upgrades = up
+					cars[i] = c2
+				end
+			end
+			store.useGame.setState({ cars = cars, raceCar = car.uid, tuner = { boostbox = 1, pipes = 1 } })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		Emu.resumeWaits()
+	end
+	topUp()
+	build({}, { engine = 0, turbo = 0, tires = 0, weight = 0 })
+	hud.ctx.close()
+	hud.openPanel("race", "tuner")
+	local fit = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Visible and string.find(label(d), "Fit parts", 1, true) ~= nil
+	end)
+	assert(fit, "no Fit parts button on the Tuner Trials page")
+	signalFor(fit, "Activated"):Fire()
+	local garage = find(hud.gui, function(d)
+		return d.Name == "Cars" and d:IsA("Frame")
+	end)
+	print(`tuner fit parts: {if garage then "garage opened" else "NO GARAGE"}`)
+	assert(garage, "Fit parts didn't open the Garage")
+	hud.ctx.close()
+	build({ "spoiler", "snowstuds" }, { engine = 5, turbo = 5, tires = 5, weight = 5 })
+	-- Raced from the page as modeRace does, then the result card's Paint it opens the Custom tab.
+	topUp()
+	hud.ctx.close()
+	local tf, _, tres = runRace("tuner", { [60] = true }, function()
+		hud.openPanel("race", "hub")
+		local m = find(hud.gui, function(d)
+			return d:IsA("TextButton") and string.find(label(d), "Tuner Trials", 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+		end)
+		assert(m, "no Tuner Trials button on the front page")
+		signalFor(m, "Activated"):Fire()
+		if SHOTS then
+			shot("page-tuner", nil)
+		end
+		local b = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil
+		end)
+		assert(b, "no race button on the Tuner Trials page")
+		signalFor(b, "Activated"):Fire()
+	end)
+	print(`tuner: {tf} frames; card: {cardText(tres)}`)
+	print(`tuner calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	local tw = (towns:snapshot(1).save.tuner or {}).downforce or 0
+	print(`tuner trials won: downforce ×{tw}`)
+	if tw > 0 then
+		local paintIt = cardButton("Paint it")
+		assert(paintIt, "no Paint it button after winning the Hex pattern")
+		signalFor(paintIt, "Activated"):Fire()
+		Emu.resumeWaits()
+		local custom = find(hud.gui, function(d)
+			return d.Name == "CustomShop"
+		end)
+		print(`tuner paint it: garage custom tab open {custom ~= nil}`)
+		assert(custom, "Paint it didn't open the Custom tab")
+		hud.ctx.close()
+	end
+	closeRace()
+end
+-- A page from client/RacePages with no race: opens it from the front page's small button and
+-- presses the first button whose words match `press` (a TextButton named `press` when byName),
+-- asserting that nothing threw and the server took every call.
+local function modePage(tag, mini, press, byName)
+	closeRace()
+	hud.ctx.close()
+	calls = {}
+	handlerErrors = {}
+	hud.openPanel("race", "hub")
+	local m = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), mini, 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+	end)
+	assert(m, `no {mini} button on the front page`)
+	if SHOTS then
+		-- The front page, with the reputation chip in its head.
+		shot(`hub-{tag}`, nil)
+	end
+	signalFor(m, "Activated"):Fire()
+	Emu.resumeWaits()
+	if SHOTS then
+		shot(`page-{tag}`, nil)
+	end
+	local b = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Visible and (if byName then d.Name == press else string.find(label(d), press) ~= nil)
+	end)
+	assert(b, `no {press} button on the {mini} page`)
+	signalFor(b, "Activated"):Fire()
+	Emu.resumeWaits()
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	assert(#handlerErrors == 0, `{tag}: {table.concat(handlerErrors, "; ")}`)
+	for _, c in calls do
+		assert(c:sub(1, 2) == "ok", `{tag}: {c}`)
+	end
+	if SHOTS then
+		shot(`page-{tag}-after`, nil)
+	end
+	hud.ctx.close()
+end
+
+-- The Trophy Road: claim every stop the trophies reach.
+local roadBefore = towns:snapshot(1).save.road or 0
+modePage("road", "Trophy Road", "Claim")
+local roadSave = towns:snapshot(1).save
+print(`trophy road: {roadBefore} -> {roadSave.road} of {math.floor(roadSave.trophies / 25)} stops`)
+assert((roadSave.road or 0) > roadBefore, "the Trophy Road claimed nothing")
+-- Flair: the trophies opened Frost; pick it (seeing the page clears the new count too).
+modePage("flair", "Flair", "frost", true)
+local flairSave = towns:snapshot(1).save
+print(`flair: trail {flairSave.trail}, seen {flairSave.flairSeen}`)
+assert(flairSave.trail == "frost", "Frost wasn't picked")

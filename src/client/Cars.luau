@@ -181,7 +181,8 @@ local function listItem(parent: Instance, order: number, model: string, color: s
 end
 
 -- tab: the tab to open on, or { car = uid, paint = colour } for the garage's Paint tab with that
--- colour tried on the car (after winning it from a paint rival).
+-- colour tried on the car (after winning it from a paint rival), or { car = uid, tab = "mods" |
+-- "tune" | "custom" } for that car on one of the garage's tabs (a Tuner Trial's missing part).
 function Cars.open(ctx: any, tab: any): Instance
 	local s0 = store.useGame.getState()
 	local paintPick = if type(tab) == "table" then tab else nil
@@ -308,10 +309,12 @@ function Cars.open(ctx: any, tab: any): Instance
 	if paintPick then
 		for _, c in s0.cars do
 			if c.uid == paintPick.car then
-				selected, garageTab = c.uid, "paint"
-				local job = table.clone(Paint.jobOf(c))
-				job.color = paintPick.paint
-				painting = { uid = c.uid, job = job }
+				selected, garageTab = c.uid, paintPick.tab or "paint"
+				if paintPick.paint then
+					local job = table.clone(Paint.jobOf(c))
+					job.color = paintPick.paint
+					painting = { uid = c.uid, job = job }
+				end
 			end
 		end
 	end

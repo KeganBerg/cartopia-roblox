@@ -34,6 +34,7 @@ local Saves = require(script.Saves)
 local Towns = require(script.Towns)
 local TownView = require(script.TownView)
 local Races = require(script.Races)
+local Boards = require(script.Boards)
 local Crates = require(script.Crates)
 local Splash = require(script.Splash)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
@@ -62,6 +63,30 @@ local races = Races.new(towns, {
 	DragRace = require(ReplicatedStorage.Shared.DragRace),
 	random = Random.new(),
 	clock = os.clock,
+	-- The other race modes, by name (server/Modes: each module's `id`).
+	modes = (function()
+		local out = {}
+		for _, m in script.Modes:GetChildren() do
+			if m:IsA("ModuleScript") then
+				local mode = (require :: any)(m)
+				out[mode.id] = mode
+			end
+		end
+		return out
+	end)(),
+	game = function(name: string): any
+		return require(Game:FindFirstChild(name) :: ModuleScript)
+	end,
+	boards = {
+		trial = Boards.new("Trial", {
+			ordered = function(name: string): any
+				return DataStoreService:GetOrderedDataStore(name)
+			end,
+			plain = function(name: string): any
+				return DataStoreService:GetDataStore(name)
+			end,
+		}, os.clock),
+	},
 })
 local crates = Crates.new(towns, require(Game.store), require(Game.crates))
 
@@ -338,6 +363,10 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return races:campaign(player.UserId), nil
 		elseif op == "rows" then
 			return races:rows(player.UserId), nil
+		elseif op == "list" and type(arg) == "table" then
+			return races:list(player.UserId, arg.mode, arg.which), nil
+		elseif op == "act" and type(arg) == "table" then
+			return races:act(player.UserId, arg.mode, arg.which)
 		elseif op == "keep" then
 			races:keep(player.UserId)
 			return true, nil
@@ -352,7 +381,7 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 		warn(`[Cartopia] {player.Name} race {op}: {result}`)
 		return false, "error"
 	end
-	if op == "start" or op == "finish" then
+	if op == "start" or op == "finish" or op == "act" then
 		push(player)
 	end
 	if result == nil then
