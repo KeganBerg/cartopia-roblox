@@ -37,12 +37,20 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
   visit(gui)
   // The ground textures parts carry (images build.mjs's export painted).
   const textures = {}
-  for (const p of scene.parts) {
-    const name = p.texture?.image
+  const wantTexture = (name) => {
     if (name && !textures[name]) {
       try { textures[name] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/textures', `${name}.png`)).toString('base64') } catch {}
     }
   }
+  for (const p of scene.parts) wantTexture(p.texture?.image)
+  // Custom paint patterns, on any part in the world or a 3D picture.
+  const patterns = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (Array.isArray(n.patterns)) for (const t of n.patterns) wantTexture(t.image)
+    for (const v of Object.values(n)) if (v && typeof v === 'object') patterns(v)
+  }
+  patterns(scene.parts)
+  patterns(gui)
   // The loading screen's pictures (tools/splash/build.mjs), by key.
   const images = {}
   try {
@@ -147,6 +155,40 @@ for (const p of parts) {
   mesh.castShadow = p.transparency < 0.5 && Math.max(...p.size) < 500
   mesh.receiveShadow = true
   scene.add(mesh)
+  // Custom paint patterns: each face's tile laid flat over the triangles facing that way, as
+  // Roblox's Texture projects onto a part's face.
+  for (const t of p.patterns || []) {
+    if (!TEX[t.image]) continue
+    const AXIS = { Top: [1, 1], Bottom: [1, -1], Right: [0, 1], Left: [0, -1], Back: [2, 1], Front: [2, -1] }[t.face]
+    if (!AXIS) continue
+    const src = geo.index ? geo.toNonIndexed() : geo
+    const pos = src.getAttribute('position')
+    const keep = [], uv = []
+    const v = (i) => [pos.getX(i), pos.getY(i), pos.getZ(i)]
+    for (let i = 0; i + 2 < pos.count; i += 3) {
+      const [a, b, c] = [v(i), v(i + 1), v(i + 2)]
+      const n = new T.Vector3(...b.map((x, k) => x - a[k])).cross(new T.Vector3(...c.map((x, k) => x - a[k])))
+      const m = [Math.abs(n.x * scale[0] ** -1), Math.abs(n.y / scale[1]), Math.abs(n.z / scale[2])]
+      const dom = m.indexOf(Math.max(...m))
+      if (dom !== AXIS[0] || Math.sign([n.x, n.y, n.z][dom]) !== AXIS[1]) continue
+      for (const q of [a, b, c]) {
+        keep.push(...q)
+        const s = q.map((x, k) => x * scale[k])
+        uv.push(...(dom === 1 ? [s[0], s[2]] : dom === 0 ? [s[2], s[1]] : [s[0], s[1]]).map((x) => x / t.span))
+      }
+    }
+    if (!keep.length) continue
+    const og = new T.BufferGeometry()
+    og.setAttribute('position', new T.Float32BufferAttribute(keep, 3))
+    og.setAttribute('uv', new T.Float32BufferAttribute(uv, 2))
+    og.computeVertexNormals()
+    const map = TEX[t.image].clone()
+    map.needsUpdate = true
+    const over = new T.Mesh(og, new T.MeshStandardMaterial({ map, transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }))
+    over.matrixAutoUpdate = false
+    over.matrix.copy(mesh.matrix)
+    scene.add(over)
+  }
   if (p.text) {
     const cv = document.createElement('canvas'); cv.width = 512; cv.height = Math.max(64, Math.round(512 * p.size[1] / Math.max(p.size[0], 0.01)))
     const x2 = cv.getContext('2d'); x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height); x2.fillStyle = '#' + p.text.fg

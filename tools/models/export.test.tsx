@@ -337,6 +337,109 @@ function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[])
   return out
 }
 
+// --- Pattern tiles -------------------------------------------------------------------------
+// Value noise that repeats every `p` cells, so a tile's edges meet.
+const hash2 = (x: number, y: number, seed: number) => {
+  const v = Math.sin(x * 127.1 + y * 311.7 + seed * 74.7) * 43758.5453
+  return v - Math.floor(v)
+}
+function noise(x: number, y: number, p: number, seed: number) {
+  const ix = Math.floor(x), iy = Math.floor(y)
+  const fx = x - ix, fy = y - iy
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy)
+  const w = (i: number) => ((i % p) + p) % p
+  const h = (i: number, j: number) => hash2(w(i), w(j), seed)
+  const top = h(ix, iy) + (h(ix + 1, iy) - h(ix, iy)) * sx
+  const bottom = h(ix, iy + 1) + (h(ix + 1, iy + 1) - h(ix, iy + 1)) * sx
+  return top + (bottom - top) * sy
+}
+// The shader's three-octave noise, at f cells a unit over a tile `span` units wide.
+const fbm = (u: number, v: number, f: number, span: number, seed: number) => {
+  const p = Math.round(f * span)
+  const k = p / span
+  return noise(u * k, v * k, p, seed) * 0.55 + noise(u * k * 2, v * k * 2, p * 2, seed + 1) * 0.3 + noise(u * k * 4, v * k * 4, p * 4, seed + 2) * 0.15
+}
+const smooth = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
+  return t * t * (3 - 2 * t)
+}
+type Over = [number, number, number, number]
+const CLEAR: Over = [0, 0, 0, 0]
+const BLACK = (a: number): Over => [3, 3, 3, a]
+const WHITE = (a: number): Over => [255, 255, 255, a]
+// Camo's blobs: dark, darker, and light flecks between the dark ones.
+const camo = (u: number, v: number, span: number, edge: number): Over => {
+  const a = fbm(u, v, 6.5, span, 1), b = fbm(u, v, 6.5, span, 11), l = fbm(u, v, 8, span, 21)
+  const darker = smooth(0.56 - edge, 0.56 + edge, b), dark = smooth(0.5 - edge, 0.5 + edge, a)
+  if (darker > 0.5) return BLACK(0.74)
+  if (dark > 0.5) return BLACK(0.45)
+  return smooth(0.63 - edge, 0.63 + edge, l) > 0.5 ? WHITE(0.4) : CLEAR
+}
+// [pattern id, tile size (units), colour at (u, v)].
+const PATTERN_TILES: [string, number, (u: number, v: number, span: number) => Over][] = [
+  ['camo', 2, (u, v, s) => camo(u, v, s, 0.012)],
+  ['digicamo', 2, (u, v, s) => {
+    const c = s / 72
+    return camo(Math.floor(u / c) * c, Math.floor(v / c) * c, s, 0)
+  }],
+  ['tiger', 2, (u, v, s) => {
+    // Dark stripes across, wavering, thinning out to points.
+    const w = u * ((2 * Math.PI * 13) / s) + v * ((2 * Math.PI * 4) / s) + fbm(u, v, 4, s, 31) * 6
+    const t = Math.sin(w) * 0.5 + 0.5
+    const k = 0.55 + 0.4 * hash2(Math.floor(w / (2 * Math.PI)), 0, 37)
+    return BLACK(0.94 * smooth(k, k + 0.05, t))
+  }],
+  ['checker', 2, (u, v, s) => ((Math.floor(u / (s / 28)) + Math.floor(v / (s / 28))) % 2 ? BLACK(0.99) : CLEAR)],
+  ['carbon', 2, (u, v, s) => {
+    const c = s / 90
+    const cx = Math.floor(u / c), cy = Math.floor(v / c)
+    const along = (cx + cy) % 2 === 0
+    const across = along ? v / c - cy : u / c - cx
+    const sheen = 0.5 + 0.5 * Math.sin(across * Math.PI)
+    return BLACK(1 - 0.35 * sheen * (along ? 0.75 : 0.45))
+  }],
+  ['hex', 0.075 * 1.732 * 15, (u, v) => {
+    // A honeycomb of cells in two shades, with dark seams.
+    const hx = u / 0.075, hy = v / 0.075
+    const ry = 1.732
+    const mod = (a: number, b: number) => a - b * Math.floor(a / b)
+    const a = [mod(hx, 1) - 0.5, mod(hy, ry) - ry / 2]
+    const b = [mod(hx - 0.5, 1) - 0.5, mod(hy - ry / 2, ry) - ry / 2]
+    const g = a[0] * a[0] + a[1] * a[1] < b[0] * b[0] + b[1] * b[1] ? a : b
+    const d = Math.max(Math.abs(g[0]) * 0.5 + Math.abs(g[1]) * 0.866, Math.abs(g[0]))
+    if (smooth(0.44, 0.47, d) > 0.5) return BLACK(0.6)
+    return hash2(Math.floor(hx - g[0] + 0.5), Math.floor(hy - g[1] + 0.5), 41) > 0.5 ? CLEAR : BLACK(0.22)
+  }],
+  ['splatter', 2, (u, v, s) => {
+    if (fbm(u, v, 14, s, 51) > 0.7) return BLACK(0.88)
+    if (noise((u * 140) / s, (v * 140) / s, 140, 61) > 0.93 && fbm(u, v, 6, s, 71) > 0.5) return WHITE(0.95)
+    return fbm(u, v, 9, s, 81) > 0.65 ? WHITE(0.75) : CLEAR
+  }],
+  ['flames', 2, (u, v, s) => {
+    // Tongues licking back along the tile, yellow at the root through orange to red tips, outlined.
+    const w = ((v * 44) / s) * 2 + fbm(u, v, 5, s, 91) * 3
+    const tongue = Math.pow(Math.sin(w) * 0.5 + 0.5, 1.6)
+    const back = s - u
+    const edge = (0.4 * (1 - tongue) + 0.04) * s * 0.5
+    if (back < edge) return CLEAR
+    if (back < edge + 0.02) return BLACK(1)
+    const t = smooth(edge + 0.02, edge + 0.3 * s, back)
+    return [255 * (0.85 + 0.15 * t), 255 * (0.06 + 0.79 * t), 255 * (0.02 + 0.08 * t), 1]
+  }],
+  ['signature', 2.5, (u, v, s) => {
+    // A dark sash sweeping back, edged in gold.
+    const side = (v * 1.4 - u * 0.55) * 1.6 * (2 / s)
+    const f = Math.abs(side - Math.floor(side) - 0.5) - 0.28
+    if (Math.abs(f) < 0.012) return [255, 200, 61, 1]
+    return f > 0.02 ? CLEAR : BLACK(0.78)
+  }],
+  ['pinstripe', 2, (u, v) => (Math.abs((v / 0.05) % 1 - 0.5) * 0.05 < 0.0025 ? WHITE(0.65) : CLEAR)],
+  ['polka', 0.06 * 33, (u, v) => {
+    const dx = (u / 0.06) % 1 - 0.5, dy = (v / 0.06) % 1 - 0.5
+    return Math.hypot(dx, dy) < 0.285 ? WHITE(0.75) : CLEAR
+  }],
+]
+
 const OUT = process.env.RBX_MODELS_OUT ?? 'rbx-models.json'
 
 it('exports every building and car', async () => {
@@ -366,6 +469,26 @@ it('exports every building and car', async () => {
     textures.push({ key, name, file: `${name}.png`, span })
   }
   painting = false
+  // Custom paint patterns (panelPaint.ts's panPattern), as tiles laid over a panel in its own
+  // colour: each pixel is the black, white or fire colour the shader mixes into the panel's colour,
+  // and how much. Worked out flat, on one face, from the shader's own sums.
+  for (const [id, span, at] of PATTERN_TILES) {
+    const N = 256
+    const px = new Float32Array(N * N * 4)
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const [r, g, b, a] = at(((x + 0.5) / N) * span, ((y + 0.5) / N) * span, span)
+      const k = (y * N + x) * 4
+      px[k] = r; px[k + 1] = g; px[k + 2] = b; px[k + 3] = a
+    }
+    const cv = document.createElement('canvas')
+    pixels.set(cv, { w: N, h: N, px })
+    const data = png(cv)
+    const name = `pattern-${id}-${createHash('sha1').update(data).digest('hex').slice(0, 16)}`
+    const file = join(dirname(OUT), 'textures', `${name}.png`)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, data)
+    textures.push({ key: `pattern_${id}`, name, file: `${name}.png`, span })
+  }
   if (process.env.RBX_ONLY === 'textures') return void writeFileSync(OUT, JSON.stringify({ textures }))
   const LEVELS = (process.env.RBX_LEVELS ?? '1').split(',').map(Number)
   // RBX_ONLY=outskirts skips the buildings, cars and street pieces (a quicker run while working on
@@ -422,6 +545,59 @@ it('exports every building and car', async () => {
   }
   const modDrops: Record<string, Record<string, number[]>> = {}
   const wheelsOf: Record<string, number[]> = {}
+  const rimsOf: Record<string, number[]> = {}
+  // Custom panel paint (panelPaint.ts): the hood, the doors and the roof can each have their own
+  // colour and pattern. The web's shader picks the panel per pixel from where it is on the body;
+  // here the body's paint is cut into those panels the same way, triangle by triangle, as models
+  // of their own ("panel:<car>:<hood|doors|roof|body>"), which take the place of its paint.
+  const { freshGeo } = await import('./scene/CarModel')
+  const { isBike } = await import('./game/data')
+  const panelDrops: Record<string, number[]> = {}
+  const panelOf = (p: number[], n: number[], z: number[]) => {
+    if (p[1] > z[1] + 0.015 && p[2] < z[0] + 0.02) return 'roof'
+    if (n[1] > 0.35 && p[2] > z[0]) return 'hood'
+    if (Math.abs(n[0]) > 0.55 && p[2] < z[2] && p[2] > z[3] && p[1] < z[1]) return 'doors'
+    return 'body'
+  }
+  const cutPanels = (car: string, body: string, pieces: Piece[], paint: number[]) => {
+    const zones = isBike(body as never) ? undefined : freshGeo(body as never, {}, car).zones
+    if (!zones || !paint.length) return
+    const out: Record<string, Piece[]> = {}
+    for (const i of paint) {
+      const piece = pieces[i]
+      const G = geoList[piece.g]
+      const M = new Matrix4().fromArray(piece.m)
+      const tri = (G as Geo & { groups?: { start: number; count: number }[] }).groups?.[piece.group ?? -1]
+      const idx = tri ? G.idx.slice(tri.start, tri.start + tri.count) : G.idx
+      const cut: Record<string, { pos: number[]; nrm: number[] }> = {}
+      for (let t = 0; t + 2 < idx.length; t += 3) {
+        const vs = [0, 1, 2].map((k) => G.pos.slice(idx[t + k] * 3, idx[t + k] * 3 + 3))
+        const mid = [0, 1, 2].map((a) => (vs[0][a] + vs[1][a] + vs[2][a]) / 3)
+        const e1 = new Vector3(...vs[1]).sub(new Vector3(...vs[0])), e2 = new Vector3(...vs[2]).sub(new Vector3(...vs[0]))
+        const face = e1.cross(e2).normalize()
+        const n = G.nrm ? [0, 1, 2].map((a) => G.nrm![idx[t] * 3 + a] + G.nrm![idx[t + 1] * 3 + a] + G.nrm![idx[t + 2] * 3 + a]) : [face.x, face.y, face.z]
+        const len = Math.hypot(n[0], n[1], n[2]) || 1
+        const panel = panelOf(mid, n.map((x) => x / len), zones)
+        const into = (cut[panel] ??= { pos: [], nrm: [] })
+        for (let k = 0; k < 3; k++) {
+          const v = new Vector3(...vs[k]).applyMatrix4(M)
+          into.pos.push(r4(v.x), r4(v.y), r4(v.z))
+          if (G.nrm) {
+            const w = new Vector3(...G.nrm.slice(idx[t + k] * 3, idx[t + k] * 3 + 3)).transformDirection(M)
+            into.nrm.push(r4(w.x), r4(w.y), r4(w.z))
+          }
+        }
+      }
+      for (const [panel, { pos, nrm }] of Object.entries(cut)) {
+        const g = geoList.push({ type: 'BufferGeometry', params: {}, pos, idx: pos.map((_, k) => k).slice(0, pos.length / 3), nrm: G.nrm ? nrm : undefined }) - 1
+        ;(out[panel] ??= []).push({ g, m: new Matrix4().elements.map(r4), look: piece.look })
+      }
+    }
+    // Only cars whose panels are really apart (some have no hood or doors of their own).
+    if (Object.keys(out).length < 2) return
+    for (const [panel, list] of Object.entries(out)) models.push({ id: `panel:${car}:${panel}`, kind: 'piece', pieces: list, paint: list.map((_, k) => k) })
+    panelDrops[car] = paint
+  }
   const stanceOf: Record<string, Record<string, number>> = {}
   // Each car twice in two paints: the pieces that change colour are its paint.
   if (!only) for (const c of CARS) {
@@ -435,6 +611,7 @@ it('exports every building and car', async () => {
     const striped = await render(<CarModel body={c.body} model={c.id} color={c.colors[0]} stripe="#0000fe" />)
     const stripes = striped.filter((p) => p.look.c === '#0000fe')
     if (stripes.length) models.push({ id: `stripe:${c.id}`, kind: 'piece', pieces: stripes })
+    cutPanels(c.id, c.body, pieces, paint)
     if (process.env.RBX_MODS === '0') continue
     for (const m of MODS) {
       if (!modFits(m, c.body) || m.slot === 'tires') continue
@@ -451,8 +628,13 @@ it('exports every building and car', async () => {
       const mc = await renderApart(<CarModel body={c.body} model={c.id} color={c.colors[0]} mods={[m.id]} />)
       models.push({ id: `mod:${c.id}:${m.id}`, kind: 'piece', pieces: added.map((i) => adopt(mc.pieces[i], mc.list)), paint: added.flatMap((i, k) => (ma.pieces[i].look.c === '#ff00ff' ? [k] : [])) })
       if (dropped.length) (modDrops[c.id] ??= {})[m.id] = dropped
-      // The stock wheels (tyres and rims) are what a set of rims replaces.
-      if (m.slot === 'rims') wheelsOf[c.id] ??= dropped
+      // The stock rims are what a set of rims replaces; with the tyres round them they're the
+      // wheels (each piece centred on a rim's hub), which a stance resizes.
+      if (m.slot === 'rims' && !rimsOf[c.id]) {
+        rimsOf[c.id] = dropped
+        const hubs = dropped.map((i) => a[i].m.slice(12, 15))
+        wheelsOf[c.id] = a.flatMap((p, i) => (hubs.some((h) => Math.abs(p.m[13] - h[1]) < 1e-3 && Math.abs(p.m[14] - h[2]) < 1e-3 && Math.abs(p.m[12] - h[0]) < 0.2) ? [i] : []))
+      }
     }
   }
   // Hats (CarHat.tsx), each standing on its own origin, once in every colour it comes in (named as
@@ -619,7 +801,7 @@ it('exports every building and car', async () => {
     }
     batching.off = false
   }
-  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, modDrops, wheelsOf, stanceOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

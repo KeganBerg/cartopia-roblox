@@ -476,6 +476,13 @@ clickAll("mods", function()
 		signalFor(b, "Activated"):Fire()
 	end
 end)
+clickAll("custom", function()
+	hud.openPanel("cars", "garage")
+	local b = hud.gui:FindFirstChild("custom", true)
+	if b then
+		signalFor(b, "Activated"):Fire()
+	end
+end)
 clickAll("paint", function()
 	hud.openPanel("cars", "garage")
 	local b = hud.gui:FindFirstChild("paint", true)
@@ -622,6 +629,34 @@ if SHOTS then
 	tap("stance")
 	tap("lifted")
 	shot("mods-stance", nil)
+	-- Custom: a blue hood with camo, carbon on the body and gold rims, then buy it.
+	towns:_with(1, function()
+		local cars = {}
+		for i, c in store.useGame.getState().cars do
+			cars[i] = table.clone(c)
+			cars[i].mods = nil
+			cars[i].panels = nil
+		end
+		store.useGame.setState({ coins = 1000000, cars = cars })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("cars", "garage")
+	tap("custom")
+	shot("custom", nil)
+	tap("hood")
+	tap("#1e88e5")
+	tap("camo")
+	shot("custom-hood", nil)
+	tap("body")
+	tap("carbon")
+	tap("rims")
+	tap("#fafafa")
+	shot("custom-try", nil)
+	tap("Go")
+	local custom = towns:snapshot(1).save.cars[1].panels
+	assert(custom and custom.hood and custom.hood.color == "#1e88e5" and custom.hood.pattern == "camo", "the custom paint didn't stick")
+	shot("custom-bought", nil)
 	-- Call Cards: wearing one you won, then looking at one still locked.
 	towns:_with(1, function()
 		store.useGame.setState({ callCards = { "neonalley", "plasma", "goldrush" }, callCard = "neonalley" })
