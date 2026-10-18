@@ -77,6 +77,9 @@ export type Race = {
 	top: number,
 	theirBoostAt: number?,
 	spin: boolean, -- the wheels are spinning (for the smoke and the "Wheelspin" note)
+	-- Each car's skill is working this step (for the screen's skill flashes).
+	mySkillOn: boolean,
+	theirSkillOn: boolean,
 	done: boolean,
 }
 
@@ -109,6 +112,8 @@ function DragRace.new(spec: Spec): Race
 		top = 0,
 		theirBoostAt = nil,
 		spin = false,
+		mySkillOn = false,
+		theirSkillOn = false,
 		done = false,
 	}
 end
@@ -145,9 +150,12 @@ function DragRace.input(r: Race, kind: string): boolean
 			r.shifts += 1
 			if q >= 1 then
 				r.perfect += 1
-				say(r, if me.streak >= 2 then `Perfect shift x{me.streak}!` else label)
+			end
+			-- Race.tsx press: a perfect shift pops "Perfect shift!", the rest their label, with the streak.
+			if label == "PERFECT!" then
+				say(r, if me.streak >= 2 then `Perfect shift x{me.streak}!` else "Perfect shift!")
 			else
-				say(r, label)
+				say(r, if me.streak >= 2 then `{(label:gsub("!", "", 1))} x{me.streak}!` else label)
 			end
 		else
 			return false
@@ -193,7 +201,12 @@ function DragRace.step(r: Race)
 	r.tick += 1
 	local t = DragRace.time(r)
 	local myGrip, theirGrip = gripOf(spec.grip), gripOf(spec.theirGrip)
-	local mine = data.skillBoost(spec.mySkill, me, th) * data.skillDrag(spec.rival.skill, me, t) * grip.gripMul(myGrip, me.gear, me.rpm, t)
+	-- Both skills are read at the top of the step, before either car moves (Race.tsx tick).
+	local myBoost, theirDrag = data.skillBoost(spec.mySkill, me, th), data.skillDrag(spec.rival.skill, me, t)
+	local theirBoost = data.skillBoost(spec.rival.skill, th, me)
+	r.mySkillOn = myBoost * data.skillDrag(spec.mySkill, th, t) ~= 1
+	r.theirSkillOn = not spec.ghost and (theirBoost ~= 1 or theirDrag ~= 1)
+	local mine = myBoost * theirDrag * grip.gripMul(myGrip, me.gear, me.rpm, t)
 	if spec.build then
 		mine *= distance.characterMul(spec.build, me.gear, me.dist)
 	end
@@ -224,7 +237,7 @@ function DragRace.step(r: Race)
 	if th.gear >= race.AI_BOOST_GEAR and race.fireBoost(th) then
 		r.theirBoostAt = r.tick
 	end
-	local theirs = data.skillBoost(spec.rival.skill, th, me) * data.skillDrag(spec.mySkill, th, t) * grip.gripMul(theirGrip, th.gear, th.rpm, t)
+	local theirs = theirBoost * data.skillDrag(spec.mySkill, th, t) * grip.gripMul(theirGrip, th.gear, th.rpm, t)
 	race.stepRacer(th, spec.rival.pi, dt, t, theirs, spec.track)
 	if (me.finished ~= nil and th.finished ~= nil) or r.tick >= DragRace.MAX_TICKS then
 		r.done = true
