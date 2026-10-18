@@ -2413,8 +2413,9 @@ do
 
 	-- The goal screen after the tutorial's last step; Let's go! finishes the tutorial.
 	calls = {}
+	-- (Today's spin taken: the tutorial's end would open it, and the welcome back below would wait.)
 	towns:_with(1, function()
-		store.useGame.setState({ tutorial = 9 })
+		store.useGame.setState({ tutorial = 9, lastDaily = store.today() })
 	end)
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 	Emu.resumeWaits()
@@ -2425,13 +2426,6 @@ do
 	Emu.resumeWaits()
 	print(`goal screen: {table.concat(calls, ", ")}; tutorial now {towns:snapshot(1).save.tutorial}`)
 	assert(towns:snapshot(1).save.tutorial == 99, "Let's go! didn't finish the tutorial")
-	-- The tutorial's end opens today's spin a moment later, if it's still to take (web App.tsx).
-	Emu.resumeWaits()
-	print(`  after Let's go: menu {tostring(hud.ctx.panel())}`)
-	if hud.ctx.panel() == "daily" then
-		hud.ctx.close()
-		Emu.resumeWaits()
-	end
 
 	-- Welcome back: three hours away with jobs finished.
 	calls = {}
