@@ -22,15 +22,35 @@ local function busy(ctx: any): boolean
 	return race ~= nil and race:FindFirstChild("RaceScreen") ~= nil
 end
 
+-- Today's spin still to take, nothing in the way, and the tutorial over (a new player's first
+-- spin is the tutorial's reward: it opens once the tutorial is done or skipped, App.tsx).
+local function due(ctx: any): boolean
+	local s = store.useGame.getState()
+	return s.level ~= nil and s.lastDaily ~= store.today() and (s.tutorial or 99) >= 99 and not busy(ctx)
+end
+
 function DailySpin.start(ctx: any)
 	if not Remote.last then
 		Remote.changed:Wait()
 	end
 	task.wait(0.8)
-	local s = store.useGame.getState()
-	if s.level ~= nil and s.lastDaily ~= store.today() and not busy(ctx) then
+	if due(ctx) then
 		ctx.open("daily")
 	end
+	-- The tutorial ending (Let's go! or Skip): the first spin opens a moment later.
+	local was = store.useGame.getState().tutorial or 99
+	Remote.changed:Connect(function()
+		local now = store.useGame.getState().tutorial or 99
+		local ended = was < 99 and now >= 99
+		was = now
+		if ended then
+			task.delay(1.2, function()
+				if due(ctx) then
+					ctx.open("daily")
+				end
+			end)
+		end
+	end)
 end
 
 return DailySpin

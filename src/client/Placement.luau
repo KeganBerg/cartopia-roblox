@@ -21,6 +21,7 @@ local TownCamera = require(script.Parent.TownCamera)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Thumb = require(script.Parent.Thumb)
+local Tutorial = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
 
 local Placement = {}
 
@@ -466,7 +467,9 @@ local function drawTools()
 	local b = findBuilding(selected)
 	local canUp = b ~= nil and data.upgradable(data.buildingDef(b.def))
 	local stored = if s.stored then #s.stored else 0
-	local key = `{mode}|{selected ~= nil}|{canUp}|{again ~= nil}|{stored}|{placing ~= nil}`
+	-- During the tutorial the bar keeps to placing and moving; roads, land and the rest come after.
+	local all = (s.tutorial or 99) >= 99
+	local key = `{mode}|{selected ~= nil}|{canUp}|{again ~= nil}|{stored}|{placing ~= nil}|{all}`
 	if key == toolsKey then
 		return
 	end
@@ -481,11 +484,15 @@ local function drawTools()
 		n += 1
 		tool(n, icon, label, active, kind, onClick, count)
 	end
-	add("road", "Road", mode == "road", nil, function() setMode("road") end)
-	add("bulldoze", "Bulldoze", mode == "bulldoze", nil, function() setMode("bulldoze") end)
+	if all then
+		add("road", "Road", mode == "road", nil, function() setMode("road") end)
+		add("bulldoze", "Bulldoze", mode == "bulldoze", nil, function() setMode("bulldoze") end)
+	end
 	add("move", "Move", mode == "move", nil, function() setMode("move") end)
-	add("land", "Land", mode == "land", nil, function() setMode("land") end)
-	add("merge", "Merge", mode == "merge", nil, function() setMode("merge") end)
+	if all then
+		add("land", "Land", mode == "land", nil, function() setMode("land") end)
+		add("merge", "Merge", mode == "merge", nil, function() setMode("merge") end)
+	end
 	if (mode == "place" and placing) or (mode == "move" and selected) then
 		add("rotate", "Rotate", false, nil, rotateCurrent)
 	end
@@ -499,15 +506,23 @@ local function drawTools()
 			(Placement :: any).place(again, root, ctx)
 		end)
 	end
-	add("box", "Inventory", false, nil, function()
-		ctx.open("inventory")
-	end, stored)
-	add("shop", "Shop", false, nil, function()
-		ctx.open("shop")
-	end)
+	if all then
+		add("box", "Inventory", false, nil, function()
+			ctx.open("inventory")
+		end, stored)
+		add("shop", "Shop", false, nil, function()
+			ctx.open("shop")
+		end)
+	end
 	add("check", "Done", false, "done", function()
 		Placement.cancel()
 	end)
+	-- The tutorial's hand points at Done once Rusty's is built (client/Popups/Tutorial).
+	local done = (tools :: Frame):FindFirstChild("Done")
+	local doneFace = done and done:FindFirstChildWhichIsA("GuiButton", true)
+	if doneFace then
+		doneFace:SetAttribute("Tut", "edit-done")
+	end
 	-- The dock hugs its tools.
 	local w = 0
 	for _, c in (tools :: Frame):GetChildren() do
@@ -552,6 +567,11 @@ function Placement.refresh()
 		Ui.setText(hint, text)
 		if measure then
 			measure.Text = text
+		end
+		-- The tutorial's card says what to do instead, so one instruction shows at a time.
+		local pill = bar:FindFirstChild("Hint")
+		if pill and pill:IsA("GuiObject") then
+			pill.Visible = Tutorial.step(state()) == nil
 		end
 	end
 	drawTools()
@@ -780,6 +800,30 @@ function Placement.active(): boolean
 	return mode ~= nil
 end
 
+-- The edit mode and the building being placed, if any.
+function Placement.mode(): (string?, string?)
+	return mode, placing
+end
+
+-- The tutorial's lot for Rusty's (data.ts RUSTY_LOT): while a new player places it there, its
+-- middle on the ground, for the pointing hand; nil otherwise.
+local function tutorialLot(): (number?, number?)
+	local s = state()
+	if placing ~= "rescue" or (s.tutorial or 99) >= 99 or storedUid then
+		return nil, nil
+	end
+	local at = data.RUSTY_LOT
+	if not store.canPlace(s, "rescue", at[1], at[2], nil) then
+		return nil, nil
+	end
+	local w, h = lot("rescue", nil)
+	return at[1] + (w - 1) // 2, at[2] + (h - 1) // 2
+end
+function Placement.tutorialLot(): Vector3?
+	local tx, tz = tutorialLot()
+	return if tx and tz then Town.tileToWorld(tx, tz) else nil
+end
+
 -- Leaves edit mode: back to the town.
 function Placement.cancel()
 	if not mode then
@@ -826,6 +870,19 @@ function Placement.place(def: string, gui: GuiObject, c: any)
 	end
 	ghost = makeGhost(def)
 	Placement.refresh()
+	-- A new player's Rusty's sits on its lot already (World.tsx): one tap there builds it.
+	local tx, tz = tutorialLot()
+	if tx and tz then
+		preview = { x = tx, z = tz }
+		local x, z, w, h = lotAt(def, tx, tz, nil)
+		showPlate(x, z, w, h, "#66bb6a", 0.35)
+		local c = Town.tileToWorld(x + (w - 1) / 2, z + (h - 1) / 2)
+		if ghost and c then
+			local roads = lualib.__TS__New(lualib.Set, state().roads)
+			local turn = placementRules.turnOf({ def = def, x = x, z = z }, roads)
+			ghost:PivotTo(CFrame.new(c) * CFrame.Angles(0, turn * math.pi / 2, 0))
+		end
+	end
 end
 
 -- Place a building back from the Inventory.

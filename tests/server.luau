@@ -212,4 +212,66 @@ return function(test)
 		assert(#snap.toasts >= 0 and snap.save.coins == towns:save(3).coins, "snapshot")
 		expectEq(#towns:snapshot(3).toasts, 0, "toasts are only sent once")
 	end)
+
+	test("towns: the tutorial moves on one step at a time, and only once each step is done", function()
+		towns:open(5, nil)
+		expectEq(towns:save(5).tutorial, 0, "a new town starts the tutorial")
+		local function refused(name, ...)
+			local ok = pcall(towns.run, towns, 5, name, ...)
+			return not ok
+		end
+		expectEq(refused("setTutorial", 2), true, "two steps at once")
+		expectEq(refused("setTutorial", 99), true, "straight to done")
+		expectEq(refused("setTutorial", 0.5), true, "half a step")
+		expectEq(refused("setTutorial", 1), false, "Next on the welcome step")
+		expectEq(towns:save(5).tutorial, 1, "on the pizza step")
+		expectEq(refused("setTutorial", 2), true, "the pizza step before a job")
+		expectEq(refused("setTutorial", 0), true, "a step back")
+		local pizza
+		for _, b in towns:save(5).buildings do
+			if b.def == "pizza" then
+				pizza = b.uid
+				break
+			end
+		end
+		towns:run(5, "tapBuilding", pizza)
+		expectEq(refused("setTutorial", 2), false, "a job started")
+		expectEq(refused("setTutorial", 3), true, "the collect step before collecting")
+		now += 60 * 60 * 1000
+		towns:run(5, "tapBuilding", pizza)
+		expectEq(refused("setTutorial", 3), false, "collected")
+		expectEq(refused("setTutorial", 4), true, "Rusty's not built yet")
+		expectEq(refused("tutorialStyle", "x", "#e53935", "#e53935"), true, "the free paint before its step")
+		expectEq(refused("skipTutorial", 50), true, "a skip naming a later paint step")
+		expectEq(refused("skipTutorial", 6), false, "Skip")
+		expectEq(towns:save(5).tutorial, 99, "skipped")
+		expectEq(towns:save(5).freePaint, true, "skipped before the paint pick: the free paint waits")
+		expectEq(refused("skipTutorial", 6), true, "skipping twice")
+		expectEq(refused("setTutorial", 99), true, "done is done")
+	end)
+
+	test("towns: the goal screen finishes the tutorial; old towns skip it, new ones don't", function()
+		towns:open(6, nil)
+		towns:_with(6, function()
+			store.useGame.setState({ tutorial = 9 })
+		end)
+		towns:run(6, "setTutorial", 99)
+		expectEq(towns:save(6).tutorial, 99, "Let's go! on the goal screen")
+		-- A town saved before the port had a tutorial: still step 0, but played.
+		towns:open(7, nil)
+		local fresh = copy(towns:save(7))
+		local played = copy(fresh)
+		played.level = 4
+		towns:close(7)
+		towns:open(7, played)
+		expectEq(towns:save(7).tutorial, 99, "a played town at step 0 skips the tutorial")
+		towns:close(7)
+		towns:open(7, fresh)
+		expectEq(towns:save(7).tutorial, 0, "a fresh town at step 0 keeps it")
+		local mid = copy(fresh)
+		mid.tutorial, mid.level = 5, 2
+		towns:close(7)
+		towns:open(7, mid)
+		expectEq(towns:save(7).tutorial, 5, "a town part way through carries on")
+	end)
 end

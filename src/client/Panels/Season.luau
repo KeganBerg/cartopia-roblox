@@ -378,7 +378,8 @@ function Season.hudButton(row: Instance, ctx: any): (any) -> ()
 	local badge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 6, 0, -6), Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Color3.fromHex("#ff5252"), Visible = false, ZIndex = 3, Parent = face }, { Ui.corner(10), Ui.stroke(2, Ui.WHITE) })
 	local badgeText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = badge })
 	return function(s: any)
-		slot.Visible = s.level >= 3
+		-- The Star Pass and Deals arrive after the tutorial, at level 3 (web game/unlocks.ts "season").
+		slot.Visible = require(ReplicatedStorage.Shared.Tutorial).unlocked(s, "season")
 		local n = if slot.Visible then store.seasonClaimable(s) else 0
 		badge.Visible = n > 0
 		Ui.setText(badgeText, tostring(n))

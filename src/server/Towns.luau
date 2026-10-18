@@ -12,6 +12,12 @@
 local Towns = {}
 Towns.__index = Towns
 
+-- The tutorial's rules, shared with the client (src/shared/Tutorial.luau): from ReplicatedStorage
+-- in Roblox and the emulator, by path in the tests.
+local Tutorial = if game
+	then require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
+	else (require :: any)("../shared/Tutorial")
+
 -- Argument shapes per client-callable action: "string", "number", "boolean", "string?" (string or
 -- nil), "table", "table?", or a list of allowed strings.
 local S, N, B = "string", "number", "boolean"
@@ -87,6 +93,22 @@ local ALLOWED: { [string]: { any } } = {
 }
 Towns.ALLOWED = ALLOWED
 
+-- Actions that also need the town to be in the right state, checked on the server's own copy
+-- before they run (state, Rusty's search in progress, the arguments) -> ok, why.
+local GUARDS: { [string]: (any, any, { any }) -> (boolean, string?) } = {
+	-- The tutorial moves one step on, and only once that step is done (ui/Tutorial.tsx).
+	setTutorial = function(s, search, args)
+		return Tutorial.canSet(s, search, args[1])
+	end,
+	skipTutorial = function(s, _, args)
+		return Tutorial.canSkip(s, args[1])
+	end,
+	tutorialStyle = function(s)
+		return Tutorial.canStyle(s)
+	end,
+}
+Towns.GUARDS = GUARDS
+
 local function argOk(want: any, v: any): boolean
 	if type(want) == "table" then
 		return table.find(want, v) ~= nil
@@ -158,6 +180,10 @@ function Towns.open(self: Towns, userId: number, save: any?)
 	self:_with(userId, function(s)
 		if save then
 			s.loadSave(save)
+			-- Towns played before the tutorial came to Roblox skip it, as old web saves do.
+			if Tutorial.playedBefore(save) then
+				self.store.useGame.setState({ tutorial = Tutorial.DONE })
+			end
 		end
 		self.store.useGame.getState().tick(self.now())
 	end)
@@ -185,6 +211,14 @@ function Towns.run(self: Towns, userId: number, name: string, ...: any): any
 	return self:_with(userId, function(s)
 		s.tick(self.now())
 		local get = self.store.useGame.getState
+		local guard = GUARDS[name]
+		if guard then
+			local st = get()
+			local ok, why = guard(st, st.search, args)
+			if not ok then
+				error(`{name} refused: {why}`, 0)
+			end
+		end
 		return get()[name](table.unpack(args, 1, args.n))
 	end)
 end

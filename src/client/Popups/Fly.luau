@@ -29,7 +29,8 @@ local function rootSize(root: GuiObject, scale: number): Vector2
 	local ok, size = pcall(function()
 		return root.AbsoluteSize / scale
 	end)
-	return if ok then size else Vector2.new(root.Size.X.Offset, root.Size.Y.Offset)
+	-- (Before the first layout, or in the emulator, AbsoluteSize can still be zero.)
+	return if ok and size.X > 0 and size.Y > 0 then size else Vector2.new(root.Size.X.Offset, root.Size.Y.Offset)
 end
 
 -- Where a building is on screen, in the HUD's own (scaled) coordinates.

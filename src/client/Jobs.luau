@@ -27,6 +27,7 @@ local MAX_DISTANCE = 900
 
 type Badge = {
 	gui: BillboardGui,
+	tap: TextButton,
 	idle: Frame,
 	idleText: TextLabel,
 	working: Frame,
@@ -130,6 +131,7 @@ local function make(uid: string, model: Model, parent: Instance): Badge
 	Ui.stroke(2, Ui.WHITE).Parent = merged
 	return {
 		gui = gui,
+		tap = tap,
 		idle = idle,
 		idleText = idleText,
 		working = working,
@@ -263,6 +265,11 @@ local function update(holder: Instance)
 				badge.look = ""
 				setLook(badge, "idle")
 			end
+		end
+		-- What the tutorial's pointing hand looks for (client/Popups/Tutorial): a pizza bubble.
+		local tut = if b.def == "pizza" then `pizza-{badge.look}` else nil
+		if badge.tap:GetAttribute("Tut") ~= tut then
+			badge.tap:SetAttribute("Tut", tut)
 		end
 		local n = #members
 		if n > 1 then

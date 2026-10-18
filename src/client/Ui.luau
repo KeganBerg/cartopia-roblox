@@ -296,6 +296,8 @@ end
 function Ui.closeButton(props: { [string]: any }, onClick: () -> ()): Frame
 	local shadow, face = Ui.button(props, "red", onClick, { radius = 12, stroke = 3, drop = 3, dark = 0.35 })
 	Icons.draw("close", face, 16, Ui.WHITE, nil, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	-- The tutorial points a new player who wanders into another menu at its X (client/Popups/Tutorial).
+	face:SetAttribute("Tut", "close")
 	return shadow
 end
 
