@@ -19,12 +19,13 @@ local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
 
 local WorldLife = {}
 
-local CARS = 24
-local CARS_PHONE = 12
+local CARS = 18
+local CARS_PHONE = 10
 local SCALE = 0.8 -- the size cars are drawn at (server/Drive.SCALE)
 local LANE = 0.25 -- of the road's width, right of the middle
 local GAP = 40 -- studs kept behind the car in front
-local SHOWN = 1800 -- studs from the camera a car is drawn within
+local SHOWN = 1800 -- studs from the camera a car is drawn within; past it, it comes back nearer
+local RESPAWN_NEAR, RESPAWN_FAR = 700, 1500 -- how far from the camera it comes back
 local VERGE_NEAR = 1100 -- verge stretches within this are built...
 local VERGE_FAR = 1500 -- ...and cleared past this
 local STRETCH = 700 -- studs of road per verge stretch
@@ -154,6 +155,40 @@ local function spawnCars(g: Grid, folder: Folder)
 		}
 		table.insert(cars, c)
 		byUid[uid] = c
+	end
+end
+
+-- Puts a car on a road some way from `eye` (not on top of another).
+local function respawn(g: Grid, c: Car, eye: Vector3, rng: Random)
+	for _ = 1, 8 do
+		local along: "x" | "z" = if rng:NextNumber() < 0.5 then "x" else "z"
+		local across = if along == "x" then eye.Z else eye.X
+		local alongAt = if along == "x" then eye.X else eye.Z
+		local near = {}
+		for _, l in g.lines do
+			if math.abs(l - across) < RESPAWN_FAR then
+				table.insert(near, l)
+			end
+		end
+		if #near == 0 then
+			continue
+		end
+		local line = near[rng:NextInteger(1, #near)]
+		local left = math.max(0, RESPAWN_FAR ^ 2 - (line - across) ^ 2) ^ 0.5
+		local d = rng:NextNumber(math.max(0, RESPAWN_NEAR ^ 2 - (line - across) ^ 2) ^ 0.5, left)
+		local sAt = math.clamp(alongAt + d * (if rng:NextNumber() < 0.5 then 1 else -1), -g.reach + 20, g.reach - 20)
+		local clear = true
+		for _, o in cars do
+			if o ~= c and o.along == along and o.line == line and math.abs(o.s - sAt) < GAP * 2 then
+				clear = false
+			end
+		end
+		if clear then
+			c.along, c.line, c.s = along, line, sAt
+			c.dir = if rng:NextNumber() < 0.5 then 1 else -1
+			c.v = c.cruise
+			return
+		end
 	end
 end
 
@@ -338,10 +373,11 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 			stepCar(g, c, dt, me, rng)
 			local pose = poseOf(g, c)
 			if (pose.Position - eye).Magnitude > SHOWN then
-				if c.shown then
-					c.shown = nil
-					c.model:PivotTo(HIDDEN)
-				end
+				-- Too far to see: it turns up again on a road a little way from the camera, so the
+				-- roads round the player always have traffic.
+				c.shown = nil
+				c.model:PivotTo(HIDDEN)
+				respawn(g, c, eye, rng)
 				continue
 			end
 			-- Eases through turns rather than snapping round.
