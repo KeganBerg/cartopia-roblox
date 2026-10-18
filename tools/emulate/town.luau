@@ -51,6 +51,24 @@ if rusty then
 		store.useGame.setState({ restoring = r })
 	end)
 end
+-- PLACE=garage,billboard: those buildings put in the town as well (to look at their ladders).
+if process.env.PLACE then
+	towns:_with(1, function()
+		store.useGame.setState({ coins = 100000000, level = 60 })
+	end)
+	for id in string.gmatch(process.env.PLACE, "[^,]+") do
+		local placed = false
+		for _, at in { { 12, 12 }, { 16, 4 }, { 4, 16 }, { 20, 12 }, { 12, 20 }, { -8, 12 }, { 12, -8 }, { 20, 20 }, { -8, -8 } } do
+			local before = #towns:snapshot(1).save.buildings
+			towns:run(1, "placeBuilding", id, at[1], at[2])
+			if #towns:snapshot(1).save.buildings > before then
+				placed = true
+				break
+			end
+		end
+		assert(placed, `no room for {id}`)
+	end
+end
 -- A busy town: a job running, one done, some new buildings and a bought car.
 local save = towns:snapshot(1).save
 local folder = Instance.new("Folder")
@@ -137,10 +155,35 @@ for _, name in { "Townspeople", "TrafficSignals" } do
 		end
 	end
 end
+-- CLIMB=1: the ladders' invisible trusses drawn (see-through red) and the walls players bump into
+-- counted.
+local climb = process.env.CLIMB ~= nil
+local solid, total = 0, 0
 for _, d in folder:GetDescendants() do
-	if d:IsA("BasePart") and d.Transparency < 1 then
+	if d:IsA("TrussPart") and climb then
+		print(`  truss on {d.Parent.Name}: {d.Size} at {d.CFrame.Position}`)
+		local stand = Instance.new("Part") -- a truss has no Shape for partOf
+		stand.Size = d.Size
+		stand.CFrame = d.CFrame
+		local p = Gui.partOf(stand)
+		p.color = "ff3030"
+		p.transparency = 0.45
+		table.insert(parts, p)
+	elseif d:IsA("BasePart") and d.Transparency < 1 then
 		table.insert(parts, Gui.partOf(d))
 	end
+	if d:IsA("BasePart") and d.Parent and d.Parent.Parent and d.Parent.Parent.Name == "Buildings" then
+		total += 1
+		if d.CanCollide then
+			solid += 1
+		end
+		if d.Name == "Hit" and d.CanCollide then
+			error(`{d.Parent.Name}'s tap box blocks walking`)
+		end
+	end
+end
+if climb then
+	print(`  {solid} of {total} building parts collide`)
 end
 fs.writeFile(out, serde.encode("json", { parts = parts, buildings = #save.buildings, cars = #save.cars, sky = sky, fog = fog }))
 print(`drew {#parts} parts: {#save.buildings} buildings, {#save.roads} road tiles, {#save.cars} cars`)
