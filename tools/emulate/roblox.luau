@@ -293,6 +293,22 @@ function Emu.load(placeFile: string)
 			e[k] = roblox[k]
 		end
 		e.CFrame = FixedCFrame
+		-- Lune has no Random: a seeded stand-in (Park-Miller), the same numbers every run.
+		e.Random = {
+			new = function(seed)
+				local st = math.floor(math.abs(seed or 1)) % 2147483646 + 1
+				local r = {}
+				function r:NextNumber(lo, hi)
+					st = (st * 16807) % 2147483647
+					local k = st / 2147483647
+					return if lo then lo + (hi - lo) * k else k
+				end
+				function r:NextInteger(lo, hi)
+					return lo + math.floor(r:NextNumber() * (hi - lo + 1))
+				end
+				return r
+			end,
+		}
 		-- Nothing is laid out here, so screens read a zero size, as before Roblox's first frame.
 		e.Instance = setmetatable({
 			new = function(class, parent)

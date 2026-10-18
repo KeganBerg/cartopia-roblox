@@ -8,7 +8,7 @@
 //
 // Uses the web repo's three.js and Playwright. CHROMIUM=<path> picks the browser.
 
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
@@ -20,7 +20,8 @@ const ROOT = resolve(HERE, '../..')
 export async function render({ web, scene, out, gui, width = 1280, height = 800, camera }) {
   // Lune writes an empty list as {}.
   if (!Array.isArray(scene.parts)) scene = { ...scene, parts: [] }
-  const dir = join(resolve(web), '.rbx-preview')
+  // One folder per run, so pictures made at the same time (other worktrees) don't swap scenes.
+  const dir = join(resolve(web), '.rbx-preview', String(process.pid))
   mkdirSync(dir, { recursive: true })
   const req = createRequire(join(resolve(web), 'package.json'))
   const threeDir = dirname(req.resolve('three'))
@@ -87,6 +88,7 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
   await page.screenshot({ path: out, timeout: 180000 })
   await browser.close()
   server.close()
+  rmSync(dir, { recursive: true, force: true })
 }
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8">
