@@ -1548,6 +1548,29 @@ do
     end
 end
 
+local function __TS__ArrayReverse(self)
+    local i = 1
+    local j = #self
+    while i < j do
+        local temp = self[j]
+        self[j] = self[i]
+        self[i] = temp
+        i = i + 1
+        j = j - 1
+    end
+    return self
+end
+
+local function __TS__MathSign(val)
+    if __TS__NumberIsNaN(val) or val == 0 then
+        return val
+    end
+    if val < 0 then
+        return -1
+    end
+    return 1
+end
+
 return {
   __TS__Obj = __TS__Obj,
   __TS__SPREAD = __TS__SPREAD,
@@ -1609,5 +1632,7 @@ return {
   __TS__Delete = __TS__Delete,
   __TS__AsyncAwaiter = __TS__AsyncAwaiter,
   __TS__Await = __TS__Await,
-  __TS__InstanceOf = __TS__InstanceOf
+  __TS__InstanceOf = __TS__InstanceOf,
+  __TS__ArrayReverse = __TS__ArrayReverse,
+  __TS__MathSign = __TS__MathSign
 }

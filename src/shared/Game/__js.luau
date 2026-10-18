@@ -227,6 +227,39 @@ function DateTimeFormat.prototype.resolvedOptions(self)
     return {timeZone = self.zone}
 end
 ____exports.JsIntl = {DateTimeFormat = DateTimeFormat}
+function ____exports.__hypot(...)
+    local xs = {...}
+    local sum = 0
+    for ____, x in ipairs(xs) do
+        sum = sum + x * x
+    end
+    return math.sqrt(sum)
+end
+local function fround(v)
+    return string.unpack(
+        "<f",
+        string.pack("<f", v)
+    )
+end
+function ____exports.__zeros(n)
+    local out = {}
+    do
+        local i = 0
+        while i < n do
+            out[i] = 0
+            i = i + 1
+        end
+    end
+    return setmetatable(
+        {},
+        {
+            __index = out,
+            __newindex = function(_t, k, v)
+                out[k] = fround(v)
+            end
+        }
+    )
+end
 function ____exports.__arrayOf(n, v)
     local out = {}
     do

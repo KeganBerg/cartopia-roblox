@@ -170,6 +170,23 @@ class DateTimeFormat {
 }
 export const JsIntl = { DateTimeFormat }
 
+// Math.hypot(...xs)
+export function __hypot(...xs: number[]): number {
+  let sum = 0
+  for (const x of xs) sum += x * x
+  return Math.sqrt(sum)
+}
+// new Float32Array(n): n zeros, each value kept to single precision when stored (as JavaScript
+// does), so kart tracks come out exactly as on the web. Reads go straight to the backing list.
+declare const string: { pack(this: void, f: string, v: number): string; unpack(this: void, f: string, s: string): number }
+declare function setmetatable<T>(this: void, t: T, m: object): T
+const fround = (v: number) => string.unpack('<f', string.pack('<f', v))
+// Typed arrays aren't Arrays to TypeScriptToLua, so their indexes stay 0-based: keys 0 to n - 1.
+export function __zeros(n: number): Record<number, number> {
+  const out: Record<number, number> = {}
+  for (let i = 0; i < n; i++) out[i] = 0
+  return setmetatable({} as Record<number, number>, { __index: out, __newindex: (_t: unknown, k: number, v: number) => { out[k] = fround(v) } })
+}
 // JavaScript's Math.imul: the low 32 bits of a * b, as a signed 32-bit number.
 // Array(n).fill(v)
 export function __arrayOf<T>(n: number, v: T): T[] {

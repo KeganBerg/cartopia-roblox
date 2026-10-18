@@ -130,6 +130,7 @@ const STUBS = {
   'stubs/sound.ts': 'src/lib/sound.ts',
   'stubs/prefs.ts': 'src/lib/prefs.ts',
   'stubs/boostTrail.ts': 'src/scene/boostTrail.ts',
+  'stubs/three.ts': 'src/__three.ts',
 }
 for (const [from, to] of Object.entries(STUBS)) cpSync(join(here, from), join(work, to))
 // The same stand-ins after transpiling, where Luau can do what TypeScript can't (catch any sfx.* call).
@@ -148,6 +149,9 @@ const REWRITES = [
   // Lua lists can't hold nil: STRIPES' "no stripe" entry becomes false.
   [/export const STRIPES = \[null,/, 'export const STRIPES: (string | null)[] = [false as unknown as null,'],
   [/Math\.imul\(/g, '__imul('],
+  [/Math\.hypot\(/g, '__hypot('],
+  // Typed arrays become plain lists of zeros.
+  [/new Float32Array\(/g, '__zeros('],
   [/(?<![\w.])Array\(([^()]*)\)\.fill\(([^()]*)\)/g, '__arrayOf($1, $2)'],
   // Math functions passed around as values (a default `rand = Math.random`) need a real function.
   [/Math\.random(?!\s*\()/g, '(() => __random())'],
@@ -173,6 +177,7 @@ for (const file of walk(join(work, 'src'))) {
   for (const [from, to] of REWRITES) src = src.replace(from, to)
   const toRoot = relative(dirname(file), join(work, 'src')).replace(/\\/g, '/') || '.'
   src = src.replace(/from 'zustand'/g, `from '${toRoot}/__zustand'`).replace(/from 'zustand\/middleware'/g, `from '${toRoot}/__zustand_middleware'`)
+  src = src.replace(/from 'three'/g, `from '${toRoot}/__three'`)
   writeFileSync(file, src)
 }
 
@@ -422,6 +427,8 @@ for (const sf of program.getSourceFiles()) {
   if (/\bJSON\b/.test(src)) names.push('JsJSON as JSON')
   if (src.includes('__imul(')) names.push('imul as __imul')
   if (src.includes('__arrayOf(')) names.push('__arrayOf')
+  if (src.includes('__hypot(')) names.push('__hypot')
+  if (src.includes('__zeros(')) names.push('__zeros')
   if (src.includes('__localeString(')) names.push('localeString as __localeString')
   if (src.includes('__random(')) names.push('__random')
   for (const g of ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'console', 'localStorage']) if (new RegExp(`\\b${g}\\b`).test(src)) names.push(g)
