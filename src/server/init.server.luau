@@ -400,6 +400,14 @@ Players.PlayerAdded:Connect(function(player)
 	end
 	purchases:load(player.UserId, receipts)
 	towns:open(player.UserId, data)
+	-- How long they were away (since their save was last written): the welcome back shows it, and
+	-- two days or more turns on double pay for the next few races, as the web's noteAway.
+	local seen = saves:lastSeen(player.UserId)
+	if seen then
+		local away = math.max(0, (os.time() - seen) * 1000)
+		player:SetAttribute("AwayMs", away)
+		pcall(towns.run, towns, player.UserId, "noteAway", away)
+	end
 	-- Their own race car on their loading screen.
 	pcall(function()
 		local save = towns:snapshot(player.UserId).save
