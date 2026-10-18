@@ -112,6 +112,15 @@ Instance.new("PlayerGui").Parent = player
 local players = game:GetService("Players")
 players.LocalPlayer = player
 player.Parent = players
+-- Roblox's rules for this player (server/Policies sets these): paid crates allowed, as in most
+-- places; the crate depot is also pictured restricted further down.
+local Policy = emu.require(game:GetService("ReplicatedStorage").Shared.Policy)
+local function setRules(info)
+	for k, v in Policy.toAttributes(Policy.fromInfo(info)) do
+		player:SetAttribute(k, v)
+	end
+end
+setRules({ ArePaidRandomItemsRestricted = false })
 roblox.implementMethod("Workspace", "GetServerTimeNow", function()
 	return NOW / 1000
 end)
@@ -302,7 +311,11 @@ local function raceDesk(op, arg)
 	return true, result
 end
 -- The server end of Cartopia.Crate.
-local crateDesk = emu.require(SSS.Server.Crates).new(towns, store, emu.require(G.crates))
+local crateDesk = emu.require(SSS.Server.Crates).new(towns, store, emu.require(G.crates), function(_, free)
+	return Policy.canOpenCrate(Policy.fromAttributes(function(k)
+		return player:GetAttribute(k)
+	end), free)
+end)
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
 	if remote.Name == "Race" then
 		return raceDesk(name, ...)
@@ -902,6 +915,43 @@ if SHOTS then
 			break
 		end
 	end
+	-- Where paid random items are restricted: no buying, a note saying so, and free crates only.
+	setRules({ ArePaidRandomItemsRestricted = true })
+	hud.ctx.close()
+	hud.openPanel("crates")
+	depot = hud.gui:FindFirstChild("Depot", true)
+	assert(depot and depot:FindFirstChild("NoBuy", true), "no note for a restricted player")
+	assert(not depot:FindFirstChild("Open", true), "a restricted player can buy a crate")
+	for _, d in depot:GetDescendants() do
+		assert(not (d:IsA("TextLabel") and d.Text:find("^×10")), "a restricted player can buy ten")
+	end
+	shot("crate-restricted", nil)
+	towns:_with(1, function()
+		store.useGame.setState({ freeCrates = { "gift:emu" } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("crates")
+	depot = hud.gui:FindFirstChild("Depot", true)
+	-- A cup's free crate is a Garage Crate: pick that one.
+	for _, d in depot:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "Garage" and d.Parent:IsA("TextButton") then
+			signalFor(d.Parent, "Activated"):Fire()
+			break
+		end
+	end
+	depot = hud.gui:FindFirstChild("Depot", true)
+	openB = depot and depot:FindFirstChild("Open", true)
+	assert(openB, "a restricted player can't open a free crate")
+	shot("crate-restricted-free", nil)
+	local coinsBefore = towns:snapshot(1).save.coins
+	signalFor(openB, "Activated"):Fire()
+	Emu.resumeWaits()
+	Emu.resumeWaits()
+	assert(#(towns:snapshot(1).save.freeCrates or {}) == 0, "the free crate wasn't opened")
+	assert(towns:snapshot(1).save.coins >= coinsBefore, "a free crate cost coins")
+	print("crates: restricted player sees no buying, free crate opened")
+	setRules({ ArePaidRandomItemsRestricted = false })
 
 	-- Rusty's: both tabs, a search part done, the haul towed home, and a finished car's plate.
 	towns:run(1, "abandonSearch")

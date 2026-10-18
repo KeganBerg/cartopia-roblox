@@ -36,6 +36,8 @@ local TownView = require(script.TownView)
 local Races = require(script.Races)
 local Boards = require(script.Boards)
 local Crates = require(script.Crates)
+local Policies = require(script.Policies)
+local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 
@@ -88,7 +90,11 @@ local races = Races.new(towns, {
 		}, os.clock),
 	},
 })
-local crates = Crates.new(towns, require(Game.store), require(Game.crates))
+-- Each player's Roblox rules (PolicyService), strict until known; crates check them before opening.
+local policies = Policies.new(game:GetService("PolicyService"), Policy, task.wait)
+local crates = Crates.new(towns, require(Game.store), require(Game.crates), function(userId, free)
+	return Policy.canOpenCrate(policies:get(userId), free)
+end)
 
 local remotes = Instance.new("Folder")
 remotes.Name = "Cartopia"
@@ -226,6 +232,7 @@ local function save(player: Player, release: boolean?)
 end
 
 Players.PlayerAdded:Connect(function(player)
+	task.spawn(policies.load, policies, player)
 	local ok, data = pcall(saves.load, saves, player.UserId)
 	if not ok then
 		local failure = if type(data) == "table" then data else { reason = "failed", message = tostring(data) }
@@ -294,6 +301,7 @@ Players.PlayerRemoving:Connect(function(player)
 	races:close(player.UserId)
 	save(player, true)
 	towns:close(player.UserId)
+	policies:forget(player.UserId)
 	if views[player] then
 		views[player]:destroy()
 		views[player] = nil

@@ -37,6 +37,7 @@ local WHY = {
 	["That race isn't open yet"] = "That race isn't open yet",
 	["too quick"] = "That race didn't count. Try again.",
 	filter = "Couldn't check that name. Try again.",
+	["paid crates restricted"] = "Buying crates isn't available where you live",
 }
 
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
