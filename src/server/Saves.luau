@@ -1,7 +1,8 @@
 --!strict
 -- Player saves in a DataStore, with session locking so two servers never write the same town.
 --
--- Each key holds { save = <the web game's SaveState>, lock = { job, at } | nil, version }. Loading
+-- Each key holds { save = <the web game's SaveState>, lock = { job, at } | nil, version, seen }
+-- (seen: when the save was last written, which is about when the player was last here). Loading
 -- takes the lock in the same UpdateAsync that reads the save; every write checks this server still
 -- holds it, and releasing clears it. A lock that hasn't been refreshed for LOCK_TTL seconds belongs
 -- to a server that crashed, so it can be taken over.
@@ -15,14 +16,14 @@ Saves.LOCK_TTL = 30 * 60
 Saves.RETRIES = 5
 Saves.RETRY_WAIT = 6
 
-export type Record = { save: any?, lock: { job: string, at: number }?, version: number? }
+export type Record = { save: any?, lock: { job: string, at: number }?, version: number?, seen: number? }
 export type Store = {
 	UpdateAsync: (self: any, key: string, fn: (old: Record?) -> Record?) -> any,
 }
 export type Options = { store: Store, job: string, now: () -> number, wait: ((seconds: number) -> ())? }
 
 export type Saves = typeof(setmetatable(
-	{} :: { store: Store, job: string, now: () -> number, wait: (number) -> (), held: { [string]: boolean } },
+	{} :: { store: Store, job: string, now: () -> number, wait: (number) -> (), held: { [string]: boolean }, seen: { [string]: number } },
 	Saves
 ))
 
@@ -35,6 +36,7 @@ function Saves.new(opts: Options): Saves
 			task.wait(s)
 		end,
 		held = {},
+		seen = {},
 	}, Saves)
 end
 
@@ -66,6 +68,7 @@ function Saves.load(self: Saves, userId: number): any?
 	for attempt = 1, Saves.RETRIES do
 		local busy = false
 		local save: any? = nil
+		local seen: number? = nil
 		local ok, err = pcall(function()
 			self.store:UpdateAsync(key, function(old: Record?): Record?
 				if lockedByOther(self, old) then
@@ -76,11 +79,13 @@ function Saves.load(self: Saves, userId: number): any?
 				local record: Record = old or { version = 0 }
 				record.lock = { job = self.job, at = self.now() }
 				save = record.save
+				seen = record.seen
 				return record
 			end)
 		end)
 		if ok and not busy then
 			self.held[key] = true
+			self.seen[key] = seen
 			return save
 		end
 		if ok then
@@ -119,6 +124,7 @@ function Saves.write(self: Saves, userId: number, save: any, release: boolean?):
 			local record = old :: Record
 			record.save = save
 			record.version = (record.version or 0) + 1
+			record.seen = self.now()
 			record.lock = if release then nil else { job = self.job, at = self.now() }
 			return record
 		end)
@@ -131,6 +137,12 @@ function Saves.write(self: Saves, userId: number, save: any, release: boolean?):
 		self.held[key] = nil
 	end
 	return wrote
+end
+
+-- When the save loaded last was written before (the clock's units), or nil for a new player or
+-- an older save: how long they were away, for the welcome back.
+function Saves.lastSeen(self: Saves, userId: number): number?
+	return self.seen[keyOf(userId)]
 end
 
 function Saves.holds(self: Saves, userId: number): boolean
