@@ -121,6 +121,9 @@ addParts(scene, S.parts)
 const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 1, 5000)
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
+// Haze starts past what the camera looks at, as the game's light Atmosphere does.
+const reach = cam.position.distanceTo(new T.Vector3(...c.at))
+scene.fog = new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
 renderer.render(scene, cam)
 
 // Screens: ScreenGui frames as absolutely placed boxes, drawn as Roblox would: children over

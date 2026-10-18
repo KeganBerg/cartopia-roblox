@@ -10,6 +10,7 @@
 
 local Catalog = require(script.Parent.Catalog)
 local Meshes = require(script.Parent.Meshes)
+local Scenery = require(script.Parent.Scenery)
 
 local Builder = {}
 
@@ -49,6 +50,35 @@ function Builder.loadMeshes(timeout: number?)
 	end
 	-- Templates built before the meshes arrived used boxes; build them again.
 	table.clear(templates)
+	-- A copy of every mesh for the clients (they can't load assets themselves), which draw the
+	-- countryside locally (Builder.useLibrary).
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	if not ReplicatedStorage:FindFirstChild("MeshLibrary") then
+		local library = Instance.new("Folder")
+		library.Name = "MeshLibrary"
+		for key, part in meshParts do
+			local copy = part:Clone()
+			copy.Name = key
+			copy.Parent = library
+		end
+		library.Parent = ReplicatedStorage
+	end
+end
+
+-- On a client: takes the meshes the server shares (see loadMeshes), waiting up to timeout seconds
+-- for them. Returns whether they arrived.
+function Builder.useLibrary(timeout: number?): boolean
+	local library = game:GetService("ReplicatedStorage"):WaitForChild("MeshLibrary", timeout or 60)
+	if not library then
+		return false
+	end
+	for _, d in library:GetChildren() do
+		if d:IsA("MeshPart") then
+			meshParts[d.Name] = d
+		end
+	end
+	table.clear(templates)
+	return true
 end
 
 -- Whether a mesh has a real MeshPart (false: it's drawn as a box).
@@ -145,7 +175,7 @@ Builder.previewMeshes = false
 
 -- Whether a model of that name exists: "pizza@1" for buildings (id@level), "pip" for cars.
 function Builder.has(name: string): boolean
-	return Catalog.MODELS[name] ~= nil
+	return Catalog.MODELS[name] ~= nil or Scenery.MODELS[name] ~= nil
 end
 
 -- A building's model at a level, falling back to the nearest level converted.
@@ -164,14 +194,19 @@ local function template(name: string): Model?
 	if hit then
 		return hit
 	end
-	local parts = Catalog.MODELS[name]
+	local parts = Catalog.MODELS[name] or Scenery.MODELS[name]
 	if not parts then
 		return nil
 	end
 	local model = Instance.new("Model")
 	model.Name = name
+	-- A countryside mesh covers a whole patch of ground, so a stand-in box would bury the town:
+	-- those are left out until their mesh is uploaded.
+	local scenery = Scenery.MODELS[name] ~= nil and not Builder.previewMeshes
 	for _, p in parts do
-		makePart(p).Parent = model
+		if not (scenery and p[1] == "m" and not meshParts[p[13]]) then
+			makePart(p).Parent = model
+		end
 	end
 	model.WorldPivot = CFrame.new()
 	templates[name] = model
