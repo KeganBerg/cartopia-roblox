@@ -6,23 +6,23 @@
 return {
 	music = {
 		["fall-day-cider-mill"] = {
-			id = 139244135524842,
+			id = 99927775381080,
 			length = 122.073,
 		},
 		["fall-day-maple-drive"] = {
-			id = 108504151737344,
+			id = 134162476437595,
 			length = 125,
 		},
 		["fall-day-rainy-window"] = {
-			id = 112434668459932,
+			id = 109191358778818,
 			length = 138.333,
 		},
 		["fall-night-harvest-moon"] = {
-			id = 99012952003502,
+			id = 136588081442308,
 			length = 150.455,
 		},
 		["fall-night-hayride-home"] = {
-			id = 133202492267998,
+			id = 102402167836758,
 			length = 142.143,
 		},
 		["fall-night-night-shift"] = {
@@ -365,7 +365,7 @@ return {
 			},
 		},
 		sfx = {
-			id = 110707873265684,
+			id = 77848161277124,
 			regions = {
 				["arcade-air"] = {
 					start = 0.28,
@@ -686,7 +686,7 @@ return {
 			},
 		},
 		voice = {
-			id = 107165142965382,
+			id = 118039442784814,
 			regions = {
 				["01-welcome"] = {
 					start = 0.28,
