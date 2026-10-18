@@ -215,7 +215,7 @@ local function scatter(parent: Instance, name: string, at: Vector3, ry: number, 
 		return
 	end
 	for _, p in piece:GetDescendants() do
-		if p:GetAttribute("Mesh") and not Builder.previewMeshes then
+		if not p:IsA("MeshPart") and p:GetAttribute("Mesh") and not Builder.previewMeshes then
 			-- Its shape isn't uploaded yet, and a field of grey boxes is worse than bare lawn.
 			piece:Destroy()
 			return
@@ -236,8 +236,7 @@ local function scatter(parent: Instance, name: string, at: Vector3, ry: number, 
 end
 
 -- Lawn detail on the empty tiles of the town's land, as Tufts.tsx: grass clumps in the season's
--- greens, leaf heaps and mushroom rings in the fall, and pebbles. A little sparser than the web
--- (two to three clumps a tile instead of three to five) to keep big towns light.
+-- greens, leaf heaps and mushroom rings in the fall, and pebbles, as many as the web draws.
 local GREENS = 0
 for name in Catalog.MODELS do
 	if string.match(name, "^tuft:%d+$") then
@@ -282,7 +281,7 @@ function TownView._renderLawn(self: TownView, land: { string }, roads: { string 
 				local function spot(k2: number, spread: number): Vector3
 					return c + Vector3.new((hash(x, z, k2) - 0.5) * TILE * spread, 0, (hash(x, z, k2 + 101) - 0.5) * TILE * spread)
 				end
-				local tufts = if winter then math.floor(hash(x, z, 0) * 2) else 2 + math.floor(hash(x, z, 0) * 2)
+				local tufts = if winter then math.floor(hash(x, z, 0) * 2) else 3 + math.floor(hash(x, z, 0) * 3)
 				if GREENS > 0 then
 					for t = 0, tufts - 1 do
 						local tint = ((x + z + t) % GREENS + GREENS) % GREENS + 1
