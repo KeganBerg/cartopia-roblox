@@ -6,7 +6,8 @@
 --   Act    RemoteFunction  client -> server: (action, ...args) -> ok, result or error text
 --   Town   RemoteEvent     server -> client: { save, need, panel, toasts } after every change
 --   Race   RemoteFunction  client -> server: ("rivals" | "campaign" | "start" | "finish", ...)
---                          -> ok, result or error text (see Races)
+--                          -> ok, result or error text (see Races); "kartStart" { kind, which }
+--                          and "kartFinish" { place, time } for kart races (see Karts)
 --   Crate  RemoteFunction  client -> server: (crate id, free source?, count) -> ok, the opens or why
 --   Meshes RemoteFunction  client -> server: (car id) -> loads that car's mod meshes into
 --                          ReplicatedStorage.MeshLibrary, answering once they're in
@@ -34,6 +35,7 @@ local Saves = require(script.Saves)
 local Towns = require(script.Towns)
 local TownView = require(script.TownView)
 local Races = require(script.Races)
+local Karts = require(script.Karts)
 local Boards = require(script.Boards)
 local Crates = require(script.Crates)
 local Splash = require(script.Splash)
@@ -89,6 +91,18 @@ local races = Races.new(towns, {
 	},
 })
 local crates = Crates.new(towns, require(Game.store), require(Game.crates))
+-- Kart races: the Grand Prix, Bumper Blast and custom races (server/Karts).
+local karts = Karts.new(towns, {
+	store = require(Game.store),
+	data = require(Game.data),
+	kart = require(Game.kart),
+	gpBeat = require(Game.gpBeat),
+	raceCar = require(Game.raceCar),
+	fairRace = require(Game.fairRace),
+	boosts = require(Game.boosts),
+	random = Random.new(),
+	clock = os.clock,
+})
 
 local remotes = Instance.new("Folder")
 remotes.Name = "Cartopia"
@@ -292,6 +306,7 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	-- First, so a double-or-nothing rematch left half way is settled in the save.
 	races:close(player.UserId)
+	karts:close(player.UserId)
 	save(player, true)
 	towns:close(player.UserId)
 	if views[player] then
@@ -374,6 +389,10 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return races:start(player.UserId, arg.mode, arg.which)
 		elseif op == "finish" then
 			return races:finish(player.UserId, arg)
+		elseif op == "kartStart" and type(arg) == "table" then
+			return karts:start(player.UserId, arg.kind, arg.which)
+		elseif op == "kartFinish" then
+			return karts:finish(player.UserId, arg)
 		end
 		return nil, "not a race"
 	end)
@@ -381,7 +400,7 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 		warn(`[Cartopia] {player.Name} race {op}: {result}`)
 		return false, "error"
 	end
-	if op == "start" or op == "finish" or op == "act" then
+	if op == "start" or op == "finish" or op == "act" or op == "kartStart" or op == "kartFinish" then
 		push(player)
 	end
 	if result == nil then

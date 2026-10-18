@@ -178,6 +178,20 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 		end),
 	},
 })
+-- The kart desk, as init.server.luau makes it.
+local karts = emu.require(SSS.Server.Karts).new(towns, {
+	store = store,
+	data = emu.require(G.data),
+	kart = emu.require(G.kart),
+	gpBeat = emu.require(G.gpBeat),
+	raceCar = emu.require(G.raceCar),
+	fairRace = emu.require(G.fairRace),
+	boosts = emu.require(G.boosts),
+	random = races.mods.random,
+	clock = function()
+		return raceClock
+	end,
+})
 -- Render steps, run by hand.
 local renderSteps = {}
 roblox.implementMethod("RunService", "BindToRenderStep", function(_, name, _, fn)
@@ -283,6 +297,10 @@ local function raceDesk(op, arg)
 			return races:start(1, arg.mode, arg.which)
 		elseif op == "finish" then
 			return races:finish(1, arg)
+		elseif op == "kartStart" and type(arg) == "table" then
+			return karts:start(1, arg.kind, arg.which)
+		elseif op == "kartFinish" then
+			return karts:finish(1, arg)
 		end
 		return nil, "not a race"
 	end)
