@@ -57,8 +57,9 @@ end
 function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: number) -> ())?)
 	local byAsset: { [number]: boolean } = {}
 	for _, m in Meshes.MESHES do
-		-- A car's mod pack waits until that car needs it (Builder.loadFor).
-		if m.asset ~= 0 and not (m :: any).lazy then
+		-- A car's mod pack waits until that car needs it (Builder.loadFor), the far land until the
+		-- rest is in (Builder.loadLate).
+		if m.asset ~= 0 and not (m :: any).lazy and not (m :: any).late then
 			byAsset[m.asset] = true
 		end
 	end
@@ -100,6 +101,20 @@ end
 
 -- On a client: takes the meshes the server shares (see loadMeshes), waiting up to timeout seconds
 -- for them. Returns whether they arrived.
+-- Loads the far land's mesh packs (server only), after Builder.loadMeshes: the clients draw it
+-- (client/Horizon) once every one of its meshes is in the library.
+function Builder.loadLate()
+	local seen: { [number]: boolean } = {}
+	local list = {}
+	for _, m in Meshes.MESHES do
+		if m.asset ~= 0 and (m :: any).late and not seen[m.asset] then
+			seen[m.asset] = true
+			table.insert(list, m.asset)
+		end
+	end
+	loadPacks(list)
+end
+
 function Builder.useLibrary(timeout: number?): boolean
 	local library = game:GetService("ReplicatedStorage"):WaitForChild("MeshLibrary", timeout or 60)
 	if not library then

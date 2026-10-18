@@ -36,7 +36,10 @@ local TownView = require(script.TownView)
 local Races = require(script.Races)
 local Boards = require(script.Boards)
 local Crates = require(script.Crates)
+local Policies = require(script.Policies)
+local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
+local Sky = require(script.Sky)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
@@ -88,7 +91,11 @@ local races = Races.new(towns, {
 		}, os.clock),
 	},
 })
-local crates = Crates.new(towns, require(Game.store), require(Game.crates))
+-- Each player's Roblox rules (PolicyService), strict until known; crates check them before opening.
+local policies = Policies.new(game:GetService("PolicyService"), Policy, task.wait)
+local crates = Crates.new(towns, require(Game.store), require(Game.crates), function(userId, pay, free)
+	return Policy.canOpenCrate(policies:get(userId), pay, free)
+end)
 
 local remotes = Instance.new("Folder")
 remotes.Name = "Cartopia"
@@ -110,6 +117,7 @@ meshRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
 
 Splash.start()
+Sky.start()
 
 -- The mesh packs load first, so towns are drawn with real meshes rather than stand-in boxes.
 -- Workspace's ShapesLoaded / ShapesTotal / ShapesReady attributes tell the clients' loading screen
@@ -123,6 +131,8 @@ task.spawn(function()
 	end)
 	meshesReady = true
 	workspace:SetAttribute("ShapesReady", true)
+	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
+	Builder.loadLate()
 	-- A copy of every car and building for the client's shop pictures and placement ghost.
 	local library = Instance.new("Folder")
 	library.Name = "ModelLibrary"
@@ -226,6 +236,7 @@ local function save(player: Player, release: boolean?)
 end
 
 Players.PlayerAdded:Connect(function(player)
+	task.spawn(policies.load, policies, player)
 	local ok, data = pcall(saves.load, saves, player.UserId)
 	if not ok then
 		local failure = if type(data) == "table" then data else { reason = "failed", message = tostring(data) }
@@ -294,6 +305,7 @@ Players.PlayerRemoving:Connect(function(player)
 	races:close(player.UserId)
 	save(player, true)
 	towns:close(player.UserId)
+	policies:forget(player.UserId)
 	if views[player] then
 		views[player]:destroy()
 		views[player] = nil
