@@ -894,6 +894,10 @@ local function shot(name, world, w, h)
 		end
 	end
 	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("DailySpin")
+	if name:find("^depot%-") then
+		-- The crate depot is a menu on the HUD, whatever screen an earlier check left behind.
+		raceGui = nil
+	end
 	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, w or 1280, h or 800), bubbles = {} }))
 	local cam = game.Workspace.CurrentCamera
 	local cf = cam.CFrame

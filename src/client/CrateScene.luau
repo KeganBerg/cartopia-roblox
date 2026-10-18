@@ -370,7 +370,7 @@ local function HangingLamp(folder: Instance, x: number, z: number, y: number)
 	part(folder, Vector3.new(0.024, 2.8, 0.024), at * CF(0, 1.4, 0), { color = "#263238" })
 	part(folder, Vector3.new(0.32, 0.84, 0.84), at * UPRIGHT, { color = "#2e3b43", shape = "Cylinder", material = Enum.Material.Metal })
 	local bulb = part(folder, Vector3.new(0.2, 0.2, 0.2), at * CF(0, -0.18, 0), { color = "#fff8e1", material = Enum.Material.Neon, shape = "Ball", shadow = false })
-	light("SpotLight", bulb, { Face = Enum.NormalId.Bottom, Color = hex("#ffd18a"), Brightness = 2.2, Range = 30, Angle = 70 })
+	light("SpotLight", bulb, { Face = Enum.NormalId.Bottom, Color = hex("#ffd18a"), Brightness = 0.6, Range = 30, Angle = 70 })
 end
 
 -- The building: concrete floor with its walkways, the lift and its hazard ring, the corrugated
@@ -428,7 +428,7 @@ local function Depot(folder: Instance)
 		for _, t in { { 0, 0.7, 5.3, 0.05 }, { 0, -0.7, 5.3, 0.05 }, { -2.65, 0, 0.05, 1.4 }, { 2.65, 0, 0.05, 1.4 } } do
 			box(t[3], t[4], 0.05, t[1], 3.3 + t[2], -6.74, { color = "#00e5ff", material = Enum.Material.Neon, shadow = false })
 		end
-		light("PointLight", face, { Color = hex("#ff4fd8"), Brightness = 1.6, Range = 30 })
+		light("PointLight", face, { Color = hex("#ff4fd8"), Brightness = 1, Range = 30 })
 		local sub = box(2.2, 0.55, 0.04, 5.9, 3.0, -6.82, { color = "#263238", shadow = false })
 		sign(sub, "LOADING BAY 3", "#ffc400", "#263238", Enum.Font.GothamBlack)
 	end
@@ -467,14 +467,14 @@ local function Depot(folder: Instance)
 	HangingLamp(folder, 6, -3, 5.4)
 	-- The work lamp right over the lift (its shade hangs up in the dark; the light is the scene's key).
 	local lamp = part(folder, Vector3.new(0.3, 0.3, 0.3), CFrame.lookAt(ORIGIN + P(0, 7, 1.2), ORIGIN), { color = "#2e3b43", transparency = 1, shadow = false })
-	light("SpotLight", lamp, { Face = Enum.NormalId.Front, Color = hex("#ffe8c2"), Brightness = 4, Range = 60, Angle = 62, Shadows = true })
+	light("SpotLight", lamp, { Face = Enum.NormalId.Front, Color = hex("#ffe8c2"), Brightness = 2.6, Range = 60, Angle = 57, Shadows = true })
 	-- Fill: the warm lamps over the racking, the sign's pink and a soft light from the camera's side.
 	for _, x in { -6, 6 } do
 		local f = part(folder, Vector3.new(0.1, 0.1, 0.1), at * CF(x, 4.6, -3), { transparency = 1, shadow = false })
-		light("PointLight", f, { Color = hex("#ffd18a"), Brightness = 1, Range = 36 })
+		light("PointLight", f, { Color = hex("#ffd18a"), Brightness = 0.5, Range = 36 })
 	end
 	local fill = part(folder, Vector3.new(0.1, 0.1, 0.1), at * CF(0, 4, 7), { transparency = 1, shadow = false })
-	light("PointLight", fill, { Color = hex("#6b7cc0"), Brightness = 0.8, Range = 50 })
+	light("PointLight", fill, { Color = hex("#6b7cc0"), Brightness = 0.3, Range = 50 })
 	-- Specks of dust turning slowly in the work lamp's beam.
 	local dust = part(folder, Vector3.new(3.4, 4.6, 3.4), at * CF(0, 2.8, 0), { transparency = 1, shadow = false })
 	local e = Instance.new("ParticleEmitter")
@@ -1476,7 +1476,7 @@ local function tick(dt: number)
 	local after = if s.burstAt then now - s.burstAt else -1
 	local core = s.crate.core
 	core.Transparency = 1 - (if after >= 0 then math.max(0, 1 - after * 1.5) else charge * 0.95) * 0.85
-	s.crate.coreLight.Brightness = (if after >= 0 then 6 + math.max(0, 30 * (1 - after * 2)) else charge * 14) / 6
+	s.crate.coreLight.Brightness = (if after >= 0 then 6 + math.max(0, 30 * (1 - after * 2)) else charge * 14) / 9
 	s.flash.Brightness = if after >= 0 then math.max(0, drama.flash * (1 - after * 3)) / 12 else 0
 
 	-- Burst: the crate opens its own way and the bands snap away.
@@ -1570,8 +1570,8 @@ local function tick(dt: number)
 		local keyPart, rimPart = (s :: any).keyPart :: BasePart, (s :: any).rimPart :: BasePart
 		keyPart.CFrame = at * CF(0.8, 2.6, 3.2)
 		rimPart.CFrame = at * CF(0, 2.4, -2.4)
-		s.key.Brightness = ease * 1.6
-		s.rim.Brightness = ease * 2.2
+		s.key.Brightness = ease * 1
+		s.rim.Brightness = ease * 1.4
 		if not st.revealed and after > Pc.settle - Pc.charge then
 			st.revealed = true
 			if s.onReveal then
@@ -1656,8 +1656,8 @@ function CrateScene.enter(area: { x: number, y: number, w: number, h: number }, 
 	hideHud()
 	TownCamera.setPaused(true)
 	DayNight.setIndoor({
-		ambient = hex("#2c2a40"),
-		brightness = 0.4,
+		ambient = hex("#3d4060"),
+		brightness = 0,
 		exposure = 0.25,
 		bloom = 0.9,
 		threshold = 0.9,
