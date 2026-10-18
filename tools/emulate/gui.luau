@@ -102,6 +102,14 @@ function Gui.partOf(d)
 		shape = shape,
 		mesh = d:GetAttribute("Mesh"),
 		imported = if d:IsA("MeshPart") then d:GetAttribute("Imported") == true else nil,
+		texture = (function()
+			for _, t in d:GetChildren() do
+				if t:IsA("Texture") and t:GetAttribute("Image") then
+					return { image = t:GetAttribute("Image"), span = { t.StudsPerTileU, t.StudsPerTileV }, offset = { t.OffsetStudsU, t.OffsetStudsV } }
+				end
+			end
+			return nil
+		end)(),
 		cf = { x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 },
 		size = { d.Size.X, d.Size.Y, d.Size.Z },
 		color = d.Color:ToHex(),

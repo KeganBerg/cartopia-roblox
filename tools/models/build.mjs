@@ -25,6 +25,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '../..')
 const OUT_DIR = join(ROOT, 'src/shared/Models')
 const GLB_DIR = join(ROOT, 'build/meshes')
+const TEX_DIR = join(ROOT, 'build/textures')
 const ASSETS = join(HERE, 'assets.json')
 
 export const SCALE = 10
@@ -469,7 +470,7 @@ export function convert(data) {
 
   // The season the models were drawn in, and its ground colours, for the town's grass.
   const ground = { season: data.season ?? 'summer', grass: data.grass ?? '#7cc54e', meadow: data.ground ?? '#5aa83a' }
-  return { models: out, scenery, looks, meshes, stats, ground }
+  return { models: out, scenery, looks, meshes, stats, ground, textures: data.textures ?? [] }
 }
 
 function mul(a, b) {
@@ -538,6 +539,11 @@ Catalog.SEASON = ${str(result.ground.season)}
 Catalog.GRASS = ${str(result.ground.grass)}
 Catalog.MEADOW = ${str(result.ground.meadow)}
 
+-- The web game's ground textures (textures.ts), uploaded as images: the lawn on the town's land and
+-- the meadow past it. span = studs one image covers; image = 0 until upload.mjs uploads it.
+Catalog.TEXTURES = {
+${(result.textures ?? []).map((t) => `\t${t.key} = { image = ${assets[`texture:${t.name}`] ?? 0}, span = ${num(t.span * SCALE)}, name = ${str(t.name)} },\n`).join('')}}
+
 Catalog.LOOKS = {
 `
   for (const l of looks) {
@@ -583,6 +589,9 @@ Meshes.MESHES = {
   const all = {}
   for (const m of meshes.values()) all[m.key] = { pos: m.pos.map((x) => Math.round(x * 1e4) / 1e4), idx: m.idx, size: m.size }
   writeFileSync(join(ROOT, 'build/meshes.json'), JSON.stringify(all))
+  // The textures for upload.mjs to upload.
+  mkdirSync(TEX_DIR, { recursive: true })
+  writeFileSync(join(TEX_DIR, 'list.json'), JSON.stringify((result.textures ?? []).map((t) => ({ name: t.name, file: t.file })), null, 1))
   writeFileSync(join(GLB_DIR, 'packs.json'), JSON.stringify(list.map((p) => ({ name: p.name, file: `${p.name}.glb`, meshes: p.meshes.length })), null, 1))
   return list
 }
