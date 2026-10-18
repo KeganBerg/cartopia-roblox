@@ -616,7 +616,7 @@ it('exports every building and car', async () => {
     const stripes = striped.filter((p) => p.look.c === '#0000fe')
     if (stripes.length) models.push({ id: `stripe:${c.id}`, kind: 'piece', pieces: stripes })
     cutPanels(c.id, c.body, pieces, paint)
-    const trimmed = await render(<CarModel body={c.body} model={c.id} color="#ff00ff" trim={{ tint: 'limo', lights: 'violet', handles: 'black' }} />)
+    const trimmed = (await renderApart(<CarModel body={c.body} model={c.id} color="#ff00ff" trim={{ tint: 'limo', lights: 'violet', handles: 'black' }} />)).pieces
     for (const [kind, mark] of Object.entries(TRIM_MARK)) {
       const list = a.flatMap((p, i) => (trimmed[i] && trimmed[i].look.c !== p.look.c && trimmed[i].look.c === mark ? [i] : []))
       if (list.length) (trimOf[c.id] ??= {})[kind] = list
