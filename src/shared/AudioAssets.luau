@@ -26,204 +26,204 @@ return {
 			length = 142.143,
 		},
 		["fall-night-night-shift"] = {
-			id = 78319527646810,
+			id = 76469619378503,
 			length = 134.73,
 		},
 		["spring-day-paper-route"] = {
-			id = 72588285314115,
+			id = 87798684423057,
 			length = 111.667,
 		},
 		["spring-day-picnic-hill"] = {
-			id = 72181227040550,
+			id = 130938062513050,
 			length = 119.286,
 		},
 		["spring-day-sunny-side-street"] = {
-			id = 88142817411589,
+			id = 82156470778386,
 			length = 114.091,
 		},
 		["spring-night-april-rain"] = {
-			id = 97216246570711,
+			id = 100796693475632,
 			length = 155,
 		},
 		["spring-night-peeper-pond"] = {
-			id = 121195085784251,
+			id = 105494354532123,
 			length = 146.176,
 		},
 		["spring-night-porch-light"] = {
-			id = 82241166197571,
+			id = 90655420053523,
 			length = 159.839,
 		},
 		["summer-day-garage-sale"] = {
-			id = 102823015325629,
+			id = 86335124438155,
 			length = 116.628,
 		},
 		["summer-day-lemonade-stand"] = {
-			id = 134599325428929,
+			id = 101765149885777,
 			length = 109.348,
 		},
 		["summer-day-pool-party"] = {
-			id = 129261652666048,
+			id = 97696073593944,
 			length = 107.128,
 		},
 		["summer-night-fireflies"] = {
-			id = 111531172812801,
+			id = 113861189453829,
 			length = 138.333,
 		},
 		["summer-night-moon-garage"] = {
-			id = 132689869981192,
+			id = 110491477700362,
 			length = 142.143,
 		},
 		["summer-night-streetlights"] = {
-			id = 116151918335223,
+			id = 101779877884263,
 			length = 150.455,
 		},
 		["winter-day-cocoa-break"] = {
-			id = 77564454959929,
+			id = 106816518543496,
 			length = 125,
 		},
 		["winter-day-first-snow"] = {
-			id = 103892448911286,
+			id = 108133940054396,
 			length = 138.333,
 		},
 		["winter-day-snow-day"] = {
-			id = 106641046664560,
+			id = 89374749406900,
 			length = 131.316,
 		},
 		["winter-night-fireside"] = {
-			id = 118015696479711,
+			id = 125460455388491,
 			length = 146.176,
 		},
 		["winter-night-frosted-glass"] = {
-			id = 78166010750294,
+			id = 101347876946379,
 			length = 155,
 		},
 		["winter-night-silent-lot"] = {
-			id = 112745891328417,
+			id = 106403241967399,
 			length = 165,
 		},
 	},
 	club = {
 		["01-deep"] = {
-			id = 79490476418646,
+			id = 125966796627982,
 			loop = {
 				start = 0.5,
 				length = 128,
 			},
 		},
 		["02-piano"] = {
-			id = 95982921856469,
+			id = 90392932896429,
 			loop = {
 				start = 0.5,
 				length = 123.871,
 			},
 		},
 		["03-garage"] = {
-			id = 120745964878952,
+			id = 111038837629522,
 			loop = {
 				start = 0.5,
 				length = 116.364,
 			},
 		},
 		["04-acid"] = {
-			id = 74365399604332,
+			id = 97119848890923,
 			loop = {
 				start = 0.5,
 				length = 120,
 			},
 		},
 		["05-disco"] = {
-			id = 127715482426259,
+			id = 108950115531258,
 			loop = {
 				start = 0.5,
 				length = 132.414,
 			},
 		},
 		["06-tech"] = {
-			id = 85556868448455,
+			id = 72897493826137,
 			loop = {
 				start = 0.5,
 				length = 121.905,
 			},
 		},
 		["07-swing"] = {
-			id = 71669667862014,
+			id = 109659283606698,
 			loop = {
 				start = 0.5,
 				length = 125.902,
 			},
 		},
 		["08-trance"] = {
-			id = 119443345324610,
+			id = 119789513192719,
 			loop = {
 				start = 0.5,
 				length = 111.304,
 			},
 		},
 		["09-liquid"] = {
-			id = 79402007986976,
+			id = 134251875527743,
 			loop = {
 				start = 0.5,
 				length = 88.276,
 			},
 		},
 		["10-wobble"] = {
-			id = 74172476803750,
+			id = 118373968287437,
 			loop = {
 				start = 0.5,
 				length = 109.714,
 			},
 		},
 		["11-neon"] = {
-			id = 104093996187393,
+			id = 96004557929052,
 			loop = {
 				start = 0.5,
 				length = 142.222,
 			},
 		},
 		["12-dembow"] = {
-			id = 95836648505911,
+			id = 71732031895519,
 			loop = {
 				start = 0.5,
 				length = 160,
 			},
 		},
 		["13-hard"] = {
-			id = 133659791221744,
+			id = 93607003279650,
 			loop = {
 				start = 0.5,
 				length = 102.4,
 			},
 		},
 		["14-amapiano"] = {
-			id = 109438506669453,
+			id = 108839437284755,
 			loop = {
 				start = 0.5,
 				length = 135.929,
 			},
 		},
 		["15-stutter"] = {
-			id = 78696623655045,
+			id = 139777531155587,
 			loop = {
 				start = 0.5,
 				length = 115.489,
 			},
 		},
 		["16-two-step"] = {
-			id = 107115649130215,
+			id = 85731372755187,
 			loop = {
 				start = 0.5,
 				length = 113.778,
 			},
 		},
 		["17-rave-breaks"] = {
-			id = 108555703686851,
+			id = 70406849147367,
 			loop = {
 				start = 0.5,
 				length = 112.941,
 			},
 		},
 		["18-witch"] = {
-			id = 133655035833762,
+			id = 121989795829084,
 			loop = {
 				start = 0.5,
 				length = 117.252,
@@ -232,11 +232,11 @@ return {
 	},
 	rave = {
 		["build-up"] = {
-			id = 71494282151412,
+			id = 83601396546473,
 			length = 10,
 		},
 		["drop-loop"] = {
-			id = 83840706684095,
+			id = 102601570452192,
 			loop = {
 				start = 0.5,
 				length = 38.4,
@@ -245,7 +245,7 @@ return {
 	},
 	sprites = {
 		["weather-spring"] = {
-			id = 140165494914758,
+			id = 98477040160722,
 			regions = {
 				["day-calm"] = {
 					start = 0.8,
@@ -270,7 +270,7 @@ return {
 			},
 		},
 		["weather-summer"] = {
-			id = 117163328429242,
+			id = 72605017026021,
 			regions = {
 				["day-calm"] = {
 					start = 0.8,
@@ -305,7 +305,7 @@ return {
 			},
 		},
 		["weather-fall"] = {
-			id = 73751156056223,
+			id = 71795385565164,
 			regions = {
 				["day-calm"] = {
 					start = 0.8,
@@ -340,7 +340,7 @@ return {
 			},
 		},
 		["weather-winter"] = {
-			id = 81638421679781,
+			id = 127763840423644,
 			regions = {
 				["day-calm"] = {
 					start = 0.8,
