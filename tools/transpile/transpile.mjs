@@ -148,7 +148,12 @@ const REWRITES = [
   // Lua lists can't hold nil: STRIPES' "no stripe" entry becomes false.
   [/export const STRIPES = \[null,/, 'export const STRIPES: (string | null)[] = [false as unknown as null,'],
   [/Math\.imul\(/g, '__imul('],
+  [/Math\.hypot\(/g, '__hypot('],
+  [/new Array\(([^()]*)\)\.fill\(([^()]*)\)/g, '__arrayOf($1, $2)'],
   [/(?<![\w.])Array\(([^()]*)\)\.fill\(([^()]*)\)/g, '__arrayOf($1, $2)'],
+  // Typed arrays are plain lists here (they start at zero, or at what .fill() gives).
+  [/new (?:Float32|Float64|Int32|Int8|Uint8)Array\(([^()]*)\)\.fill\(([^()]*)\)/g, '__arrayOf($1, $2)'],
+  [/new (?:Float32|Float64|Int32|Int8|Uint8)Array\(([^()]*)\)/g, '__arrayOf($1, 0)'],
   // Math functions passed around as values (a default `rand = Math.random`) need a real function.
   [/Math\.random(?!\s*\()/g, '(() => __random())'],
   [/Math\.random\(\)/g, '__random()'],
@@ -277,7 +282,14 @@ function rewrite(sf) {
   }
   const paren = (e) => f.createParenthesizedExpression(e)
   // `orig` is the untransformed node (for its type); `e` the rewritten one.
-  const cond = (orig, e) => (orig && loose(orig) ? call('__truthy', [e]) : e)
+  // Without strict mode TypeScript types `a && b` as b's type, so `list.length && x < 1` looks like a
+  // boolean though it can be 0: a condition built from && and || is loose if any operand is.
+  const looseCond = (o) => {
+    while (ts.isParenthesizedExpression(o)) o = o.expression
+    if (ts.isBinaryExpression(o) && (o.operatorToken.kind === K.AmpersandAmpersandToken || o.operatorToken.kind === K.BarBarToken)) return looseCond(o.left) || looseCond(o.right)
+    return loose(o)
+  }
+  const cond = (orig, e) => (orig && looseCond(orig) ? call('__truthy', [e]) : e)
   // a || b, a && b with a loose left side, without evaluating `a` twice.
   const logical = (orig, left, right, isOr) => {
     if (!loose(orig.left)) return null
@@ -421,6 +433,7 @@ for (const sf of program.getSourceFiles()) {
   if (/\bIntl\b/.test(src)) names.push('JsIntl as Intl')
   if (/\bJSON\b/.test(src)) names.push('JsJSON as JSON')
   if (src.includes('__imul(')) names.push('imul as __imul')
+  if (src.includes('__hypot(')) names.push('hypot as __hypot')
   if (src.includes('__arrayOf(')) names.push('__arrayOf')
   if (src.includes('__localeString(')) names.push('localeString as __localeString')
   if (src.includes('__random(')) names.push('__random')
@@ -492,7 +505,8 @@ const untranslated = []
 for (const f of readdirSync(out)) {
   if (f === 'lualib_bundle.luau') continue
   readFileSync(join(out, f), 'utf8').split('\n').forEach((line, i) => {
-    if (METHOD.test(line) && !line.trimStart().startsWith('--')) untranslated.push(`${f}:${i + 1}: ${line.trim().slice(0, 120)}`)
+    // (A class's own method named like one, `function Traffic.prototype.at(`, is its definition.)
+    if (METHOD.test(line) && !line.trimStart().startsWith('--') && !/^\s*function [\w.]+\(/.test(line)) untranslated.push(`${f}:${i + 1}: ${line.trim().slice(0, 120)}`)
   })
 }
 if (untranslated.length) {

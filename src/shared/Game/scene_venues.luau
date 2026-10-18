@@ -270,10 +270,10 @@ function ____exports.pickVenue(seed, roll)
     if roll == nil then
         roll = function() return __random() end
     end
-    if if __truthy(pinned) then __TS__ArraySome(
+    if __truthy(if __truthy(pinned) then __TS__ArraySome(
         ALL,
         function(____, v) return v.id == pinned end
-    ) else pinned then
+    ) else pinned) then
         return ____exports.venue(pinned)
     end
     if __truthy(seed) then

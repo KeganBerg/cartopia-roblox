@@ -319,7 +319,7 @@ function ____exports.cleanHat(h)
     if not ok or not __truthy(#list) or not __TS__ArrayIncludes(ok, list[1]) then
         return {id = d.id}
     end
-    local colors = if (function(v_1) return if __truthy(v_1) then list[2] ~= list[1] else v_1 end)(d.colors == "twoTone" and list[2]) and __TS__ArrayIncludes(ok, list[2]) then {list[1], list[2]} else {list[1]}
+    local colors = if __truthy((function(v_1) return if __truthy(v_1) then list[2] ~= list[1] else v_1 end)(d.colors == "twoTone" and list[2]) and __TS__ArrayIncludes(ok, list[2])) then {list[1], list[2]} else {list[1]}
     return if #colors == #d.base and __TS__ArrayEvery(
         colors,
         function(____, c, i) return c == d.base[i + 1] end

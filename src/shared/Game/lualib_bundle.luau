@@ -1548,6 +1548,140 @@ do
     end
 end
 
+local function __TS__ArrayUnshift(self, ...)
+    local items = {...}
+    local numItemsToInsert = #items
+    if numItemsToInsert == 0 then
+        return #self
+    end
+    for i = #self, 1, -1 do
+        self[i + numItemsToInsert] = self[i]
+    end
+    for i = 1, numItemsToInsert do
+        self[i] = items[i]
+    end
+    return #self
+end
+
+local function __TS__ArraySplice(self, ...)
+    local args = {...}
+    local len = #self
+    local actualArgumentCount = __TS__CountVarargs(...)
+    local start = args[1]
+    local deleteCount = args[2]
+    if start < 0 then
+        start = len + start
+        if start < 0 then
+            start = 0
+        end
+    elseif start > len then
+        start = len
+    end
+    local itemCount = actualArgumentCount - 2
+    if itemCount < 0 then
+        itemCount = 0
+    end
+    local actualDeleteCount
+    if actualArgumentCount == 0 then
+        actualDeleteCount = 0
+    elseif actualArgumentCount == 1 then
+        actualDeleteCount = len - start
+    else
+        actualDeleteCount = deleteCount or 0
+        if actualDeleteCount < 0 then
+            actualDeleteCount = 0
+        end
+        if actualDeleteCount > len - start then
+            actualDeleteCount = len - start
+        end
+    end
+    local out = {}
+    for k = 1, actualDeleteCount do
+        local from = start + k
+        if self[from] ~= nil then
+            out[k] = self[from]
+        end
+    end
+    if itemCount < actualDeleteCount then
+        for k = start + 1, len - actualDeleteCount do
+            local from = k + actualDeleteCount
+            local to = k + itemCount
+            if self[from] then
+                self[to] = self[from]
+            else
+                self[to] = nil
+            end
+        end
+        for k = len - actualDeleteCount + itemCount + 1, len do
+            self[k] = nil
+        end
+    elseif itemCount > actualDeleteCount then
+        for k = len - actualDeleteCount, start + 1, -1 do
+            local from = k + actualDeleteCount
+            local to = k + itemCount
+            if self[from] then
+                self[to] = self[from]
+            else
+                self[to] = nil
+            end
+        end
+    end
+    local j = start + 1
+    for i = 3, actualArgumentCount do
+        self[j] = args[i]
+        j = j + 1
+    end
+    for k = #self, len - actualDeleteCount + itemCount + 1, -1 do
+        self[k] = nil
+    end
+    return out
+end
+
+local function __TS__ArraySetLength(self, length)
+    if length < 0 or length ~= length or length == math.huge or math.floor(length) ~= length then
+        error(
+            "invalid array length: " .. tostring(length),
+            0
+        )
+    end
+    for i = length + 1, #self do
+        self[i] = nil
+    end
+    return length
+end
+
+local function __TS__ArrayPushArray(self, items)
+    local len = #self
+    for i = 1, #items do
+        len = len + 1
+        self[len] = items[i]
+    end
+    return len
+end
+
+local function __TS__ArrayReverse(self)
+    local i = 1
+    local j = #self
+    while i < j do
+        local temp = self[j]
+        self[j] = self[i]
+        self[i] = temp
+        i = i + 1
+        j = j - 1
+    end
+    return self
+end
+
+local function __TS__MathSign(val)
+    if __TS__NumberIsNaN(val) or val == 0 then
+        return val
+    end
+    if val < 0 then
+        return -1
+    end
+    return 1
+end
+
 return {
   __TS__Obj = __TS__Obj,
   __TS__SPREAD = __TS__SPREAD,
@@ -1609,5 +1743,11 @@ return {
   __TS__Delete = __TS__Delete,
   __TS__AsyncAwaiter = __TS__AsyncAwaiter,
   __TS__Await = __TS__Await,
-  __TS__InstanceOf = __TS__InstanceOf
+  __TS__InstanceOf = __TS__InstanceOf,
+  __TS__ArrayUnshift = __TS__ArrayUnshift,
+  __TS__ArraySplice = __TS__ArraySplice,
+  __TS__ArraySetLength = __TS__ArraySetLength,
+  __TS__ArrayPushArray = __TS__ArrayPushArray,
+  __TS__ArrayReverse = __TS__ArrayReverse,
+  __TS__MathSign = __TS__MathSign
 }

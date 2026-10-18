@@ -2928,7 +2928,7 @@ ____exports.mergedParts = function(d, level, boost)
     return math.floor(____exports.upgradePartsPayout(d, level) * (1 + boost) + 0.5)
 end
 ____exports.mergedFuelExtra = function(d, level, n) return math.ceil(____exports.upgradeFuelCap(d, level) * n * ____exports.mergeBonus(n) - 1e-9) end
-____exports.mergeGain = function(d) return if if __truthy(d.jobSeconds) then d.kind ~= "obstacle" else d.jobSeconds then "💰" else if __truthy(if __truthy(d.fuelCap) then d.fuelCap else d.kind == "house") then "⛽" else nil end
+____exports.mergeGain = function(d) return if __truthy(if __truthy(d.jobSeconds) then d.kind ~= "obstacle" else d.jobSeconds) then "💰" else if __truthy(if __truthy(d.fuelCap) then d.fuelCap else d.kind == "house") then "⛽" else nil end
 ____exports.UPGRADE_SLOTS = {{id = "engine", name = "Engine"}, {id = "turbo", name = "Turbo"}, {id = "tires", name = "Tires"}, {id = "weight", name = "Weight Reduction"}}
 ____exports.MAX_UPGRADE = 5
 local function basePi(car)
@@ -5925,7 +5925,7 @@ function ____exports.panelJobCost(was, next)
         local id = ____value.id
         local a = was and was[id]
         local b = next and next[id]
-        if (function(v_2) return if __truthy(v_2) then b.color ~= (a and a.color) else v_2 end)(b and b.color) then
+        if __truthy((function(v_2) return if __truthy(v_2) then b.color ~= (a and a.color) else v_2 end)(b and b.color)) then
             local p = __TS__ArrayFind(
                 ____exports.PAINTS,
                 function(____, x) return x.color == b.color end
@@ -5936,7 +5936,7 @@ function ____exports.panelJobCost(was, next)
                 coins = coins + (if id == "rims" then ____exports.RIM_COLOR_COST else ____exports.PANEL_COLOR_COST)
             end
         end
-        if (function(v_3) return if __truthy(v_3) then b.pattern ~= (a and a.pattern) else v_3 end)(b and b.pattern) then
+        if __truthy((function(v_3) return if __truthy(v_3) then b.pattern ~= (a and a.pattern) else v_3 end)(b and b.pattern)) then
             local ____opt_67 = ____exports.patternDef(b.pattern)
             coins = coins + (____opt_67 and ____opt_67.coins or 0)
         end

@@ -186,6 +186,13 @@ export function imul(a: number, b: number) {
   return (al * bl + ((((ah * bl + al * bh) & 0xffff) * 65536) >>> 0)) | 0
 }
 
+// Math.hypot: the length of a vector of any size.
+export function hypot(...xs: number[]) {
+  let sum = 0
+  for (const x of xs) sum += x * x
+  return Math.sqrt(sum)
+}
+
 // Number formatting with thousands separators, like toLocaleString('en-US') on whole numbers.
 export function localeString(n: number) {
   const neg = n < 0
