@@ -85,8 +85,10 @@ local townsFolder = Instance.new("Folder")
 townsFolder.Name = "Towns"
 townsFolder.Parent = workspace
 
--- Every town gets its own lot, in a grid LOT studs apart; the first is at the spawn.
-local LOT = 1500
+-- Every town gets its own lot, in a grid LOT studs apart; the first is at the spawn. Far enough
+-- apart that one town's countryside (out to 2,000 studs, see client/Countryside) never reaches the
+-- next town.
+local LOT = 4500
 local views: { [Player]: any } = {}
 local slots: { [number]: Player } = {}
 

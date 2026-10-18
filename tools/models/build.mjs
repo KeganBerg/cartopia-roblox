@@ -30,6 +30,14 @@ const ASSETS = join(HERE, 'assets.json')
 export const SCALE = 10
 // Thinnest a part may be (studs). Flat panels and discs get this thickness.
 const THIN = 0.05
+// Countryside meshes are merged per MERGE_CHUNK studs of ground, up to MERGE_TRIS triangles each
+// (Roblox takes up to 20,000 a mesh).
+const MERGE_CHUNK = 700
+const MERGE_TRIS = 10000
+// Countryside colours are rounded to steps of this much (of 255) so near shades merge.
+const MERGE_SHADE = 14
+// A mesh pack (one uploaded model) holds up to this many triangles.
+const PACK_TRIS = 60000
 // Meshes denser than this many triangles are simplified, keeping the shape within ERROR of its size.
 const DENSE = 400
 const KEEP = 0.4
@@ -319,7 +327,12 @@ export function convert(data) {
   const meshKey = (m) => createHash('sha1').update(new Float32Array(m.pos)).update(new Uint32Array(m.idx)).digest('hex').slice(0, 16)
 
   const out = {}
+  const loose = new Map()
+  const scenery = new Set()
   for (const model of models) {
+    if (model.kind === 'scenery') scenery.add(model.id)
+    // Countryside meshes are only uploaded merged (mergeScenery), so their pieces aren't kept.
+    const keep = model.kind === 'scenery' ? (m) => ((m.key ??= meshKey(m)), loose.set(m.key, m), m.key) : remember
     const name = model.kind === 'building' ? `${model.id}@${model.level ?? 1}` : model.id
     const paint = new Set(model.paint ?? [])
     const parts = []
@@ -366,7 +379,7 @@ export function convert(data) {
         }
         if (!m.idx.length) continue
         if (T && !T.mirrored) {
-          const key = remember(m, model.id)
+          const key = keep(m, model.id)
           add('m', apply(piece.m, m.center), T.axes, m.size.map((x, k) => x * T.s[k]), key)
         } else {
           // Skewed or mirrored: bake the transform into the vertices.
@@ -378,14 +391,70 @@ export function convert(data) {
           const idx = flip ? m.idx.map((_, j, a) => a[j - (j % 3) + [0, 2, 1][j % 3]]) : m.idx
           const baked = cleanMesh(pos, null, idx)
           baked.size = b.s
-          const key = remember(baked, model.id)
+          const key = keep(baked, model.id)
           add('m', b.c, [[1, 0, 0], [0, 1, 0], [0, 0, 1]], b.s, key)
         }
         // Look for vertex-coloured meshes: the last part takes the sub-mesh's colour.
         if (sub.color) parts[parts.length - 1][11] = subLook
       }
     })
-    out[name] = parts
+    out[name] = scenery.has(model.id) ? mergeScenery(parts, model.id) : parts
+  }
+
+  // The countryside is thousands of small meshes (trees, tufts, crops). Drawn one part each it
+  // would cost the frame rate, so its meshes are baked together: one mesh per patch of ground and
+  // look, up to MERGE_TRIS triangles each. Blocks and other plain parts stay as they are.
+  function mergeScenery(parts, owner) {
+    const out = []
+    const groups = new Map()
+    for (const p of parts) {
+      if (p[0] !== 'm') {
+        out.push(p)
+        continue
+      }
+      // Close shades (a tree's tint varies a few percent) share a look, so they merge too.
+      const l = looks[p[11] - 1]
+      const q = '#' + [1, 3, 5].map((i) => Math.min(255, Math.round(parseInt(l.color.slice(i, i + 2), 16) / MERGE_SHADE) * MERGE_SHADE).toString(16).padStart(2, '0')).join('')
+      const look = lookIds.get(JSON.stringify({ ...l, color: q })) ?? (looks.push({ ...l, color: q }), lookIds.set(JSON.stringify({ ...l, color: q }), looks.length), looks.length)
+      p[11] = look
+      const k = `${Math.floor(p[1] / MERGE_CHUNK)},${Math.floor(p[3] / MERGE_CHUNK)}/${look}`
+      if (!groups.has(k)) groups.set(k, [])
+      groups.get(k).push(p)
+    }
+    for (const list of groups.values()) {
+      let pos = [], nrm = [], idx = []
+      const flush = () => {
+        if (!idx.length) return
+        const b = bounds(pos)
+        for (let v = 0; v < pos.length; v += 3) for (let k = 0; k < 3; k++) pos[v + k] = (pos[v + k] - b.c[k]) / SCALE
+        const m = { pos, nrm, idx, size: b.s.map((x) => x / SCALE) }
+        const key = remember(m, owner)
+        out.push(['m', ...b.c, 0, 0, 0, 1, ...b.s.map((x) => Math.max(THIN, x)), list[0][11], key])
+        pos = []; nrm = []; idx = []
+      }
+      for (const p of list) {
+        const m = loose.get(p[12])
+        if (idx.length / 3 + m.idx.length / 3 > MERGE_TRIS) flush()
+        const [x, y, z, qx, qy, qz, qw] = p.slice(1, 8)
+        const k = [0, 1, 2].map((i) => (m.size[i] > 1e-6 ? p[8 + i] / (m.size[i] * SCALE) : 1))
+        const rot = (v) => {
+          // v' = q v q*
+          const tx = 2 * (qy * v[2] - qz * v[1]), ty = 2 * (qz * v[0] - qx * v[2]), tz = 2 * (qx * v[1] - qy * v[0])
+          return [v[0] + qw * tx + (qy * tz - qz * ty), v[1] + qw * ty + (qz * tx - qx * tz), v[2] + qw * tz + (qx * ty - qy * tx)]
+        }
+        const base = pos.length / 3
+        for (let v = 0; v < m.pos.length; v += 3) {
+          const w = rot([m.pos[v] * SCALE * k[0], m.pos[v + 1] * SCALE * k[1], m.pos[v + 2] * SCALE * k[2]])
+          pos.push(w[0] + x, w[1] + y, w[2] + z)
+          const n = rot([m.nrm[v] / k[0], m.nrm[v + 1] / k[1], m.nrm[v + 2] / k[2]])
+          const l = Math.hypot(n[0], n[1], n[2]) || 1
+          nrm.push(n[0] / l, n[1] / l, n[2] / l)
+        }
+        for (const i of m.idx) idx.push(base + i)
+      }
+      flush()
+    }
+    return out
   }
 
   function remember(m, owner) {
@@ -400,7 +469,7 @@ export function convert(data) {
 
   // The season the models were drawn in, and its ground colours, for the town's grass.
   const ground = { season: data.season ?? 'summer', grass: data.grass ?? '#7cc54e', meadow: data.ground ?? '#5aa83a' }
-  return { models: out, looks, meshes, stats, ground }
+  return { models: out, scenery, looks, meshes, stats, ground }
 }
 
 function mul(a, b) {
@@ -426,16 +495,29 @@ export function packs(meshes) {
     byOwner.get(m.owner).push(m)
   }
   const out = []
-  for (const [owner, list] of byOwner) {
-    list.sort((a, b) => (a.key < b.key ? -1 : 1))
-    const hash = createHash('sha1').update(list.map((m) => m.key).join(',')).digest('hex').slice(0, 16)
-    out.push({ name: `${owner}-${hash}`, owner, meshes: list })
+  for (const [owner, all] of byOwner) {
+    all.sort((a, b) => (a.key < b.key ? -1 : 1))
+    // Big owners (the countryside) are split so no upload gets too large.
+    let list = [], tris = 0
+    const flush = () => {
+      if (!list.length) return
+      const hash = createHash('sha1').update(list.map((m) => m.key).join(',')).digest('hex').slice(0, 16)
+      out.push({ name: `${owner}-${hash}`, owner, meshes: list })
+      list = []
+      tris = 0
+    }
+    for (const m of all) {
+      if (tris + m.idx.length / 3 > PACK_TRIS) flush()
+      list.push(m)
+      tris += m.idx.length / 3
+    }
+    flush()
   }
   return out
 }
 
 function write(result) {
-  const { models, looks, meshes } = result
+  const { models, scenery, looks, meshes } = result
   mkdirSync(OUT_DIR, { recursive: true })
   rmSync(GLB_DIR, { recursive: true, force: true })
   mkdirSync(GLB_DIR, { recursive: true })
@@ -464,14 +546,25 @@ Catalog.LOOKS = {
     if (l.text) cat += `, text = { text = ${str(l.text.text)}, fg = ${str(l.text.fg)}, bg = ${str(l.text.bg)} }`
     cat += ' },\n'
   }
-  cat += '}\n\nCatalog.MODELS = {\n'
-  for (const [name, parts] of Object.entries(models)) {
-    cat += `\t[${str(name)}] = {\n`
-    for (const p of parts) cat += `\t\t{ ${str(p[0])}, ${p.slice(1, 11).map(num).join(', ')}, ${p[11]}${p[12] ? `, ${str(p[12])}` : ''} },\n`
-    cat += '\t},\n'
+  const modelList = (only) => {
+    let s = ''
+    for (const [name, parts] of Object.entries(models)) {
+      if (scenery.has(name) !== only) continue
+      s += `\t[${str(name)}] = {\n`
+      for (const p of parts) s += `\t\t{ ${str(p[0])}, ${p.slice(1, 11).map(num).join(', ')}, ${p[11]}${p[12] ? `, ${str(p[12])}` : ''} },\n`
+      s += '\t},\n'
+    }
+    return s
   }
-  cat += '}\n\nreturn Catalog\n'
+  cat += '}\n\nCatalog.MODELS = {\n' + modelList(false) + '}\n\nreturn Catalog\n'
   writeFileSync(join(OUT_DIR, 'Catalog.luau'), cat)
+  // The countryside, apart so the town's own models stay quick to load. Parts are in studs from
+  // the middle of the town (not of the model), in the same form as Catalog's, with its LOOKS.
+  const sc = header('The countryside round the town (Outskirts.tsx): the forest ring with its farm and lake, and each plot\'s wild meadow ("wilds:x,z").') + `local Scenery = {}
+
+Scenery.MODELS = {
+` + modelList(true) + '}\n\nreturn Scenery\n'
+  writeFileSync(join(OUT_DIR, 'Scenery.luau'), sc)
 
   const list = packs(meshes)
   let mesh = header('Each mesh: the Roblox asset (a model of MeshParts named by key) it was uploaded in, and its size in studs.') + `-- asset = 0 until tools/models/upload.mjs uploads its pack; the game draws a box in its place until then.

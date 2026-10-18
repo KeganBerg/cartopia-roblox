@@ -75,6 +75,18 @@ function lookOf(m: Material, tint?: Color): Look | null {
   const o = m.transparent ? m.opacity : 1
   if (o < 0.02) return null
   const color = sm.color ? sm.color.clone() : new Color(1, 1, 1)
+  // Live water (liveWater.ts) is white until its shader paints it: run the shader hook on a stand-in
+  // to read its deep and shallow colours, and take the colour between them.
+  if (m.userData?.live && m.onBeforeCompile) {
+    const sh = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: '', fragmentShader: '', defines: {} }
+    try {
+      m.onBeforeCompile(sh as never, null as never)
+    } catch {
+      // Only the uniforms matter here.
+    }
+    const deep = sh.uniforms.uDeep?.value as Color | undefined, shallow = sh.uniforms.uShallow?.value as Color | undefined
+    if (deep && shallow) color.copy(deep).lerp(shallow, 0.5)
+  }
   if (tint) color.multiply(tint)
   const look: Look = { c: hex(color), o: r4(o) }
   const img = sm.map?.image as HTMLCanvasElement | undefined
@@ -181,11 +193,14 @@ it('exports every building and car', async () => {
     return pieces
   }
   const LEVELS = (process.env.RBX_LEVELS ?? '1').split(',').map(Number)
-  for (const d of BUILDINGS) {
+  // RBX_ONLY=outskirts skips the buildings, cars and street pieces (a quicker run while working on
+  // the countryside).
+  const only = process.env.RBX_ONLY
+  if (!only) for (const d of BUILDINGS) {
     for (const level of LEVELS) models.push({ id: d.id, kind: 'building', level, pieces: await render(<BuildingModel def={d} level={level} />) })
   }
   // Each car twice in two paints: the pieces that change colour are its paint.
-  for (const c of CARS) {
+  if (!only) for (const c of CARS) {
     const a = await render(<CarModel body={c.body} model={c.id} color="#ff00ff" />)
     const b = await render(<CarModel body={c.body} model={c.id} color="#00ff00" />)
     const paint = a.flatMap((p, i) => (b[i] && b[i].look.c !== p.look.c ? [i] : []))
@@ -220,6 +235,31 @@ it('exports every building and car', async () => {
   for (const [i, tint] of greens.entries()) await piece(`tuft:${i + 1}`, <Scatter sets={{ tuft: [{ x: 0, z: 0, tint }] }} />)
   for (const [i, tint] of ['#ffffff', '#e8e8e8', '#d6d6d6'].entries()) await piece(`rock:${i + 1}`, <Scatter sets={{ rock: [{ x: 0, z: 0, tint, sy: 0.7 }] }} />)
   for (const k of ['heap', 'mushroom', 'flower'] as const) await piece(k, <Scatter sets={{ [k]: [{ x: 0, z: 0 }] }} />)
+  // The countryside past the town (Outskirts.tsx): the forest ring with its farm and lake, which
+  // never changes, and the wild meadow on each plot, for whichever plots the player hasn't bought.
+  // Outskirts draws <Wilds> (loose instanced meshes), then <TownLine> and <Forest> (a group each);
+  // TownView draws the fence itself. Each plot's wilds are drawn with every other plot bought, so
+  // its trees keep back from the town line on every side.
+  const { Outskirts } = await import('./scene/Outskirts')
+  const { PLOT_MIN, PLOT_MAX } = await import('./game/data')
+  const plots: string[] = []
+  for (let x = PLOT_MIN; x <= PLOT_MAX; x++) for (let z = PLOT_MIN; z <= PLOT_MAX; z++) plots.push(`${x},${z}`)
+  const outskirts = async (id: string, land: string[], forest: boolean) => {
+    const r = await ReactThreeTestRenderer.create(<Outskirts land={land} exits="" small={false} />)
+    const top = (r.scene.instance as Object3D).children[0]
+    const groups = top.children.filter((c) => (c as { isGroup?: boolean }).isGroup)
+    if (forest) models.push({ id, kind: 'scenery', pieces: walk(groups[groups.length - 1], geos, geoList) })
+    else {
+      // Everything but the groups (and the fireflies, which aren't meshes) is the wilds.
+      const kept = top.children.slice()
+      top.children = kept.filter((c) => !groups.includes(c))
+      models.push({ id, kind: 'scenery', pieces: walk(top, geos, geoList) })
+      top.children = kept
+    }
+    await r.unmount()
+  }
+  await outskirts('outskirts:forest', plots, true)
+  for (const key of plots) await outskirts(`wilds:${key}`, plots.filter((k) => k !== key), false)
   writeFileSync(OUT, JSON.stringify({ geos: geoList, models, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens }))
 }, 1_800_000)
 

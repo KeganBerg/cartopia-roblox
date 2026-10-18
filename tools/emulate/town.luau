@@ -39,6 +39,9 @@ folder.Parent = game.Workspace
 emu.require(RS.Shared.Models.Builder).previewMeshes = true
 local view = TownView.new(folder, "Player1", Vector3.new(0, 0, 0), 1, function() end)
 view:render(save)
+-- The countryside the client draws round the town.
+local Countryside = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.Countryside)
+Countryside.draw(Vector3.new(0, 0, 0), folder)(save)
 
 local Gui = require("./gui")
 local parts = {}

@@ -74,16 +74,21 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		f.Name = sub
 		f.Parent = folder
 	end
-	-- Meadow under the whole lot, so land not yet bought still looks like countryside.
-	local meadow = Instance.new("Part")
-	meadow.Name = "Meadow"
-	meadow.Anchored = true
-	meadow.Size = Vector3.new(1400, 4, 1400)
-	meadow.CFrame = CFrame.new(origin + Vector3.new(0, -2.05, 0))
-	meadow.Color = MEADOW
-	meadow.Material = Enum.Material.Grass
-	meadow.TopSurface = Enum.SurfaceType.Smooth
-	meadow.Parent = folder
+	-- Meadow under the whole lot and the countryside past it, 4,000 studs across like the web
+	-- game's outer ground (World.tsx OUTER), in four pieces (a part is at most 2,048 studs).
+	for i = 0, 3 do
+		local meadow = Instance.new("Part")
+		meadow.Name = "Meadow"
+		meadow.Anchored = true
+		meadow.Size = Vector3.new(2000, 4, 2000)
+		-- Its top at the web game's LAYER.outer (-0.05 units), under the lake and the owned plots.
+		meadow.CFrame = CFrame.new(origin + Vector3.new((i % 2 - 0.5) * 2000, -2.5, (i // 2 - 0.5) * 2000))
+		meadow.Color = MEADOW
+		meadow.Material = Enum.Material.Grass
+		meadow.TopSurface = Enum.SurfaceType.Smooth
+		meadow.CastShadow = false
+		meadow.Parent = folder
+	end
 	folder.Parent = parent
 	return setmetatable({
 		folder = folder,
