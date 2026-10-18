@@ -7,6 +7,9 @@
 //   - every car's hero render, and its paint layer: the render's own pixels inside the paint mask,
 //     which Roblox tints with ImageColor3 the way the web multiplies the player's paint over it
 //   - the dark edge the web puts round the screen
+//   - the soft round shadow under the car (the web's radial gradient)
+//   - sharper copies of the town and sun for big screens, cut into tiles, as Roblox shows an
+//     image at most 1024 pixels on a side (the loading screen lays them over the 1024 one)
 // Writes build/splash/*.png and build/splash/list.json for tools/models/upload.mjs, and
 // src/first/SplashImages.luau with the uploaded ids from tools/models/assets.json
 // ("splash:<name>"). Run it again after uploading to fill the ids in.
@@ -86,6 +89,12 @@ function vignetteSvg() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><defs><filter id="b" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="40"/></filter></defs><rect x="-60" y="-60" width="632" height="632" fill="none" stroke="rgba(10,16,40,.45)" stroke-width="150" filter="url(#b)"/></svg>`
 }
 
+// The web's car shadow: radial-gradient(closest-side, rgba(10,14,30,.6), transparent) in an
+// ellipse.
+function shadowSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="128"><defs><radialGradient id="g" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#0a0e1e" stop-opacity=".6"/><stop offset="1" stop-color="#0a0e1e" stop-opacity="0"/></radialGradient></defs><ellipse cx="256" cy="64" rx="256" ry="64" fill="url(#g)"/></svg>`
+}
+
 const list = []
 async function emit(key, image) {
   const png = await image.png({ compressionLevel: 9 }).toBuffer()
@@ -95,14 +104,44 @@ async function emit(key, image) {
   list.push({ key, name: `${key}-${hash}`, file })
 }
 
+// Cuts a big picture into cols x rows tiles of at most 1024 pixels, each overlapping its
+// neighbours by a few pixels so no seam shows. Records where each sits, as shares of the whole.
+const tiles = {}
+const OVERLAP = 3
+async function emitTiles(key, buffer, cols, rows) {
+  const { width: W, height: H } = await sharp(buffer).metadata()
+  tiles[key] = []
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x0 = Math.max(0, Math.floor((c * W) / cols) - OVERLAP)
+      const y0 = Math.max(0, Math.floor((r * H) / rows) - OVERLAP)
+      const x1 = Math.min(W, Math.ceil(((c + 1) * W) / cols) + OVERLAP)
+      const y1 = Math.min(H, Math.ceil(((r + 1) * H) / rows) + OVERLAP)
+      const n = r * cols + c + 1
+      const tile = sharp(buffer).extract({ left: x0, top: y0, width: x1 - x0, height: y1 - y0 }).resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+      await emit(`${key}-t${n}`, tile)
+      tiles[key].push({ key: `${key}-t${n}`, x: x0 / W, y: y0 / H, w: (x1 - x0) / W, h: (y1 - y0) / H })
+    }
+  }
+}
+
 await emit('wordmark', sharp(Buffer.from(wordmarkSvg())))
 await emit('vignette', sharp(Buffer.from(vignetteSvg())))
+await emit('shadow', sharp(Buffer.from(shadowSvg())))
 for (const [tod, look] of Object.entries(SUN)) {
-  for (const [kind, shape] of Object.entries(SHAPES)) await emit(`sun-${tod}-${kind}`, sharp(Buffer.from(sunSvg(look, shape))))
-  // Roblox shows images up to 1024 pixels on a side.
-  const town = (f) => sharp(join(web, 'public/splash', f)).resize(1024, 1024, { fit: 'inside' })
-  await emit(`town-${tod}-wide`, town(`town-${season}-${tod}.webp`))
-  await emit(`town-${tod}-tall`, town(`town-${season}-${tod}-p.webp`))
+  for (const [kind, shape] of Object.entries(SHAPES)) {
+    const svg = Buffer.from(sunSvg(look, shape))
+    await emit(`sun-${tod}-${kind}`, sharp(svg))
+    // Twice the size, in four tiles.
+    await emitTiles(`sun-${tod}-${kind}`, await sharp(svg, { density: 144 }).png().toBuffer(), 2, 2)
+  }
+  // Roblox shows images up to 1024 pixels on a side; big screens get the full render in tiles
+  // (3200x2400 wide, 1500x2400 tall), at twice the size in four tiles.
+  for (const [kind, f] of [['wide', `town-${season}-${tod}.webp`], ['tall', `town-${season}-${tod}-p.webp`]]) {
+    await emit(`town-${tod}-${kind}`, sharp(join(web, 'public/splash', f)).resize(1024, 1024, { fit: 'inside' }))
+    const src = await sharp(join(web, 'public/splash', f)).png().toBuffer()
+    await emitTiles(`town-${tod}-${kind}`, src, 2, 2)
+  }
 }
 const cars = readdirSync(join(web, 'public/splash'))
   .map((f) => f.match(/^hero-([a-z0-9]+)-mask\.webp$/)?.[1])
@@ -144,12 +183,20 @@ const lines = [
   `\tSHAPES = { wide = { cx = ${SHAPES.wide.cx}, cy = ${SHAPES.wide.cy} }, tall = { cx = ${SHAPES.tall.cx}, cy = ${SHAPES.tall.cy} } },`,
   `\twordmark = ${id('wordmark')},`,
   `\tvignette = ${id('vignette')},`,
+  `\tshadow = ${id('shadow')},`,
   '\tsun = {',
   ...Object.keys(SUN).map((t) => `\t\t${t} = { wide = ${id(`sun-${t}-wide`)}, tall = ${id(`sun-${t}-tall`)} },`),
   '\t},',
   '\ttown = {',
   ...Object.keys(SUN).map((t) => `\t\t${t} = { wide = ${id(`town-${t}-wide`)}, tall = ${id(`town-${t}-tall`)} },`),
   '\t},',
+  '\t-- Sharper copies of the town and sun for big screens: tiles laid over the picture of the same',
+  '\t-- name, each at x, y and w by h as shares of the whole.',
+  '\ttiles = {',
+  ...Object.entries(tiles).map(([k, ts]) => `\t\t["${k}"] = { ${ts.map((t) => `{ id = ${id(t.key)}, x = ${+t.x.toFixed(5)}, y = ${+t.y.toFixed(5)}, w = ${+t.w.toFixed(5)}, h = ${+t.h.toFixed(5)} }`).join(', ')} },`),
+  '\t},',
+  '\t-- The town renders\' shapes (width over height).',
+  '\ttownAspect = { wide = 4 / 3, tall = 1500 / 2400 },',
   '\t-- Each car\'s hero render and paint layer, and the render\'s size in pixels.',
   '\tcars = {',
   ...cars.map((c) => `\t\t${c} = { car = ${id(`car-${c}`)}, paint = ${id(`paint-${c}`)}, w = ${size[c][0]}, h = ${size[c][1]} },`),

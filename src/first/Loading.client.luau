@@ -36,9 +36,15 @@ local screen = LoadingScreen.new(playerGui, {
 	end,
 })
 ReplicatedFirst:RemoveDefaultLoadingScreen()
+-- The server finds hundreds of them, often several a frame: the screen catches up once a frame.
+local refreshing = false
 workspace.AttributeChanged:Connect(function(name)
-	if string.sub(name, 1, 6) == "Splash" then
-		screen:refreshImages()
+	if string.sub(name, 1, 6) == "Splash" and not refreshing then
+		refreshing = true
+		task.defer(function()
+			refreshing = false
+			screen:refreshImages()
+		end)
 	end
 end)
 
