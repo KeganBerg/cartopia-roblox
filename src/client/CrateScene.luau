@@ -385,7 +385,7 @@ local function Depot(folder: Instance)
 	for _, x in { -2.6, 2.6 } do
 		box(0.12, 0.01, 22, x, 0.005, 0, { color = "#ffd600", shadow = false })
 	end
-	local floor = node(nil, CFrame.new(ORIGIN))
+	local floor = node(nil)
 	ring(folder, floor, 1.75, 1.95, 0.007, 48, { "#ffc400", "#1b1b1b" })
 	-- The lift the crate stands on.
 	cyl(folder, floor, 1.5, LIFT, 0, LIFT / 2, 0, { color = "#455a64", material = Enum.Material.Metal })
@@ -1147,7 +1147,9 @@ local base = CFrame.new()
 -- move whatever the camera looks at, in screen pixels (the web's view offset), on a screen
 -- `viewH` pixels tall.
 local raw = { pos = Vector3.new(0, 5, 8), aim = Vector3.new(0, 1.5, -0.6), cx = 0, cy = 0, viewH = 800 }
-local hidden: { GuiObject } = {}
+local hidden: { [GuiObject]: boolean } = {}
+local hudRoot: Instance? = nil
+local hudKeep: Instance? = nil
 local oldFov = 70
 local frame: { x: number, y: number, w: number, h: number } = { x = 0, y = 0, w = 1, h = 1 }
 
@@ -1173,6 +1175,9 @@ local function fit()
 	local fw, fh = frame.w * view.X, frame.h * view.Y
 	local wide = CrateScene.wide()
 	local halfW, halfH = if wide then 5 else 2.5, if wide then 3 else 2.9
+	-- The web's camera sees 42 degrees top to bottom of the scene's own area (under the menu's
+	-- header); Roblox's covers the whole screen, so open it up to match.
+	cam.FieldOfView = 2 * math.deg(math.atan(math.tan(math.rad(21)) * view.Y / fh))
 	local t = math.tan(math.rad(cam.FieldOfView / 2))
 	-- The half-height (metres) the whole screen shows at that distance has to cover the frame's part.
 	local dist = math.max(halfH * view.Y / (t * fh), halfW * view.Y / (t * fw))
@@ -1189,14 +1194,16 @@ local function fit()
 	base = CrateScene.shoot(raw.pos, raw.aim)
 end
 
--- The camera at `pos` looking at `aim` (metres from the depot's middle), moved over so what it
--- looks at lands where the fitted view puts it on screen.
+-- The camera at `pos` looking at `aim` (metres from the depot's middle), turned a little so what
+-- it looks at lands where the fitted view puts it on screen (the web shifts its picture with a
+-- view offset; Roblox has none, and turning keeps near and far things in step where sliding the
+-- camera over wouldn't).
 function CrateScene.shoot(pos: Vector3, aim: Vector3): CFrame
 	local cam = workspace.CurrentCamera
 	local look = CFrame.lookAt(pos, aim)
-	local mpp = 2 * (aim - pos).Magnitude * math.tan(math.rad(cam.FieldOfView / 2)) / raw.viewH
-	local shift = -look.RightVector * raw.cx * mpp + look.UpVector * raw.cy * mpp
-	return CFrame.new(ORIGIN + (pos + shift) * K) * look.Rotation
+	local f = (raw.viewH / 2) / math.tan(math.rad(cam.FieldOfView / 2))
+	local turn = CFrame.Angles(0, math.atan(raw.cx / f), 0) * CFrame.Angles(math.atan(raw.cy / f), 0, 0)
+	return CFrame.new(ORIGIN + pos * K) * look.Rotation * turn
 end
 
 -- Whether the depot is laid out wide (picker on the right): a screen at least 900 wide and wider
@@ -1609,6 +1616,24 @@ local function tick(dt: number)
 	end
 end
 
+-- Hides the HUD's buttons around the menu (the HUD shows its own again as it updates, so this
+-- runs every frame while the depot is up).
+local function hideHud()
+	local hud, keep = hudRoot, hudKeep
+	if not hud then
+		return
+	end
+	if keep and not keep.Parent then
+		keep = nil
+	end
+	for _, c in hud:GetChildren() do
+		if c:IsA("GuiObject") and c ~= keep and c.Visible and not (keep and keep:IsDescendantOf(c)) then
+			c.Visible = false
+			hidden[c] = true
+		end
+	end
+end
+
 -- Takes the camera to the depot (built the first time). `area` is the part of the screen the depot
 -- shows in, as fractions of the screen; `hud` is the HUD's root, whose other screens step aside
 -- while the depot is up (`keep` stays: the menu the depot is drawn in).
@@ -1621,20 +1646,14 @@ function CrateScene.enter(area: { x: number, y: number, w: number, h: number }, 
 		depot = f
 	end
 	(depot :: Folder).Parent = workspace
+	hudRoot, hudKeep = hud, keep
 	if active then
 		fit()
 		return
 	end
 	active = true
 	hidden = {}
-	if hud then
-		for _, c in hud:GetChildren() do
-			if c:IsA("GuiObject") and c ~= keep and c.Visible and not (keep and keep:IsDescendantOf(c)) then
-				c.Visible = false
-				table.insert(hidden, c)
-			end
-		end
-	end
+	hideHud()
 	TownCamera.setPaused(true)
 	DayNight.setIndoor({
 		ambient = hex("#2c2a40"),
@@ -1651,10 +1670,10 @@ function CrateScene.enter(area: { x: number, y: number, w: number, h: number }, 
 	local cam = workspace.CurrentCamera
 	cam.CameraType = Enum.CameraType.Scriptable
 	oldFov = cam.FieldOfView
-	cam.FieldOfView = 42
 	fit()
 	cam.CFrame = base
 	RunService:BindToRenderStep("CrateDepot", Enum.RenderPriority.Camera.Value + 2, function(dt: number)
+		hideHud()
 		tick(math.min(dt, 1 / 20))
 	end)
 end
@@ -1678,10 +1697,11 @@ function CrateScene.leave()
 	if depot then
 		depot.Parent = nil
 	end
-	for _, g in hidden do
+	for g in hidden do
 		g.Visible = true
 	end
 	hidden = {}
+	hudRoot, hudKeep = nil, nil
 	DayNight.setIndoor(nil)
 	local cam = workspace.CurrentCamera
 	cam.FieldOfView = oldFov

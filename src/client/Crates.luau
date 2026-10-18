@@ -526,6 +526,24 @@ local function odds(dock: Instance, order: number, def: any, s: any, width: numb
 	local inner = width - 14
 	local gap = 4
 	local free = inner - gap * (#shown - 1)
+	-- Too many slices for the row at full size (Gold and Diamond have every kind): smaller text,
+	-- and if even that won't fit, every pill gives up the same share.
+	local textSize, needAll = 13, 0
+	for _, x in shown do
+		needAll += x.need
+	end
+	if needAll > free then
+		textSize, needAll = 11, 0
+		for _, x in shown do
+			x.need = Ui.textWidth(x.label, 11) + 6
+			needAll += x.need
+		end
+		if needAll > free then
+			for _, x in shown do
+				x.need *= free / needAll
+			end
+		end
+	end
 	local fixed, rest = 0, 0
 	for _, x in shown do
 		x.w = free * x.flex / total
@@ -567,7 +585,7 @@ local function odds(dock: Instance, order: number, def: any, s: any, width: numb
 			pill.BackgroundTransparency = 0.35
 		end
 		local label = `{sl[2]} {sl[3]}%` .. (if sl[1] ~= "coins" then (if open == sl[1] then " ▴" else " ▾") else "")
-		Ui.text({ Text = label, TextSize = 13, Size = UDim2.fromScale(1, 1), ZIndex = 6, Parent = pill })
+		Ui.text({ Text = label, TextSize = textSize, Size = UDim2.fromScale(1, 1), ZIndex = 6, Parent = pill })
 		x += it.w + gap
 	end
 	if left then

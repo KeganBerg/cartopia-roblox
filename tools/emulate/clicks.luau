@@ -1527,6 +1527,88 @@ if SHOTS then
 	assert(towns:snapshot(1).save.bucks >= gemsBefore, "a free crate cost gems")
 	print("crates: restricted player sees no gem crates, free gold crate opened")
 	setRules({ ArePaidRandomItemsRestricted = false })
+	-- The 3D depot on a computer, a phone held sideways and one held upright: the crate waiting,
+	-- straining, its prize up, then a ×10 run and its summary (frames stepped by hand).
+	if SHOTS then
+		local root = hud.gui:FindFirstChild("Root")
+		local cam = game.Workspace.CurrentCamera
+		local function frames(sec)
+			for _ = 1, math.floor(sec * 60) do
+				local step = renderSteps.CrateDepot
+				if step then
+					step(1 / 60)
+				end
+			end
+		end
+		towns:_with(1, function()
+			store.useGame.setState({ coins = 1000000, bucks = 5000, level = 30 })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		for _, size in { { 1280, 800, 1280, 800, "wide" }, { 844, 390, 1535, 709, "side" }, { 390, 844, 709, 1535, "tall" } } do
+			cam.ViewportSize = roblox.Vector2.new(size[1], size[2])
+			root.Size = roblox.UDim2.fromOffset(size[3], size[4])
+			hud.ctx.close()
+			hud.openPanel("crates")
+			local function world()
+				return game.Workspace:FindFirstChild("CrateDepot")
+			end
+			local function pickTab(name)
+				local d = hud.gui:FindFirstChild("Depot", true)
+				for _, x in d:GetDescendants() do
+					if x:IsA("TextLabel") and x.Text == name and x.Parent:IsA("TextButton") then
+						signalFor(x.Parent, "Activated"):Fire()
+						return
+					end
+				end
+			end
+			pickTab("Gold")
+			frames(1.2)
+			shot(`depot-idle-{size[5]}`, world(), size[3], size[4])
+			local d = hud.gui:FindFirstChild("Depot", true)
+			signalFor(d:FindFirstChild("Open", true), "Activated"):Fire()
+			Emu.resumeWaits()
+			frames(0.55 + 0.35 + 0.9)
+			shot(`depot-charge-{size[5]}`, world(), size[3], size[4])
+			frames(0.45)
+			shot(`depot-burst-{size[5]}`, world(), size[3], size[4])
+			frames(2.6)
+			Emu.resumeWaits()
+			frames(0.05)
+			shot(`depot-prize-{size[5]}`, world(), size[3], size[4])
+			d = hud.gui:FindFirstChild("Depot", true)
+			local function done()
+				local dd = hud.gui:FindFirstChild("Depot", true)
+				for _, x in (dd and dd:GetDescendants() or {}) do
+					if x:IsA("TextLabel") and x.Text == "Done" and x.Parent:IsA("TextButton") then
+						signalFor(x.Parent, "Activated"):Fire()
+						return
+					end
+				end
+			end
+			done()
+			pickTab("Street")
+			d = hud.gui:FindFirstChild("Depot", true)
+			signalFor(d:FindFirstChild("Ten", true), "Activated"):Fire()
+			Emu.resumeWaits()
+			frames(1.2)
+			shot(`depot-ten-{size[5]}`, world(), size[3], size[4])
+			for _ = 1, 40 do
+				frames(0.5)
+				Emu.resumeWaits()
+				if hud.gui:FindFirstChild("Summary", true) then
+					break
+				end
+			end
+			frames(2.6)
+			Emu.resumeWaits()
+			frames(0.05)
+			shot(`depot-summary-{size[5]}`, world(), size[3], size[4])
+			done()
+		end
+		cam.ViewportSize = roblox.Vector2.new(1280, 800)
+		root.Size = roblox.UDim2.fromOffset(1280, 800)
+		hud.ctx.close()
+	end
 
 	-- Rusty's: both tabs, a search part done, the haul towed home, and a finished car's plate.
 	towns:run(1, "abandonSearch")
