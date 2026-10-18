@@ -32,6 +32,9 @@ async function save(name, url) {
 }
 
 async function report() {
+  // A private experience keeps the grey placeholder on its public page whatever is uploaded.
+  const u = await fetch(`https://develop.roblox.com/v1/universes/${GAME}`).then((r) => r.json()).catch((err) => err.message)
+  console.log(`Experience: ${JSON.stringify({ isActive: u?.isActive, privacyType: u?.privacyType, name: u?.name })}`)
   const pub = await fetch(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${GAME}&size=512x512&format=Png`).then((r) => r.json()).catch(() => null)
   console.log(`Public icon: ${JSON.stringify(pub?.data?.[0] ?? pub)}`)
   const thumbs = await fetch(`https://thumbnails.roblox.com/v1/games/multiget/thumbnails?universeIds=${GAME}&size=768x432&format=Png`).then((r) => r.json()).catch(() => null)
