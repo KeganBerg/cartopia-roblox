@@ -29,6 +29,7 @@ local Mods = require(Shared.Models.Mods)
 local Panels = require(Shared.Models.Panels)
 local Trim = require(Shared.Models.Trim)
 local Skins = require(Shared.Models.Skins)
+local Ladders = require(Shared.Models.Ladders)
 
 local SCALE = Catalog.SCALE
 local TILE = data.TILE * SCALE -- studs per tile
@@ -658,6 +659,7 @@ local function blockModel(b: any, g: any, turn: number, level: number): Model?
 	if not g then
 		local m = Builder.build(name)
 		if m then
+			Ladders.add(m, name)
 			m:PivotTo(facing)
 		end
 		return m
@@ -668,6 +670,7 @@ local function blockModel(b: any, g: any, turn: number, level: number): Model?
 		if not m then
 			return nil
 		end
+		Ladders.add(m, name)
 		stretch(m, Vector3.new(part.scale[1], part.scale[2], part.scale[3]))
 		m:PivotTo(CFrame.new(part.at[1] * TILE, 0, part.at[2] * TILE) * facing)
 		if model then
@@ -761,6 +764,90 @@ local function spreadLayers(model: Model, floor: number?)
 	end
 end
 
+-- A mesh loaded from the packs collides as a rough hull (Roblox's default), which would fill in an
+-- arch or an open bay. Asks Roblox once per mesh for a copy with precise collisions and gives it to
+-- every part using that mesh, one mesh at a time in the background; until then (or if Roblox
+-- won't) the part keeps its default.
+local precise: { [string]: MeshPart | false } = {}
+local waiting: { [string]: { MeshPart } } = {}
+local queue: { string } = {}
+local working = false
+
+local function applyPrecise(part: MeshPart, with: MeshPart)
+	if not part.Parent then
+		return
+	end
+	local size, cf = part.Size, part.CFrame
+	if pcall(part.ApplyMesh, part, with) then
+		part.Size = size
+		part.CFrame = cf
+	end
+end
+
+local function preciseMesh(part: MeshPart)
+	-- (The preview tools' stand-in MeshParts have no MeshId.)
+	local ok, id = pcall(function()
+		return part.MeshId
+	end)
+	if not ok or id == "" then
+		return
+	end
+	local have = precise[id]
+	if have then
+		applyPrecise(part, have)
+		return
+	elseif have == false then
+		return
+	end
+	local list = waiting[id]
+	if not list then
+		list = {}
+		waiting[id] = list
+		table.insert(queue, id)
+	end
+	table.insert(list, part)
+	if working then
+		return
+	end
+	working = true
+	task.spawn(function()
+		while #queue > 0 do
+			local next = table.remove(queue, 1) :: string
+			local ok, made = pcall(function()
+				return (game:GetService("AssetService") :: any):CreateMeshPartAsync(next, {
+					CollisionFidelity = Enum.CollisionFidelity.PreciseConvexDecomposition,
+				})
+			end)
+			precise[next] = if ok and made then made else false
+			for _, p in waiting[next] do
+				if ok and made then
+					applyPrecise(p, made)
+				end
+			end
+			waiting[next] = nil
+		end
+		working = false
+	end)
+end
+
+-- Gives a building's own pieces collisions, so a player can walk into an open building (the
+-- garage's bays, the workshop), jump on its props and up onto its roof. Glass-thin and tiny bits
+-- stay out of it, as do the bars of a ladder (its truss does the climbing, Ladders.add). The big
+-- meshes get precise collisions (preciseMesh), the rest keep Roblox's default.
+local function solidify(model: Model)
+	for _, d in model:GetDescendants() do
+		if not d:IsA("BasePart") or d:IsA("TrussPart") or d.Name == "Lot" then
+			continue
+		end
+		local s = d.Size
+		local solid = d.Transparency < 0.9 and not d:GetAttribute("Ladder") and s.X + s.Y + s.Z >= 1
+		d.CanCollide = solid
+		if solid and d:IsA("MeshPart") and math.max(s.X, s.Y, s.Z) >= 4 then
+			preciseMesh(d)
+		end
+	end
+end
+
 function TownView._buildingModel(self: TownView, b: any, turn: number, g: any, cityTheme: string?): Model?
 	local def = data.buildingDef(b.def)
 	local level = data.buildingLevel(b)
@@ -794,14 +881,17 @@ function TownView._buildingModel(self: TownView, b: any, turn: number, g: any, c
 			Parent = model,
 		})
 	end
-	-- One invisible box over the lot: what you bump into and what you click.
+	-- One invisible box over the lot: what you tap. Players walk through it: the building's own
+	-- pieces are what they bump into, stand on and climb (solidify).
 	local _, size = model:GetBoundingBox()
+	solidify(model)
 	local hit = part({
 		Name = "Hit",
 		Size = Vector3.new(w * TILE * 0.9, math.max(4, size.Y), h * TILE * 0.9),
 		CFrame = CFrame.new(c + Vector3.new(0, math.max(4, size.Y) / 2, 0)),
 		Transparency = 1,
-		CanCollide = def.kind ~= "decor",
+		CanCollide = false,
+		CanTouch = false,
 		Parent = model,
 	})
 	model.PrimaryPart = hit

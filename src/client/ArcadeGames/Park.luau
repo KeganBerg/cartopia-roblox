@@ -19,6 +19,7 @@ local data = require(Game.data) :: any
 local Kit = require(script.Parent.Parent.ArcadeKit)
 local Ui = require(script.Parent.Parent.Ui)
 local TownCamera = require(script.Parent.Parent.TownCamera)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local Park = {}
 Park.id = "park"
@@ -332,6 +333,7 @@ function Park.play(ctx: any)
 			if r.impact > 0.15 and st.cool <= 0 and live then
 				st.bumps += 1
 				st.cool = 1
+				Sfx.arcade.bump()
 				local c, sn = math.cos(st.pose.h), math.sin(st.pose.h)
 				st.jolt = math.min(1, 0.4 + r.impact / 3)
 				st.pitch = r.nx * sn + r.nz * c

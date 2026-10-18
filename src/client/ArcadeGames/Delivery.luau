@@ -28,6 +28,7 @@ local Skins = require(Shared.Models.Skins) :: any
 local Pictures = require(Shared.Pictures) :: any
 local Catalog = require(Shared.Models.Catalog) :: any
 local Ui = require(script.Parent.Parent.Ui)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local Delivery = { id = "delivery" }
 
@@ -662,11 +663,18 @@ function Delivery.play(ctx: any)
 		local t = s.clock
 		-- 3, 2, 1 (650 ms each), then GO! for 600 ms, the round live from GO.
 		if s.count >= 0 then
+			-- A beep for each number, a higher one on GO (ArcadeBits Countdown's sfx.countdown).
+			if s.count == 3 and s.countT == 0 then
+				Sfx.countdown(false)
+			end
 			s.countT += dt
 			local step = if s.count > 0 then 0.65 else 0.6
 			if s.countT >= step then
 				s.countT -= step
 				s.count -= 1
+				if s.count >= 0 then
+					Sfx.countdown(s.count == 0)
+				end
 				if s.count == 0 then
 					s.running = true
 					controls.Visible = true
@@ -703,6 +711,11 @@ function Delivery.play(ctx: any)
 			if r.impact > 0.4 then
 				local hard = r.impact > 2.2
 				if s.cool <= 0 then
+					if hard then
+						Sfx.arcade.bump()
+					else
+						Sfx.arcade.scrub()
+					end
 					s.cool = if hard then 0.4 else 0.3
 				end
 				local c, sn = math.cos(s.pose.h), math.sin(s.pose.h)
@@ -762,6 +775,7 @@ function Delivery.play(ctx: any)
 					s.hitCool = 1
 					s.left -= M.TRAFFIC_HIT
 					s.shake = 0.3
+					Sfx.arcade.bump()
 					pop(`💥 -{M.TRAFFIC_HIT}s`, "hit")
 				end
 			end
@@ -775,10 +789,12 @@ function Delivery.play(ctx: any)
 					local bonus = M.clockBonus(M.dropBonus(isHot, s.streak - 1), s.t, s.left)
 					s.drops += 1
 					s.left += bonus
+					Sfx.arcade.ding(if isHot then 1.2 + math.min(3, s.streak) * 0.12 else 1)
 					pop(if isHot then `🔥 Hot!{if bonus > 0 then ` +{bonus}s` else ""}{if s.streak > 1 then `  ×{s.streak}` else ""}` else "🍕 +1", if isHot then "hot" else "drop")
 					s.carrying = false
 					s.target = pickFar(SHOP_SPOTS, s.pose.x, s.pose.z, rng)
 				else
+					Sfx.arcade.ding()
 					s.carrying = true
 					s.target = pickFar(HOUSE_SPOTS, s.pose.x, s.pose.z, rng)
 					s.hotFor = M.hotWindow(math.sqrt((s.target.x - s.pose.x) ^ 2 + (s.target.z - s.pose.z) ^ 2), s.drops)

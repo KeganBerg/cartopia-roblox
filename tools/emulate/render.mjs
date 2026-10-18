@@ -139,6 +139,33 @@ for (const [name, url] of Object.entries(S.textures || {})) {
   t.wrapS = t.wrapT = T.RepeatWrapping
   TEX[name] = t
 }
+// Rough stand-ins for the patterns of Roblox's building materials (Brick, WoodPlanks...), one tile
+// every 8 studs, so a brick wall reads as brick in the preview too.
+const PATTERN = {
+  Brick: (g) => { g.fillStyle = '#c8c8c8'; for (let y = 0; y < 64; y += 8) { g.fillRect(0, y, 64, 1.5); for (let x = (y / 8) % 2 ? 8 : 0; x < 64; x += 16) g.fillRect(x, y, 1.5, 8) } },
+  WoodPlanks: (g) => { g.fillStyle = '#cfcfcf'; for (let y = 0; y < 64; y += 8) g.fillRect(0, y, 64, 1.5) },
+  RoofShingles: (g) => { g.fillStyle = '#b8b8b8'; for (let y = 0; y < 64; y += 8) { g.fillRect(0, y, 64, 2); for (let x = (y / 8) % 2 ? 6 : 0; x < 64; x += 12) g.fillRect(x, y, 1.5, 8) } },
+  Fabric: (g) => { g.fillStyle = '#e0e0e0'; for (let x = 0; x < 64; x += 4) g.fillRect(x, 0, 1, 64) },
+  Concrete: (g) => { for (let i = 0; i < 400; i++) { const v = 205 + ((i * 37) % 50); g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; g.fillRect((i * 53) % 64, (i * 29) % 64, 2, 2) } },
+}
+PATTERN.Pebble = PATTERN.Concrete
+const patternTex = {}
+function patterned(mat, material, size) {
+  const draw = PATTERN[material]
+  if (!draw) return mat
+  patternTex[material] ??= (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 64); draw(g)
+    const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace
+    return t
+  })()
+  // A block's faces in three.js order (+X, -X, +Y, -Y, +Z, -Z), each with its own width and height.
+  const [x, y, z] = size
+  return [[z, y], [z, y], [x, z], [x, z], [x, y], [x, y]].map(([w, h]) => {
+    const m = mat.clone(); m.map = patternTex[material].clone(); m.map.repeat.set(w / 8, h / 8); m.map.needsUpdate = true
+    return m
+  })
+}
 // Every part as Roblox shapes it: blocks, cylinders along X, balls, meshes stretched to their part.
 function addParts(scene, parts) {
 for (const p of parts) {
@@ -152,7 +179,7 @@ for (const p of parts) {
   const look = MAT[p.material] || {}
   const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
   if (p.shape === 'Wedge') mat.side = T.DoubleSide
-  let mats = mat
+  let mats = !p.mesh && (p.shape === 'Block' || !p.shape) ? patterned(mat, p.material, p.size) : mat
   if (p.texture && TEX[p.texture.image] && !p.mesh && (p.shape === 'Block' || !p.shape)) {
     const t = TEX[p.texture.image].clone()
     t.repeat.set(p.size[0] / p.texture.span[0], p.size[2] / p.texture.span[1])

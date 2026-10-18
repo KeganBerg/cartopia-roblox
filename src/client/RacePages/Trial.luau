@@ -16,6 +16,7 @@ local Remote = require(script.Parent.Parent.Remote)
 local Ui = require(script.Parent.Parent.Ui)
 local Thumb = require(script.Parent.Parent.Thumb)
 local DragStrip = require(script.Parent.Parent.DragStrip)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local Trial = {}
 Trial.id = "trial"
@@ -117,6 +118,7 @@ local function draw(page: Frame, ctx: any, api: any, info: any)
 		Ui.text({ Text = string.format("%.3fs", p.t), Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(52, 26), Size = UDim2.fromOffset(110, 18), Parent = row })
 		local label = `🎁 {if p.bucks > 0 then `💎{p.bucks} ` else ""}{money(p.coins)} 🏆{p.trophies}`
 		Ui.buy({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(math.max(120, math.ceil(Ui.textWidth(label, 14)) + 24), 36), Parent = row }, label, "green", function()
+			Sfx.reward()
 			local ok = Remote.race("act", { mode = "trial", which = { claim = p.week } })
 			if ok then
 				api.show("trial")
@@ -163,6 +165,7 @@ local function draw(page: Frame, ctx: any, api: any, info: any)
 end
 
 function Trial.draw(page: Frame, ctx: any, api: any)
+	Sfx.start()
 	Ui.text({ Text = "Loading lap times...", Body = true, TextSize = 20, Size = UDim2.fromScale(1, 1), TextColor3 = Ui.MUTED, Parent = page })
 	task.spawn(function()
 		local ok, info = Remote.race("list", { mode = "trial" }, true)

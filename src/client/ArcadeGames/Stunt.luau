@@ -27,6 +27,7 @@ local Skins = require(Shared.Models.Skins) :: any
 local Catalog = require(Shared.Models.Catalog) :: any
 local Pictures = require(Shared.Pictures) :: any
 local Ui = require(script.Parent.Parent.Ui)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local Stunt = { id = "stunt" }
 
@@ -475,11 +476,18 @@ function Stunt.play(ctx: any)
 		s.clock += rawDt
 		local t = s.clock
 		if s.count >= 0 then
+			-- A beep for each number, a higher one on GO (ArcadeBits Countdown's sfx.countdown).
+			if s.count == 3 and s.countT == 0 then
+				Sfx.countdown(false)
+			end
 			s.countT += math.min(rawDt, 1 / 20)
 			local step = if s.count > 0 then 0.65 else 0.6
 			if s.countT >= step then
 				s.countT -= step
 				s.count -= 1
+				if s.count >= 0 then
+					Sfx.countdown(s.count == 0)
+				end
 				if s.count == 0 then
 					s.running = true
 				end
@@ -504,6 +512,7 @@ function Stunt.play(ctx: any)
 			s.power = 1 - math.abs(1 - (s.needle % 2))
 			if press and s.wait <= 0 and not s.done then
 				s.phase = "run"
+				Sfx.arcade.rev(1.2)
 			end
 		elseif s.phase == "run" then
 			-- Accelerate to take-off speed by the foot of the ramp, then ride up it.
@@ -555,9 +564,12 @@ function Stunt.play(ctx: any)
 					s.phase = "roll"
 					s.pitch, s.roll = 0, 0
 					s.fire = if bull then 2 else 1.2
+					Sfx.arcade.land()
+					Sfx.arcade.ding(1 + (M.flips(s.spin) + M.flips(s.roll)) * 0.2 + (if bull then 0.3 else 0))
 				else
 					s.phase = "crash"
 					s.vy = 3
+					Sfx.arcade.crash()
 				end
 				s.wait = 1.8
 			end
