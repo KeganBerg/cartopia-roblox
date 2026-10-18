@@ -277,7 +277,7 @@ function ____exports.mergeCandidates(buildings, merges)
                 j = ____bindingPattern0[2]
                 local o = at:get((tostring(g.x + i * g.w) .. ",") .. tostring(g.z + j * g.h))
                 local q = o and merges.groups:get(o.uid)
-                return if q and q.code == 2 and alike(g.anchor, q.anchor) then q else nil
+                return if q and q.code == 2 and alike(g.anchor, q.anchor) then q else false
             end
         )
         if __TS__ArrayEvery(

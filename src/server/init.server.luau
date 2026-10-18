@@ -260,6 +260,14 @@ task.spawn(function()
 			m.Parent = library.Buildings
 		end
 	end
+	-- The landmarks merged level 10 houses become, for the Upgrade sheet's picture.
+	for _, name in { "landmark:vanguard", "landmark:globe" } do
+		local m = Builder.build(name)
+		if m then
+			m.Name = name
+			m.Parent = library.Buildings
+		end
+	end
 	library.Parent = ReplicatedStorage
 end)
 

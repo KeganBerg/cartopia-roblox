@@ -1,5 +1,5 @@
 -- Client entry point: sets the clock, starts the town's day and night (DayNight), connects to the server (Remote), draws the countryside round the town (Countryside), the far land and sky past it (Horizon), its traffic and townspeople (TownLife) and the race and crowd at a Speedway (SpeedwayLife), and starts the HUD, which
--- owns the screens, job bubbles and building placement.
+-- owns the screens, job bubbles and building placement, and the badge over Rusty's (RescueBadge).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -16,3 +16,4 @@ require(script.Horizon).start()
 require(script.TownLife).start()
 require(script.SpeedwayLife).start()
 require(script.Hud).start()
+require(script.RescueBadge).start()

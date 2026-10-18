@@ -16,13 +16,13 @@ local SoundService = game:GetService("SoundService")
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
-local endless = require(Game.endless) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Shop = require(script.Parent.Shop)
 local Cars = require(script.Parent.Cars)
 local Goals = require(script.Parent.Goals)
+local Fly = require(script.Parent.Fly)
 local Rescue = require(script.Parent.Rescue)
 local Menu = require(script.Parent.Menu)
 local Upgrade = require(script.Parent.Upgrade)
@@ -63,31 +63,6 @@ local REF_W, REF_H = 1280, 800
 
 local function now(): number
 	return workspace:GetServerTimeNow() * 1000
-end
-
--- The story goal (or endless goal) the tracker shows, as GoalTracker in ui/Goals.tsx: one ready
--- to collect first, else the first one still to do.
-local function trackedGoal(s: any): any?
-	local rows = {}
-	for _, g in store.activeGoals(s) do
-		table.insert(rows, { icon = g.icon, text = g.text, have = store.statValue(s, g.stat, g.def), target = g.target, ready = true })
-	end
-	local capped = endless.endlessCapped(s.endless, now())
-	for _, g in store.activeEndless(s) do
-		local kind = endless.KINDS[g.kind]
-		table.insert(rows, { icon = if kind then kind.icon else "♾", text = endless.endlessText(g, s.cars), have = endless.endlessHave(store.endlessTown(s), g), target = g.n, ready = not capped })
-	end
-	for _, r in rows do
-		if r.ready and r.have >= r.target then
-			return r
-		end
-	end
-	for _, r in rows do
-		if r.have < r.target then
-			return r
-		end
-	end
-	return rows[1]
 end
 
 function Hud.start()
@@ -155,6 +130,8 @@ function Hud.start()
 		open = function(name: string, arg: any?)
 			openPanel(name, arg)
 		end,
+		-- The HUD counter a collected reward flies into (set once the counters are made).
+		flyTarget = (nil :: any) :: (string) -> GuiObject?,
 	}
 
 	-- ── Top left: the speedometer (Menu button) and the counters ──────────────────────────────
@@ -232,6 +209,11 @@ function Hud.start()
 	local parts = counter(3, "⚙️", function()
 		openPanel("need", { res = "parts", missing = 0 })
 	end)
+	-- Where collected rewards fly to (Fly.from): the counters, and the XP box for XP.
+	local flyTo: { [string]: GuiObject } = { coins = coins.Parent :: GuiObject, bucks = gems.Parent :: GuiObject, parts = parts.Parent :: GuiObject, xp = xpBox }
+	ctx.flyTarget = function(res: string): GuiObject?
+		return flyTo[res]
+	end
 
 	-- ── Top middle: town name, MY CARS, the goal tracker ──────────────────────────────────────
 	local center = Ui.new("Frame", { Name = "Center", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10), Size = UDim2.fromOffset(420, 120), BackgroundTransparency = 1, Parent = root }, {
@@ -260,8 +242,17 @@ function Hud.start()
 	local gtText = Ui.text({ Text = "", TextSize = 13, Size = UDim2.fromOffset(0, 25), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 1.5, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = goalRow })
 	local gtBar = Ui.new("Frame", { Size = UDim2.fromOffset(44, 6), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.75, LayoutOrder = 3, Parent = goalRow }, { Ui.corner(3) })
 	local gtFill = Ui.new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromHex("#76ff03"), BorderSizePixel = 0, Parent = gtBar }, { Ui.corner(3) })
+	-- Pulses amber while there's something to collect (the web's chest-glow).
+	local gtGlow = Fly.glow(goalFace, 14)
+	gtGlow.Visible = false
+	-- Tapping it collects (opens Goals) when it's done, else takes you where it gets done.
+	local tracked: any = nil
 	goalRow.Activated:Connect(function()
-		openPanel("goals")
+		if tracked and tracked.have < tracked.target then
+			tracked.go(ctx)
+		else
+			openPanel("goals")
+		end
 	end)
 
 	-- ── Top right: fuel, trophies, sound ──────────────────────────────────────────────────────
@@ -487,11 +478,16 @@ function Hud.start()
 		Ui.setText(parts, Ui.compact(s.parts))
 		Ui.setText(townName, s.townName)
 		Ui.setText(carsText, `MY CARS: {#s.cars}`)
-		local g = trackedGoal(s)
-		goalShadow.Visible = g ~= nil and not Placement.active()
+		local g = Goals.tracked(s)
+		tracked = g
+		-- Hidden while visiting, editing, or while the tutorial runs (only once the port has one:
+		-- until then every town still reads as mid-tutorial).
+		local inTutorial = (s.tutorial or 99) < 99 and script.Parent:FindFirstChild("Tutorial") ~= nil
+		goalShadow.Visible = g ~= nil and not Placement.active() and not s.visiting and not inTutorial
 		if g then
 			local have = math.min(g.target, g.have)
 			local done = have >= g.target
+			gtGlow.Visible = done
 			Ui.setText(gtEmoji, if done then "✔" else g.icon)
 			Ui.setText(gtText, g.text)
 			gtFill.Size = UDim2.fromScale(have / math.max(1, g.target), 1)

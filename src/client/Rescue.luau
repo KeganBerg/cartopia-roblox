@@ -8,6 +8,7 @@
 -- progress comes with each new town (Remote.search), since it isn't part of the save.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -16,6 +17,8 @@ local resto = require(Game.resto) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
+local Confirm = require(script.Parent.Confirm)
+local BuildArt = require(script.Parent.BuildArt)
 
 local Rescue = {}
 
@@ -37,8 +40,19 @@ local PIECE_SPOT = "track"
 
 -- The panel's tab, the haul just towed home and the bay being named, kept between redraws.
 local tab: string? = nil
-local recap: { items: { any }, piece: any? }? = nil
+local recap: { items: { any }, piece: any?, at: number? }? = nil
 local naming: number? = nil
+-- Scrolls the panel to the picked car's Restore button (set while My lot is open).
+local scrollToPick: (() -> ())? = nil
+
+-- The search in progress, kept between redraws: Search all running, the tow home under way, the
+-- spots whose find has been shown, the find popped up last and the tray's counts so far.
+local auto = false
+local leaving = false
+local seenPins: { [number]: boolean }? = nil
+local found: { i: number, at: number }? = nil
+local trayWas: { [string]: number } = {}
+local FOUND_SECONDS = 1.9
 
 local function now(): number
 	return workspace:GetServerTimeNow() * 1000
@@ -115,6 +129,52 @@ local function darkCard(props: { [string]: any }): Frame
 	return f
 end
 
+-- A number rolling up from `from` to `to` over 0.55s, easing out, as the web's Count.
+local function rollUp(label: TextLabel, from: number, to: number, show: (number) -> string)
+	Ui.setText(label, show(from))
+	if from == to then
+		return
+	end
+	task.spawn(function()
+		local t0 = os.clock()
+		while label.Parent do
+			local k = math.min(1, (os.clock() - t0) / 0.55)
+			Ui.setText(label, show(math.round(from + (to - from) * (1 - (1 - k) ^ 3))))
+			if k >= 1 then
+				break
+			end
+			task.wait()
+		end
+	end)
+end
+
+-- Pops a hidden piece in: shown at 40% and springing to full size.
+local function popIn(g: GuiObject)
+	g.Visible = true
+	local scale = g:FindFirstChildOfClass("UIScale") or Ui.new("UIScale", { Parent = g })
+	scale.Scale = 0.4
+	TweenService:Create(scale, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+end
+
+-- The skill chip (the web's SkillTag), beside a car's rarity tag.
+local function skillTag(parent: Instance, model: string, props: { [string]: any }): Frame?
+	local sk = data.carDef(model).skill
+	local def = sk and data.SKILLS[sk]
+	if not def then
+		return nil
+	end
+	local tag = Ui.new("Frame", { Size = UDim2.fromOffset(0, 17), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#ede7f6"), ZIndex = 4, Parent = parent }, {
+		Ui.corner(8),
+		Ui.stroke(1.5, Color3.fromHex("#b39ddb")),
+		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }),
+	})
+	for k, v in props do
+		(tag :: any)[k] = v
+	end
+	Ui.text({ Text = `{def.icon} {def.name}`, TextSize = 11, TextColor3 = Color3.fromHex("#4527a0"), Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = tag.ZIndex, Parent = tag })
+	return tag
+end
+
 -- ── Restore bays ───────────────────────────────────────────────────────────────────────────────
 
 -- One bay: the car on the lift with its timer and Finish now, or Collect when it's done. compact:
@@ -135,6 +195,12 @@ local function bayHero(parent: Instance, order: number, s: any, bay: number, com
 		})
 		Ui.text({ Text = if bay == 1 then "Bay 2 is free" else "Bay is free", TextSize = 22, TextColor3 = LINE, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.new(0.55, 14, 0, 20), Size = UDim2.new(0.45, -24, 0, 28), ZIndex = 4, Parent = b })
 		Ui.text({ Text = "Pick a car from your lot ↓", TextSize = 14, TextColor3 = Color3.fromHex("#607d8b"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.new(0.55, 14, 0, 52), Size = UDim2.new(0.45, -24, 0, 20), ZIndex = 4, Parent = b })
+		-- Tapping a free bay brings the lot's Restore button into view.
+		b.Activated:Connect(function()
+			if scrollToPick then
+				scrollToPick()
+			end
+		end)
 		return 96, nil
 	end
 	local d = data.carDef(r.model)
@@ -178,13 +244,18 @@ local function bayHero(parent: Instance, order: number, s: any, bay: number, com
 		Parent = side,
 	})
 	local lastDone: boolean? = nil
+	local rushLabel: TextLabel? = nil
 	local function update()
 		local left = r.endsAt - now()
 		local done = left <= 0
 		bar.Size = UDim2.fromScale(if done then 1 else math.clamp(1 - left / (r.minutes * 60000), 0, 1), 1)
 		Ui.setText(timeText, if done then "✨ Good as new!" else `⏱ {clock(left)}  Rusty's on it`)
+		if rushLabel and not done then
+			Ui.setText(rushLabel, `Finish now · 💎{data.rushBucks(left)}`)
+		end
 		if done ~= lastDone then
 			lastDone = done
+			rushLabel = nil
 			for _, c in btnHolder:GetChildren() do
 				c:Destroy()
 			end
@@ -199,9 +270,11 @@ local function bayHero(parent: Instance, order: number, s: any, bay: number, com
 				end, { radius = 12, stroke = 2.5, drop = 3, text = "✨ Collect", textSize = if compact then 15 else 18, textColor = LINE })
 				face.Name = "Collect"
 			else
-				Ui.buy({ Size = UDim2.fromScale(1, 1), ZIndex = 5, Parent = btnHolder }, `Finish now · 💎{data.rushBucks(left)}`, "garage", function()
+				local _, rush = Ui.buy({ Size = UDim2.fromScale(1, 1), ZIndex = 5, Parent = btnHolder }, `Finish now · 💎{data.rushBucks(left)}`, "garage", function()
 					Remote.act("rushRestore", bay)
 				end, if compact then 14 else 16)
+				rush.Name = "Rush"
+				rushLabel = rush:FindFirstChild("Label") :: TextLabel?
 			end
 		end
 	end
@@ -261,7 +334,7 @@ local function lot(parent: Instance, order: number, s: any, onTab: (string) -> (
 	if pick then
 		local d = data.carDef(pick.model)
 		local cost = data.restoreCost(d)
-		local row = Ui.new("Frame", { LayoutOrder = order + 1, Size = UDim2.new(1, 0, 0, 76), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = parent }, {
+		local row = Ui.new("Frame", { Name = "LotPick", LayoutOrder = order + 1, Size = UDim2.new(1, 0, 0, 76), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = parent }, {
 			Ui.corner(14),
 			Ui.stroke(2.5, Color3.fromHex(RARITY_EDGE[pick.rarity])),
 		})
@@ -270,8 +343,9 @@ local function lot(parent: Instance, order: number, s: any, onTab: (string) -> (
 			Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 		})
 		rarityTag(tags, pick.rarity, { LayoutOrder = 1 })
+		skillTag(tags, pick.model, { LayoutOrder = 2 })
 		if d.rescueOnly then
-			local classic = Ui.new("Frame", { LayoutOrder = 2, Size = UDim2.fromOffset(0, 17), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#6d4c41"), ZIndex = 4, Parent = tags }, { Ui.corner(6), Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
+			local classic = Ui.new("Frame", { LayoutOrder = 3, Size = UDim2.fromOffset(0, 17), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#6d4c41"), ZIndex = 4, Parent = tags }, { Ui.corner(6), Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
 			Ui.text({ Text = "Classic", TextSize = 11, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 4, Parent = classic })
 		end
 		local pi = data.performance(d, { engine = 0, turbo = 0, tires = 0, weight = 0 })
@@ -403,6 +477,7 @@ local function spotCard(parent: Instance, order: number, s: any, sp: any, hot: s
 		if full and not locked then
 			return
 		end
+		seenPins, found = nil, nil
 		Remote.act("startSearch", sp.id)
 	end)
 	local look = SPOT_LOOK[sp.id] or SPOT_LOOK.suburbs
@@ -475,6 +550,10 @@ local function spotCard(parent: Instance, order: number, s: any, sp: any, hot: s
 			Ui.text({ Text = "✔", TextSize = 11, Size = UDim2.fromScale(1, 1), ZIndex = 5, Parent = tick })
 		end
 	end
+	-- A full lot: the open spots fade, as the web's disabled cards.
+	if full and not locked then
+		Ui.new("Frame", { Name = "Dim", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Ui.SHEET, BackgroundTransparency = 0.4, BorderSizePixel = 0, ZIndex = 7, Parent = card }, { Ui.corner(16) })
+	end
 end
 
 local ALL_FINDS: { string } = {}
@@ -529,9 +608,40 @@ end
 
 -- ── The search ─────────────────────────────────────────────────────────────────────────────────
 
--- The haul so far, as the web's Haul: each car with its rarity, then one chip per kind of small find.
-local function haulChips(parent: Instance, items: { any }, z: number)
+local SMALLS = { "coins", "parts", "fuel", "trophy" }
+local SMALL_ICON = { coins = "🪙", parts = "⚙️", fuel = "⛽", trophy = "🏆" }
+
+-- The small finds added up, one count per kind.
+local function sums(items: { any }): { [string]: number }
 	local sum = { coins = 0, parts = 0, fuel = 0, trophy = 0 }
+	for _, l in items do
+		if l.kind == "trophy" then
+			sum.trophy += 1
+		elseif sum[l.kind] then
+			sum[l.kind] += l.n
+		end
+	end
+	return sum
+end
+
+local function smallText(k: string, v: number): string
+	return if k == "trophy" and v <= 1 then SMALL_ICON[k] else `{SMALL_ICON[k]} {Ui.commas(v)}`
+end
+
+-- One small find's chip (the web's .haul-item). Returns it and its count.
+local function smallChip(parent: Instance, order: number, k: string, z: number): (Frame, TextLabel)
+	local chip = Ui.new("Frame", { LayoutOrder = order, Size = UDim2.fromOffset(0, 32), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Ui.WHITE, ZIndex = z, Parent = parent }, {
+		Ui.corner(10),
+		Ui.stroke(2, Color3.fromHex("#e0e0e0")),
+		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
+	})
+	local label = Ui.text({ Text = "", Body = true, Weight = "heavy", TextSize = 15, TextColor3 = LINE, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = z, Parent = chip })
+	return chip, label
+end
+
+-- The haul so far, as the web's Haul: each car with its rarity, then one chip per kind of small
+-- find. was: the counts shown last time, which roll up to the new ones (and are updated).
+local function haulChips(parent: Instance, items: { any }, z: number, was: { [string]: number }?)
 	local order = 0
 	for _, l in items do
 		if l.kind == "car" then
@@ -543,28 +653,83 @@ local function haulChips(parent: Instance, items: { any }, z: number)
 			local box = Ui.new("Frame", { Size = UDim2.fromOffset(40, 32), BackgroundTransparency = 1, ZIndex = z, Parent = chip })
 			carPic(box, l.model, UDim2.fromScale(1, 1), true, z)
 			rarityTag(chip, l.rarity, { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 42, 0.5, 0), ZIndex = z })
-		elseif l.kind == "trophy" then
-			sum.trophy += 1
-		elseif sum[l.kind] then
-			sum[l.kind] += l.n
 		end
 	end
-	for _, k in { "coins", "parts", "fuel", "trophy" } do
+	local sum = sums(items)
+	for _, k in SMALLS do
 		local v = sum[k]
 		if v > 0 then
 			order += 1
-			local icon = if k == "coins" then "🪙" elseif k == "parts" then "⚙️" elseif k == "fuel" then "⛽" else "🏆"
-			local chip = Ui.new("Frame", { LayoutOrder = order, Size = UDim2.fromOffset(0, 32), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Ui.WHITE, ZIndex = z, Parent = parent }, {
-				Ui.corner(10),
-				Ui.stroke(2, Color3.fromHex("#e0e0e0")),
-				Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
-			})
-			Ui.text({ Text = if k == "trophy" and v == 1 then icon else `{icon} {Ui.commas(v)}`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = LINE, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = z, Parent = chip })
+			local _, label = smallChip(parent, order, k, z)
+			-- A new chip shows its count; one already there rolls up to its new count.
+			local from = if was and (was[k] or 0) > 0 then was[k] else v
+			rollUp(label, from, v, function(n)
+				return smallText(k, n)
+			end)
+		end
+		if was then
+			was[k] = v
 		end
 	end
 end
 
-local function searchScreen(ctx: any, q: any, root: Instance): Instance
+-- The find just uncovered, popped up under the top bar for a moment (the web's .rs-found).
+local function foundPop(screen: Instance, l: any, z: number): Frame
+	local edge = if l.kind == "car" and l.rarity ~= "common" then RARITY_EDGE[l.rarity] else "#ffca28"
+	local pop = Ui.new("Frame", { Name = "Found", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 104), Size = UDim2.fromOffset(0, 46), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Ui.WHITE, ZIndex = z, Parent = screen }, {
+		Ui.round(),
+		Ui.stroke(3, Color3.fromHex(edge)),
+		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, if l.kind == "car" then 4 else 8), PaddingRight = UDim.new(0, 16) }),
+		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+	local icon, text = lootLabel(l)
+	if l.kind == "car" then
+		local box = Ui.new("Frame", { LayoutOrder = 1, Size = UDim2.fromOffset(52, 38), BackgroundTransparency = 1, ZIndex = z, Parent = pop })
+		carPic(box, l.model, UDim2.fromScale(1, 1), true, z)
+	else
+		Ui.text({ LayoutOrder = 1, Text = icon, TextSize = 26, Size = UDim2.fromOffset(32, 38), ZIndex = z, Parent = pop })
+	end
+	Ui.text({ LayoutOrder = 2, Text = text, TextSize = 18, TextColor3 = if l.kind == "car" and l.rarity == "rare" then Color3.fromHex("#e65100") else LINE, Size = UDim2.fromOffset(0, 38), AutomaticSize = Enum.AutomaticSize.X, ZIndex = z, Parent = pop })
+	if l.kind == "car" then
+		rarityTag(pop, l.rarity, { LayoutOrder = 3, ZIndex = z })
+	end
+	popIn(pop)
+	return pop
+end
+
+-- Search all: uncovers the next spot every half second until every spot is open, a flat stops
+-- the truck, or the player taps Stop. Each run has its own number, so a Stop then Search all
+-- doesn't leave two running.
+local autoRun = 0
+local function runAuto()
+	autoRun += 1
+	local me = autoRun
+	task.spawn(function()
+		while auto and autoRun == me do
+			local cur = Remote.search
+			if not cur or cur.flat then
+				break
+			end
+			local nextI: number? = nil
+			for j, r in cur.revealed do
+				if not r then
+					nextI = j
+					break
+				end
+			end
+			if not nextI then
+				break
+			end
+			Remote.act("revealPin", nextI - 1)
+			task.wait(0.5)
+		end
+		if autoRun == me then
+			auto = false
+		end
+	end)
+end
+
+local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()): Instance
 	local s = store.useGame.getState()
 	local spot: any = nil
 	for _, sp in data.RESCUE_SPOTS do
@@ -574,6 +739,9 @@ local function searchScreen(ctx: any, q: any, root: Instance): Instance
 	end
 	local magnet = data.truckOf(s.truck).magnet == true
 	local look = SPOT_LOOK[q.spot] or SPOT_LOOK.suburbs
+	if q.flat then
+		auto = false
+	end
 	local screen = Ui.new("TextButton", { Name = "Search", Text = "", AutoButtonColor = false, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Ui.WHITE, BorderSizePixel = 0, ZIndex = 20, Parent = root }, {
 		Ui.gradient(look[1], "#5d4a36"),
 	})
@@ -591,6 +759,24 @@ local function searchScreen(ctx: any, q: any, root: Instance): Instance
 			left += 1
 		end
 	end
+	-- What's been uncovered since the last redraw pops up; reopening mid-search pops nothing.
+	if not seenPins then
+		seenPins = {}
+		local was = {}
+		for i, r in revealed do
+			if r then
+				(seenPins :: any)[i] = true
+				table.insert(was, q.pins[i])
+			end
+		end
+		trayWas = sums(was)
+	end
+	for i, r in revealed do
+		if r and not (seenPins :: any)[i] then
+			(seenPins :: any)[i] = true
+			found = { i = i, at = os.clock() }
+		end
+	end
 	-- One dot per spot: a find's icon once uncovered.
 	local dots = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 68), Size = UDim2.fromOffset(#revealed * 32, 26), BackgroundTransparency = 1, ZIndex = 21, Parent = screen }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
@@ -603,18 +789,25 @@ local function searchScreen(ctx: any, q: any, root: Instance): Instance
 			Ui.text({ Text = if r then (lootLabel(l)) else "", TextSize = 14, Size = UDim2.fromScale(1, 1), ZIndex = 21 }),
 		})
 	end
-	local note = if q.flat then "" elseif not started then "👆 Tap a tarp to see what's under it" elseif left == 0 then "All searched! Tow it home" else ""
-	if note ~= "" then
-		local coach = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 104), Size = UDim2.fromOffset(0, 34), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#1b1f24"), BackgroundTransparency = 0.4, ZIndex = 21, Parent = screen }, {
+	local f = found
+	if f and os.clock() - f.at < FOUND_SECONDS then
+		local pop = foundPop(screen, q.pins[f.i], 22)
+		task.delay(FOUND_SECONDS - (os.clock() - f.at), function()
+			if pop.Parent then
+				pop:Destroy()
+			end
+		end)
+	elseif not started and not auto then
+		local coach = Ui.new("Frame", { Name = "Coach", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 104), Size = UDim2.fromOffset(0, 34), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#1b1f24"), BackgroundTransparency = 0.4, ZIndex = 21, Parent = screen }, {
 			Ui.round(),
 			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16) }),
 		})
-		Ui.text({ Text = note, TextSize = 18, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 21, Parent = coach })
+		Ui.text({ Text = "👆 Tap a glowing spot", TextSize = 18, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 21, Parent = coach })
 	end
 
 	-- The lot: a tarp over every spot. Under it, what Rusty found.
 	local cols = if #q.pins > 8 then 6 else 4
-	local field = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 150), Size = UDim2.new(1, -40, 1, -330), BackgroundTransparency = 1, ZIndex = 21, Parent = screen }, {
+	local field = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 158), Size = UDim2.new(1, -40, 1, -338), BackgroundTransparency = 1, ZIndex = 21, Parent = screen }, {
 		Ui.new("UISizeConstraint", { MaxSize = Vector2.new(cols * 150, 420) }),
 		Ui.new("UIGridLayout", {
 			CellSize = UDim2.new(1 / cols, -12, 1 / math.ceil(#q.pins / cols), -12),
@@ -647,7 +840,7 @@ local function searchScreen(ctx: any, q: any, root: Instance): Instance
 				Ui.stroke(3, Color3.fromHex("#ffca28")).Parent = tarp
 			end
 			tarp.Activated:Connect(function()
-				if not q.flat then
+				if not q.flat and not leaving then
 					Remote.act("revealPin", i - 1)
 				end
 			end)
@@ -663,6 +856,39 @@ local function searchScreen(ctx: any, q: any, root: Instance): Instance
 		end
 	end
 
+	local haul = {}
+	for i, l in q.pins do
+		if revealed[i] and l.kind ~= "nothing" then
+			table.insert(haul, l)
+		end
+	end
+	-- Leaving throws the haul away, so it asks first (unless the player said not to).
+	local function leave()
+		if leaving then
+			return
+		end
+		if #haul == 0 then
+			Remote.act("abandonSearch")
+			return
+		end
+		auto = false
+		Confirm.ask(screen, {
+			pref = "askLeave",
+			icon = "🛻",
+			title = "Leave your haul?",
+			ok = "Leave",
+			body = function(box)
+				Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Wraps = true, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = box })
+				haulChips(box, haul, 41)
+			end,
+			bodyHeight = if #haul > 4 then 96 else 56,
+			z = 41,
+			onOk = function()
+				Remote.act("abandonSearch")
+			end,
+		})
+	end
+
 	-- A flat tire: fix it for gems, or go home with nothing.
 	if q.flat then
 		local pop = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -130), Size = UDim2.fromOffset(340, 110), BackgroundColor3 = Ui.WHITE, ZIndex = 23, Parent = screen }, {
@@ -675,9 +901,8 @@ local function searchScreen(ctx: any, q: any, root: Instance): Instance
 			Remote.act("fixTruck")
 		end, 15)
 		fix.Name = "FixTruck"
-		Ui.buy({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 54), Size = UDim2.new(0.5, -20, 0, 42), ZIndex = 23, Parent = pop }, "Go home", "broke", function()
-			Remote.act("abandonSearch")
-		end, 16)
+		local _, home = Ui.buy({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 54), Size = UDim2.new(0.5, -20, 0, 42), ZIndex = 23, Parent = pop }, "Go home", "broke", leave, 16)
+		home.Name = "GoHome"
 	end
 
 	-- The tray and the buttons along the bottom.
@@ -685,54 +910,37 @@ local function searchScreen(ctx: any, q: any, root: Instance): Instance
 	local tray = Ui.new("Frame", { Position = UDim2.fromOffset(14, 10), Size = UDim2.new(1, -28, 0, 34), BackgroundTransparency = 1, ZIndex = 22, Parent = bottom }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
-	local haul = {}
-	for i, l in q.pins do
-		if revealed[i] and l.kind ~= "nothing" then
-			table.insert(haul, l)
-		end
-	end
 	if #haul > 0 then
-		haulChips(tray, haul, 22)
+		haulChips(tray, haul, 22, trayWas)
 	else
 		Ui.text({ Text = "🛻 Haul is empty", TextSize = 15, TextColor3 = Color3.fromHex("#e0e0e0"), Size = UDim2.fromOffset(200, 32), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22, Parent = tray })
 	end
 	local acts = Ui.new("Frame", { Position = UDim2.fromOffset(14, 54), Size = UDim2.new(1, -28, 0, 50), BackgroundTransparency = 1, ZIndex = 22, Parent = bottom }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), HorizontalFlex = Enum.UIFlexAlignment.Fill, SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
-	local _, leave = Ui.buy({ LayoutOrder = 1, Size = UDim2.new(0, 120, 1, 0), ZIndex = 22, Parent = acts }, "Leave", "broke", function()
-		Remote.act("abandonSearch")
-	end, 18)
-	leave.Name = "Leave"
+	local _, leaveB = Ui.buy({ LayoutOrder = 1, Size = UDim2.new(0, 120, 1, 0), ZIndex = 22, Parent = acts }, "Leave", if leaving then "grey" else "broke", leave, 18)
+	leaveB.Name = "Leave"
 	if left > 0 then
-		local _, all = Ui.buy({ LayoutOrder = 2, Size = UDim2.new(0, 200, 1, 0), ZIndex = 22, Parent = acts }, "⏩ Search all", if q.flat then "grey" else "garage", nil, 18)
-		all.Name = "SearchAll"
-		all.Activated:Connect(function()
-			-- Uncover the rest one at a time, stopping at a flat.
-			task.spawn(function()
-			local cur = Remote.search
-			while cur and not cur.flat do
-				local nextI: number? = nil
-				for j, r in cur.revealed do
-					if not r then
-						nextI = j
-						break
-					end
-				end
-				if not nextI then
-					break
-				end
-				Remote.act("revealPin", nextI - 1)
-				cur = Remote.search
-				task.wait(0.25)
+		local off = q.flat or leaving
+		local _, all = Ui.buy({ LayoutOrder = 2, Size = UDim2.new(0, 200, 1, 0), ZIndex = 22, Parent = acts }, if auto then "⏸ Stop" else "⏩ Search all", if off then "grey" else "garage", function()
+			if q.flat or leaving then
+				return
 			end
-			end)
-		end)
+			auto = not auto
+			if auto then
+				runAuto()
+			end
+			rerender()
+		end, 18)
+		all.Name = "SearchAll"
 	end
-	local canHome = started and not q.flat
+	local canHome = started and not q.flat and not leaving
 	local _, home = Ui.buy({ LayoutOrder = 3, Size = UDim2.new(0, 200, 1, 0), ZIndex = 22, Parent = acts }, "🏠 Tow home", if canHome then "green" else "grey", function()
 		if not canHome then
 			return
 		end
+		auto = false
+		leaving = true
 		recap = { items = haul, piece = q.piece }
 		Remote.act("towHome")
 	end, 18)
@@ -742,15 +950,42 @@ end
 
 -- ── Back home: the haul, and a restored car's plate ────────────────────────────────────────────
 
-local function haulCard(ctx: any, body: Instance, r: { items: { any }, piece: any? }, onDone: (string) -> ())
+-- Back from a search: the haul laid out one find at a time, as the web's HaulCard. Cars first,
+-- best first, then the small finds summed, each landing on a beat (450ms, then every 260ms) with
+-- its count rolling up; the resto-mod piece and the XP last.
+local function haulCard(ctx: any, body: Instance, r: { items: { any }, piece: any?, at: number? }, onDone: (string) -> ())
 	local s = store.useGame.getState()
-	local cars, smalls = {}, {}
+	local cars = {}
 	for _, l in r.items do
-		table.insert(if l.kind == "car" then cars else smalls, l)
+		if l.kind == "car" then
+			table.insert(cars, l)
+		end
 	end
 	table.sort(cars, function(a, b)
 		return RARITY_ORDER[a.rarity] > RARITY_ORDER[b.rarity]
 	end)
+	local sum = sums(r.items)
+	local smalls = {}
+	for _, k in SMALLS do
+		if sum[k] > 0 then
+			table.insert(smalls, k)
+		end
+	end
+	local total = #cars + #smalls
+	-- Redrawn mid-reveal (a new snapshot): what has landed already shows at once.
+	local t0 = r.at or os.clock()
+	r.at = t0
+	local function onBeat(n: number, show: (instant: boolean) -> ())
+		local wait = 0.45 + n * 0.26 - (os.clock() - t0)
+		if wait <= 0 then
+			show(true)
+		else
+			task.delay(wait, function()
+				show(false)
+			end)
+		end
+	end
+
 	local list = Ui.new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = body }, {
 		Ui.new("UIListLayout", { Padding = UDim.new(0, 12), HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
@@ -760,7 +995,9 @@ local function haulCard(ctx: any, body: Instance, r: { items: { any }, piece: an
 			Ui.new("UIGridLayout", { CellSize = UDim2.fromOffset(128, 128), CellPadding = UDim2.fromOffset(10, 10), HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder }),
 		})
 		for i, c in cars do
-			local cell = Ui.new("Frame", { LayoutOrder = i, BackgroundColor3 = Ui.WHITE, Parent = grid }, {
+			-- Each spot in the grid keeps its place while its car is still to land.
+			local slot = Ui.new("Frame", { LayoutOrder = i, BackgroundTransparency = 1, Parent = grid })
+			local cell = Ui.new("Frame", { Name = "Car", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Ui.WHITE, Visible = false, Parent = slot }, {
 				Ui.corner(14),
 				Ui.stroke(3, Color3.fromHex(RARITY_EDGE[c.rarity])),
 			})
@@ -768,28 +1005,65 @@ local function haulCard(ctx: any, body: Instance, r: { items: { any }, piece: an
 			carPic(box, c.model, UDim2.fromScale(1, 1), true, 1)
 			Ui.text({ Text = data.carDef(c.model).name, TextSize = 13, TextColor3 = LINE, TextWrapped = true, Position = UDim2.fromOffset(4, 74), Size = UDim2.new(1, -8, 0, 30), Parent = cell })
 			rarityTag(cell, c.rarity, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 104), ZIndex = 1 })
+			onBeat(i - 1, function(instant)
+				if instant then
+					cell.Visible = true
+				else
+					popIn(cell)
+				end
+			end)
 		end
 	end
-	local sums = Ui.new("Frame", { LayoutOrder = 3, Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Parent = list }, {
+	local row = Ui.new("Frame", { LayoutOrder = 3, Size = UDim2.new(1, 0, 0, 56), BackgroundTransparency = 1, Parent = list }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
-	haulChips(sums, smalls, 1)
+	for n, k in smalls do
+		local chip, label = smallChip(row, n, k, 1)
+		chip.Visible = false
+		Ui.setText(label, smallText(k, 0))
+		onBeat(#cars + n - 1, function(instant)
+			if instant then
+				chip.Visible = true
+				Ui.setText(label, smallText(k, sum[k]))
+			else
+				popIn(chip)
+				rollUp(label, 0, sum[k], function(v)
+					return smallText(k, v)
+				end)
+			end
+		end)
+	end
+	local last: { GuiObject } = {}
 	if r.piece then
-		local have = #resto.piecesOf(s.restoParts or {}, r.piece.model)
-		local chip = Ui.new("Frame", { LayoutOrder = 90, Size = UDim2.fromOffset(0, 32), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Ui.WHITE, Parent = sums }, {
+		-- The resto-mod piece: the car's puzzle with the new piece glowing.
+		local have = resto.piecesOf(s.restoParts or {}, r.piece.model)
+		local chip = Ui.new("Frame", { Name = "Piece", LayoutOrder = 90, Size = UDim2.fromOffset(0, 54), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Ui.WHITE, Visible = false, Parent = row }, {
 			Ui.corner(10),
-			Ui.stroke(2, Color3.fromHex("#8e24aa")),
-			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
+			Ui.stroke(2, Color3.fromHex("#e0e0e0")),
+			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8) }),
+			Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
 		})
-		Ui.text({ Text = `🧩 {data.carDef(r.piece.model).name} {have}/{resto.PIECE_COUNT}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = LINE, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
+		BuildArt.new(chip, r.piece.model, have, UDim2.fromOffset(64, 48), { fresh = r.piece.piece, iconSize = 10, LayoutOrder = 1 })
+		Ui.text({ LayoutOrder = 2, Text = "🧩", TextSize = 18, Size = UDim2.fromOffset(22, 48), Parent = chip })
+		table.insert(last, chip)
 	end
 	local xp = data.xpGain(s.level, 10 + #cars * 10)
-	local xpChip = Ui.new("Frame", { LayoutOrder = 99, Size = UDim2.fromOffset(0, 32), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#fff8e1"), Parent = sums }, {
+	local xpChip = Ui.new("Frame", { LayoutOrder = 99, Size = UDim2.fromOffset(0, 32), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#fff8e1"), Visible = false, Parent = row }, {
 		Ui.corner(10),
 		Ui.stroke(2, Color3.fromHex("#ffca28")),
 		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
 	})
 	Ui.text({ Text = `⭐ +{xp} XP`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = LINE, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, Parent = xpChip })
+	table.insert(last, xpChip)
+	onBeat(total, function(instant)
+		for _, g in last do
+			if instant then
+				g.Visible = true
+			else
+				popIn(g)
+			end
+		end
+	end)
 	local go = if #cars > 0 then "🔧 Fix one up" else "🔍 Search again"
 	local _, b = Ui.buy({ LayoutOrder = 4, Size = UDim2.fromOffset(220, 46), Parent = list }, go, "green", function()
 		onDone(if #cars > 0 then "storage" else "find")
@@ -838,9 +1112,12 @@ local function plateScreen(ctx: any, body: Instance, s: any, bay: number)
 		end
 	end)
 	local _, add = Ui.buy({ LayoutOrder = 5, Size = UDim2.fromOffset(240, 46), Parent = list }, "Add to my garage", "green", function()
+		-- The restored car keeps the bay's uid: the garage opens on it.
+		local id = r.uid
 		local ok = Remote.act("collectRestored", plate.Text, bay)
 		if ok then
 			naming = nil
+			store.useGame.setState({ selectedCar = id })
 			ctx.open("garage")
 		end
 	end, 18)
@@ -859,6 +1136,8 @@ function Rescue.open(ctx: any): Instance?
 	local alive = true
 	local tickers: { () -> () } = {}
 	local wasSearching = Remote.search and true or false
+	-- Reopened mid-search: what's already uncovered doesn't pop up again.
+	seenPins, found = nil, nil
 
 	local function render()
 		for _, c in holder:GetChildren() do
@@ -872,10 +1151,14 @@ function Rescue.open(ctx: any): Instance?
 			tab = "storage"
 		end
 		wasSearching = q ~= nil
+		scrollToPick = nil
 		if q then
-			searchScreen(ctx, q, holder)
+			searchScreen(ctx, q, holder, render)
 			return
 		end
+		-- No search: the next one starts afresh.
+		auto, leaving, seenPins, found = false, false, nil, nil
+		trayWas = {}
 		if naming ~= nil then
 			local overlay, _, body = Ui.panel(holder, "Restored!", { width = 460, height = 470, onClose = function()
 				naming = nil
@@ -914,7 +1197,21 @@ function Rescue.open(ctx: any): Instance?
 			tab = id
 			render()
 		end
-		Ui.tabs(body, items, current, onTab, { position = UDim2.fromOffset(-14, 0), size = UDim2.new(1, 28, 0, 54) })
+		local tabRow = Ui.tabs(body, items, current, onTab, { position = UDim2.fromOffset(-14, 0), size = UDim2.new(1, 28, 0, 54) })
+		-- A full lot shows its count in red (the web's .tab-count.full).
+		local lotTab = tabRow:FindFirstChild("storage")
+		local lotLabel = lotTab and lotTab:FindFirstChild("Label", true) :: TextLabel?
+		if lotLabel and junk >= data.STORAGE_MAX then
+			lotLabel.RichText = true
+			lotLabel.Text = `🚗 My lot <mark color="#e53935"><font color="#ffffff"> {junk}/{data.STORAGE_MAX} </font></mark>`
+		end
+		scrollToPick = function()
+			local pick = list:FindFirstChild("LotPick") :: GuiObject?
+			if pick then
+				local y = pick.AbsolutePosition.Y - list.AbsolutePosition.Y + list.CanvasPosition.Y
+				list.CanvasPosition = Vector2.new(0, math.max(0, y - (list.AbsoluteSize.Y - pick.AbsoluteSize.Y) / 2))
+			end
+		end
 		if current == "find" then
 			bays(list, 1, st, true, ctx, onTab, tickers)
 			findTab(list, 10, st, onTab)

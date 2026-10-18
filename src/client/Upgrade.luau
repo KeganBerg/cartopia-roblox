@@ -240,13 +240,36 @@ function Upgrade.open(ctx: any, uid: string?): Instance?
 			table.insert(rows, { "Building", data.levelName(d, lvl), data.levelName(d, nextL) })
 		end
 		local landmark = if block and merge.isLandmark(block) then merge.landmarkName(block) else nil
+		-- A merged block of houses reaching level 10 becomes a landmark (a Vanguard or Globe Tower).
+		local becomes = nil
+		if block then
+			local anchor = table.clone(block.anchor)
+			anchor.level = nextL
+			if merge.isLandmark({ anchor = anchor, cols = block.cols, rows = block.rows }) then
+				becomes = merge.landmarkName(block)
+			end
+		end
 		if d.kind == "house" then
-			table.insert(rows, { "Building", landmark or data.levelName(d, lvl), data.levelName(d, nextL) })
+			-- Only when the house actually turns into something else.
+			local now = landmark or data.levelName(d, lvl)
+			local after = becomes or data.levelName(d, nextL)
+			if now ~= after then
+				table.insert(rows, { "Building", now, after })
+			end
 			table.insert(rows, { "Residents", tostring(data.houseResidents(lvl) * k), tostring(data.houseResidents(nextL) * k) })
 			table.insert(rows, { "Upgrade XP", "", `+{data.xpGain(s.level, data.buildingUpgradeXp(lvl) * k)}` })
 		end
 		local name = landmark or (data.levelName(d, lvl) .. (if k > 1 then ` ×{k}` else ""))
-		Ui.setText(title, if canUp then `{name} · Level {lvl}` else name)
+		local heading = if canUp then `{name} · Level {lvl}` else name
+		Ui.setText(title, heading)
+		-- A landmark's or a block's name runs long: smaller letters, so it clears the close button.
+		local n = utf8.len(heading) or #heading
+		local size = if n > 22 then 22 elseif n > 14 then 25 else 32
+		title.TextSize = size
+		local face = title:FindFirstChild("Face")
+		if face and face:IsA("TextLabel") then
+			face.TextSize = size
+		end
 
 		local h = 0
 		local order = 0
@@ -261,20 +284,32 @@ function Upgrade.open(ctx: any, uid: string?): Instance?
 			Ui.gradient("#e3f2fd", "#ffffff"),
 		})
 		Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.72, 0), Size = UDim2.fromOffset(176, 96), BackgroundColor3 = Color3.fromHex("#cfd8dc"), Parent = preview }, { Ui.round() })
-		Thumb.new("Buildings", d.id, UDim2.new(1, 0, 1, -10), nil).Parent = preview
+		-- In the colours it wears in town; the landmark the block is or becomes in place of one house.
+		local theme = cityLook.themeFor(b.tint, s.cityTheme, d.kind == "decor")
+		local tower = if becomes == merge.GLOBE_NAME then "landmark:globe" elseif becomes then "landmark:vanguard" else nil
+		if tower and not Thumb.has("Buildings", tower) then
+			tower = nil
+		end
+		Thumb.new("Buildings", tower or d.id, UDim2.new(1, 0, 1, -10), nil, theme).Parent = preview
 		local shown = if canUp then nextL else lvl
 		local tag = Ui.new("Frame", { Position = UDim2.fromOffset(8, 8), Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#263238"), ZIndex = 2, Parent = preview }, {
 			Ui.corner(8),
 			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
 		})
-		Ui.text({ Text = `Level {shown}{if shown > 1 then " look" else ""}`, TextSize = 13, TextColor3 = Color3.fromHex("#ffca28"), Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 2, Parent = tag })
+		Ui.text({ Text = becomes or `Level {shown}{if shown > 1 then " look" else ""}`, TextSize = 13, TextColor3 = Color3.fromHex("#ffca28"), Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 2, Parent = tag })
 		if canUp then
 			add(8)
 			pips(list, order, lvl, maxL)
 		end
 		if k > 1 and boost > 0 then
-			add(20)
-			Ui.text({ Text = `🧩 ×{k} · {data.mergeGain(d)} +{math.floor(boost * 100 + 0.5)}%`, TextSize = 15, TextColor3 = Color3.fromHex("#7e57c2"), Size = UDim2.new(1, 0, 0, 20), LayoutOrder = order, Parent = list })
+			-- The merge bonus, as a gold pill (.merge-boost).
+			add(26)
+			local text = `🧩 ×{k} · {data.mergeGain(d)} +{math.floor(boost * 100 + 0.5)}%`
+			local row = Ui.new("Frame", { Name = "Boost", LayoutOrder = order, Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, Parent = list })
+			Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0), Size = UDim2.fromOffset(Ui.textWidth(text, 16) + 24, 26), BackgroundColor3 = Color3.fromHex("#ffd54f"), Parent = row }, {
+				Ui.corner(12),
+				Ui.text({ Text = text, TextSize = 16, TextColor3 = Color3.fromHex("#4e342e"), Size = UDim2.fromScale(1, 1) }),
+			})
 		end
 		if canUp and max then
 			add(24)
