@@ -61,17 +61,35 @@ end
 function Thumb.car(id: string, size: UDim2, job: Paint.Job, hat: any?, mods: { string }?, panels: any?, trim: any?, skin: string?, modSkin: any?): ViewportFrame
 	local vp = Thumb.new("Cars", id, size)
 	local m = vp:FindFirstChildOfClass("Model")
-	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
-	local stripes = lib and lib:FindFirstChild("Stripes") and (lib :: any).Stripes:FindFirstChild(id)
 	if m then
-		Paint.apply(m, job, stripes)
-		Panels.apply(m, id, panels, job.finish, Builder.build)
-		Trim.apply(m, id, trim, job.color)
-		Paint.wearHat(m, id, hat, Builder.build)
-		Mods.fit(m, id, mods, Builder.build)
-		Skins.apply(m, skin, modSkin)
+		Thumb.dress(m, id, job, hat, mods, panels, trim, skin, modSkin)
 	end
 	return vp
+end
+
+-- Puts a whole look on a car model from the library: paint job, custom paint, trim, hat, mods and skins.
+function Thumb.dress(m: Model, id: string, job: Paint.Job, hat: any?, mods: { string }?, panels: any?, trim: any?, skin: string?, modSkin: any?)
+	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
+	local stripes = lib and lib:FindFirstChild("Stripes") and (lib :: any).Stripes:FindFirstChild(id)
+	Paint.apply(m, job, stripes)
+	Panels.apply(m, id, panels, job.finish, Builder.build)
+	Trim.apply(m, id, trim, job.color)
+	Paint.wearHat(m, id, hat, Builder.build)
+	Mods.fit(m, id, mods, Builder.build)
+	Skins.apply(m, skin, modSkin)
+end
+
+-- A copy of a car from the library in a whole look (Thumb.dress), for a 3D scene; nil when the
+-- library doesn't have that car.
+function Thumb.carModel(id: string, job: Paint.Job, hat: any?, mods: { string }?, skin: string?, modSkin: any?): Model?
+	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
+	local src = lib and (lib :: any).Cars:FindFirstChild(id)
+	if not src then
+		return nil
+	end
+	local m = src:Clone()
+	Thumb.dress(m, id, job, hat, mods, nil, nil, skin, modSkin)
+	return m
 end
 
 -- A hat on its own (Paint.hatName), seen a little from above: empty until its meshes have reached
