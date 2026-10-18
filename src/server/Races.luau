@@ -45,6 +45,10 @@ export type Mods = {
 	data: any,
 	raceCar: any,
 	fairRace: any,
+	fairPi: any,
+	grip: any,
+	weather: any,
+	venues: any,
 	DragRace: any,
 	random: Random,
 	clock: () -> number, -- seconds, for how long a race took
@@ -190,6 +194,7 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 	local spec: any = nil
 	local model = ""
 	local why: string? = nil
+	local where: any = nil
 	if mode == "quick" then
 		if type(arg) ~= "number" or arg ~= math.floor(arg) or arg < 1 or arg > 3 then
 			return nil, "pick a rival"
@@ -231,20 +236,41 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 			return
 		end
 		local r = rival :: RivalCard
+		local m = self.mods
+		local def = data.carDef(car.model)
+		-- Somewhere different each Quick Race; a campaign chapter races at its own venue. The sky
+		-- and the strip's grip come with it (Race.tsx DragRace: raceWeather, conditions).
+		local v = if chapter then m.venues.venue(data.CAMPAIGN[(arg :: any).chapter + 1].venue) else m.venues.pickVenue(nil, function()
+			return m.random:NextNumber()
+		end)
+		local sky = m.weather.raceWeather(v.id)
+		local mine = m.grip.conditions(sky.kind, v.id, m.grip.carGrip(def, car.upgrades, car.mods), car.mods)
+		local theirs = m.grip.conditions(sky.kind, v.id, data.carDef(r.model).grip or 50)
+		-- Every AI rival is one this car can beat with perfect driving (fairPi.ts), as the web's
+		-- race screen makes sure of for every race.
+		local racePi = m.fairPi.fairRivalPi(r.pi, myPi, r.shift, r.skill)
+		if mode == "quick" then
+			r = table.clone(r)
+			r.prize = round(150 + racePi * 6)
+			rival = r
+		end
 		spec = {
 			myPi = myPi,
-			mySkill = data.carDef(car.model).skill,
-			rival = { pi = r.pi, shift = r.shift, skill = r.skill },
-			seed = self.mods.random:NextInteger(1, 2147483646),
-			track = 400,
+			mySkill = def.skill,
+			rival = { pi = racePi, shift = r.shift, skill = r.skill },
+			seed = m.random:NextInteger(1, 2147483646),
+			track = data.TRACK or 400,
+			grip = { lo = mine.lo, hi = mine.hi, spin = mine.spin, dust = mine.dust },
+			theirGrip = { lo = theirs.lo, hi = theirs.hi, spin = theirs.spin, dust = theirs.dust },
 		}
+		where = { id = v.id, name = v.name, icon = v.icon, sky = sky.kind, note = m.grip.conditionsNote(mine) }
 	end)
 	if not spec then
 		return nil, why
 	end
 	local r = rival :: RivalCard
 	self.pending[userId] = { mode = mode, spec = spec, rival = r, chapter = chapter, race = raceNo, model = model, startedAt = self.mods.clock() }
-	return { spec = spec, rival = r, mode = mode }
+	return { spec = spec, rival = r, mode = mode, venue = where }
 end
 
 -- Finishes the race started last, from the client's presses: races it again and pays it.

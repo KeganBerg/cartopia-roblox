@@ -32,7 +32,7 @@ local function currentSeason()
         return pin
     end
     return ____exports.seasonOf(
-        __TS__New(Date).getMonth() + 1,
+        __TS__New(Date):getMonth() + 1,
         __ns____game_sun_1.south()
     )
 end
@@ -49,9 +49,9 @@ local function seasonProgress()
         )
     end
     local now = __TS__New(Date)
-    local y = now.getFullYear()
-    local m = now.getMonth() + 1
-    local d = now.getDate()
+    local y = now:getFullYear()
+    local m = now:getMonth() + 1
+    local d = now:getDate()
     local startMonth = ({12, 3, 6, 9})[math.floor(m % 12 / 3) + 1]
     local startYear = if startMonth == 12 and m <= 2 then y - 1 else y
     local start = Date:UTC(startYear, startMonth - 1, 1)

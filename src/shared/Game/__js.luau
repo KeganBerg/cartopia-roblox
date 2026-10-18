@@ -160,6 +160,21 @@ end
 function JsDate.prototype.getUTCHours(self)
     return math.floor((self.t % DAY + DAY) % DAY / 3600000)
 end
+function JsDate.prototype.getFullYear(self)
+    return self:getUTCFullYear()
+end
+function JsDate.prototype.getMonth(self)
+    return self:getUTCMonth()
+end
+function JsDate.prototype.getDate(self)
+    return self:getUTCDate()
+end
+function JsDate.prototype.getDay(self)
+    return self:getUTCDay()
+end
+function JsDate.prototype.getHours(self)
+    return self:getUTCHours()
+end
 function JsDate.prototype.toISOString(self)
     local y, m, d = table.unpack(
         self:ymd(),
