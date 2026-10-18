@@ -128,7 +128,13 @@ function Gui.partOf(d)
 		color = d.Color:ToHex(),
 		transparency = d.Transparency,
 		material = enumName(d.Material),
-		text = if label then { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() }
+		text = if label then {
+				text = label.Text,
+				fg = label.TextColor3:ToHex(),
+				bg = label.BackgroundColor3:ToHex(),
+				clear = label.BackgroundTransparency >= 1 or nil,
+				stroke = if label.TextStrokeTransparency < 1 then label.TextStrokeColor3:ToHex() else nil,
+			}
 			elseif surface and surface:GetAttribute("Checker") then (function()
 				local back = surface:FindFirstChildOfClass("Frame")
 				local cell = back and back:FindFirstChildOfClass("Frame")
