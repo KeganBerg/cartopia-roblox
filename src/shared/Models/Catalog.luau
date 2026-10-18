@@ -1202,7 +1202,7 @@ Catalog.LOOKS = {
 	{ color = "#f44336", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#4caf50", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#ffffff", transparency = 0, material = "SmoothPlastic", text = { text = "▚▚▚", fg = "#111111", bg = "#ffffff" } },
-	{ color = "#f3f3f3", transparency = 0, material = "Neon" },
+	{ color = "#d2d2d2", transparency = 0, material = "Neon" },
 	{ color = "#384654", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#fcb654", transparency = 0, material = "Neon" },
 	{ color = "#1c8ce0", transparency = 0, material = "SmoothPlastic" },
@@ -1228,7 +1228,6 @@ Catalog.LOOKS = {
 	{ color = "#7e8c9a", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#1c62c4", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#2a389a", transparency = 0, material = "SmoothPlastic" },
-	{ color = "#eeeeee", transparency = 0, material = "Neon" },
 	{ color = "#f1dcae", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#a1795a", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#949593", transparency = 0, material = "SmoothPlastic" },
@@ -1404,6 +1403,8 @@ Catalog.LOOKS = {
 	{ color = "#b68c62", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#c4a87e", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#a88c62", transparency = 0, material = "SmoothPlastic" },
+	{ color = "#d0d0d0", transparency = 0, material = "Neon" },
+	{ color = "#cfcfcf", transparency = 0, material = "Neon" },
 }
 
 -- Where each car wears a hat ("hat:<id>" models): { x, y, z, qx, qy, qz, qw, scale } from the car's
