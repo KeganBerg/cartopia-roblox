@@ -5,7 +5,9 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Paint = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Paint"))
+local Models = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models")
+local Paint = require(Models:WaitForChild("Paint"))
+local Builder = require(Models:WaitForChild("Builder"))
 
 local Thumb = {}
 
@@ -41,15 +43,44 @@ function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: C
 	return vp
 end
 
--- A car in a whole paint job: its colour in its finish, and its stripes.
-function Thumb.car(id: string, size: UDim2, job: Paint.Job): ViewportFrame
+-- A car in a whole paint job (its colour in its finish, and its stripes) and the hat it wears.
+function Thumb.car(id: string, size: UDim2, job: Paint.Job, hat: any?): ViewportFrame
 	local vp = Thumb.new("Cars", id, size)
 	local m = vp:FindFirstChildOfClass("Model")
 	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
 	local stripes = lib and lib:FindFirstChild("Stripes") and (lib :: any).Stripes:FindFirstChild(id)
 	if m then
 		Paint.apply(m, job, stripes)
+		Paint.wearHat(m, id, hat, Builder.build)
 		end
+	return vp
+end
+
+-- A hat on its own (Paint.hatName), seen a little from above: empty until its meshes have reached
+-- this player (Builder.useLibrary), when `fallback` (its emoji) shows instead.
+function Thumb.hat(name: string, size: UDim2, fallback: string): GuiObject
+	local m = Builder.build(name)
+	if not m or #m:GetChildren() == 0 then
+		local t = Instance.new("TextLabel")
+		t.Size = size
+		t.BackgroundTransparency = 1
+		t.Text = fallback
+		t.TextScaled = true
+		return t
+	end
+	local vp = Instance.new("ViewportFrame")
+	vp.Size = size
+	vp.BackgroundTransparency = 1
+	vp.Ambient = Color3.fromRGB(170, 175, 185)
+	vp.LightColor = Color3.new(1, 1, 1)
+	vp.LightDirection = Vector3.new(-1, -2, -1.2)
+	m.Parent = vp
+	local cf, ext = m:GetBoundingBox()
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = 30
+	cam.CFrame = CFrame.lookAt(cf.Position + Vector3.new(0.6, 0.55, 1).Unit * ext.Magnitude * 2, cf.Position)
+	cam.Parent = vp
+	vp.CurrentCamera = cam
 	return vp
 end
 

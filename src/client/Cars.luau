@@ -20,6 +20,7 @@ local Collection = require(script.Parent.Collection)
 local CrateDepot = require(script.Parent.Crates)
 local CallCards = require(script.Parent.CallCards)
 local PaintShop = require(script.Parent.PaintShop)
+local HatShop = require(script.Parent.HatShop)
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 
 local Cars = {}
@@ -236,8 +237,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	end
 
 	-- The car on the turntable, turning slowly, framed in the space between the two cards.
-	local function stage(model: string, job: Paint.Job, pi: number, owned: number?)
-		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job)
+	local function stage(model: string, job: Paint.Job, pi: number, owned: number?, hat: any?)
+		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job, hat)
 		v.Position = UDim2.fromOffset(280, 10)
 		v.ZIndex = 1
 		v.Parent = content
@@ -283,6 +284,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	local garageTab = "tune"
 	-- A paint job being tried on in the Paint tab (the car's uid and the job).
 	local painting: { uid: string, job: Paint.Job }? = nil
+	-- A hat being tried on in the Hats tab (false: trying no hat).
+	local hatting: { uid: string, hat: any }? = nil
 	local function garage()
 		local s = store.useGame.getState()
 		local rows = {}
@@ -343,7 +346,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 			return
 		end
 		local tryJob = if painting and painting.uid == car.c.uid and garageTab == "paint" then painting.job else nil
-		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil)
+		local tryHat = if hatting and hatting.uid == car.c.uid and garageTab == "hats" then hatting.hat else nil
+		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat)
 
 		local listCard = glass(content, "List", { Position = UDim2.fromOffset(12, 16), Size = UDim2.new(0, 260, 1, -28) })
 		local filters = Ui.new("Frame", { Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, 34), BackgroundTransparency = 1, ZIndex = 3, Parent = listCard })
@@ -419,6 +423,9 @@ function Cars.open(ctx: any, tab: string?): Instance
 			Ui.text({ Text = t[2], TextSize = 16, Position = UDim2.fromOffset(0, 3), Size = UDim2.new(1, 0, 0, 20), ZIndex = 3, Parent = b })
 			Ui.text({ Text = t[3], TextSize = 12, TextColor3 = if on then Color3.fromHex("#263238") else Color3.fromHex("#546e7a"), Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, 0, 0, 16), ZIndex = 3, Parent = b })
 			b.Activated:Connect(function()
+				if garageTab ~= t[1] then
+					HatShop.reset()
+				end
 				garageTab = t[1]
 				render()
 			end)
@@ -453,6 +460,13 @@ function Cars.open(ctx: any, tab: string?): Instance
 				end
 				y += 46
 			end
+		elseif garageTab == "hats" then
+			local space = Ui.new("Frame", { Name = "Shop", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 4, 1, -y), BackgroundTransparency = 1, ZIndex = 3, Parent = pad })
+			HatShop.draw(space, ctx, car.c, tryHat, function(h: any)
+				hatting = if h == nil then nil else { uid = car.c.uid, hat = h }
+				render()
+			end)
+			return
 		elseif garageTab == "paint" then
 			local space = Ui.new("Frame", { Name = "Shop", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 4, 1, -y), BackgroundTransparency = 1, ZIndex = 3, Parent = pad })
 			PaintShop.draw(space, ctx, car.c, tryJob or Paint.jobOf(car.c), function(job: Paint.Job?)
@@ -706,7 +720,7 @@ function Cars.open(ctx: any, tab: string?): Instance
 			local car = raceCar.raceCarOf(s.cars, s.raceCar)
 			if car then
 				local d = data.carDef(car.model)
-				stage(car.model, Paint.jobOf(car), data.performance(d, car.upgrades, car.mods))
+				stage(car.model, Paint.jobOf(car), data.performance(d, car.upgrades, car.mods), nil, car.hat)
 			end
 			CallCards.draw(content, ctx, function()
 				CrateDepot.reset()

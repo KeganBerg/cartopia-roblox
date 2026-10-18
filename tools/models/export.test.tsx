@@ -360,6 +360,38 @@ it('exports every building and car', async () => {
     const stripes = striped.filter((p) => p.look.c === '#0000fe')
     if (stripes.length) models.push({ id: `stripe:${c.id}`, kind: 'piece', pieces: stripes })
   }
+  // Hats (CarHat.tsx), each standing on its own origin, once in every colour it comes in (named as
+  // CarHat caches them: "hat:<id>|<colours>"). The shapes are the same in each colour, so only the
+  // looks add up.
+  const { HATS, hatChoices, hatPaint } = await import('./game/hats')
+  const { HatModel } = await import('./scene/CarHat')
+  const hatSpotOf: Record<string, number[]> = {}
+  if (!only) {
+    for (const h of HATS) {
+      const choices = hatChoices(h)
+      const fits: { id: string; colors?: string[] }[] = [{ id: h.id }]
+      if (choices) for (const a of choices) {
+        fits.push({ id: h.id, colors: [a] })
+        if (h.colors === 'twoTone') for (const b of choices) if (b !== a) fits.push({ id: h.id, colors: [a, b] })
+      }
+      const done = new Set<string>()
+      for (const fit of fits) {
+        const id = `hat:${h.id}|${hatPaint(fit).join(',')}`
+        if (done.has(id)) continue
+        done.add(id)
+        models.push({ id, kind: 'piece', pieces: await render(<HatModel hat={fit} />) })
+      }
+    }
+    // Where each car wears a hat (CarModel's hatSpot): drawn wearing the Hard Hat, the hat's own
+    // pieces (the same shapes as the Hard Hat drawn alone) give its place, tilt and size.
+    const alone = await render(<HatModel hat={{ id: 'hardhat' }} />)
+    const hatGeos = new Set(alone.map((p) => p.g))
+    for (const c of CARS) {
+      const worn = await render(<CarModel body={c.body} model={c.id} color={c.colors[0]} hat={{ id: 'hardhat' }} />)
+      const p = worn.find((x) => hatGeos.has(x.g))
+      if (p) hatSpotOf[c.id] = p.m
+    }
+  }
   // Street pieces the town is assembled from (TownView draws each road tile from these, the way
   // World.tsx's RoadTile does): sidewalks for every side and pair of ends, the rounded corners,
   // manholes, and sidewalk furniture standing at its spot's origin, facing south.
@@ -413,7 +445,7 @@ it('exports every building and car', async () => {
   }
   await outskirts('outskirts:forest', plots, true)
   for (const key of plots) await outskirts(`wilds:${key}`, plots.filter((k) => k !== key), false)
-  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geos: geoList, models, hatSpots: hatSpotOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

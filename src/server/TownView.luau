@@ -640,7 +640,7 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 			queue += 1
 		end
 		local job = Paint.jobOf(car)
-		local key = `{car.model}|{Paint.key(job)}`
+		local key = `{car.model}|{Paint.key(job)}|{Paint.hatName(car.hat) or ""}`
 		local have: { model: Model, key: string }? = self.cars[car.uid]
 		if have and have.key ~= key then
 			have.model:Destroy()
@@ -650,6 +650,7 @@ function TownView._renderCars(self: TownView, cars: { any }, buildings: { any },
 			local m = Builder.build(car.model)
 			if m then
 				Paint.apply(m, job, if type(job.stripe) == "string" then Builder.build(`stripe:{car.model}`) else nil)
+				Paint.wearHat(m, car.model, car.hat, Builder.build)
 				m.Name = car.uid
 				m.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 				m:SetAttribute("Uid", car.uid)

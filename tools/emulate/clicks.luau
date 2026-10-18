@@ -456,6 +456,13 @@ end
 clickAll("cards", function()
 	hud.openPanel("cars", "cards")
 end)
+clickAll("hats", function()
+	hud.openPanel("cars", "garage")
+	local b = hud.gui:FindFirstChild("hats", true)
+	if b then
+		signalFor(b, "Activated"):Fire()
+	end
+end)
 clickAll("paint", function()
 	hud.openPanel("cars", "garage")
 	local b = hud.gui:FindFirstChild("paint", true)
@@ -547,6 +554,25 @@ if SHOTS then
 	local painted = towns:snapshot(1).save.cars[1]
 	assert(painted.finish == "chrome" and painted.stripe == "#fafafa" and painted.color == "#1e88e5", `paint job didn't stick: {painted.color} {painted.finish} {painted.stripe}`)
 	shot("paint-bought", nil)
+	-- Hats: try the cap, make it two colours with a blue brim and wear it; then look at a locked one.
+	towns:_with(1, function()
+		store.useGame.setState({ hats = { "cap", "tophat" } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("cars", "garage")
+	tap("hats")
+	shot("hats", nil)
+	tap("cap")
+	tap("TwoColours")
+	tap("Brim#1e88e5")
+	shot("hats-try", nil)
+	tap("Go")
+	local capped = towns:snapshot(1).save.cars[1].hat
+	assert(capped and capped.id == "cap" and capped.colors and capped.colors[2] == "#1e88e5", "the cap didn't stick")
+	shot("hats-worn", nil)
+	tap("crown")
+	shot("hats-locked", nil)
 	-- Call Cards: wearing one you won, then looking at one still locked.
 	towns:_with(1, function()
 		store.useGame.setState({ callCards = { "neonalley", "plasma", "goldrush" }, callCard = "neonalley" })
