@@ -2665,7 +2665,7 @@ do
 			table.insert(list, `{k} {math.floor(v)}/s`)
 		end
 		table.sort(list)
-		print(`weather {kind}: brightness {string.format("%.2f", L.Brightness)}, exposure {string.format("%.2f", L.ExposureCompensation)}, air {string.format("%.2f", L.Air.Density)}; {table.concat(list, ", ")}; {#fx.beams} beams`)
+		print(`weather {kind}: brightness {string.format("%.2f", L.Brightness)}, exposure {string.format("%.2f", L.ExposureCompensation)}, air {string.format("%.2f", (L:FindFirstChildWhichIsA("Atmosphere") or { Density = 0 }).Density)}; {table.concat(list, ", ")}; {#fx.beams} beams`)
 		if kind == "storm" then
 			assert(#fx.beams >= 16, "no lightning in the storm")
 		elseif kind == "clearing" then
