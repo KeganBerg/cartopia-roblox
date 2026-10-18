@@ -8,7 +8,7 @@
 //
 // Uses the web repo's three.js and Playwright. CHROMIUM=<path> picks the browser.
 
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
@@ -65,6 +65,18 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
     find(gui)
     for (const e of list) if (want.has(e.key)) images[e.key] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/splash', e.file)).toString('base64')
   } catch {}
+  // The Call Cards' sheets (tools/callcards/build.mjs), as "callcard:sheet-<n>".
+  const wantCards = new Set()
+  const findCards = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (typeof n.image?.key === 'string' && n.image.key.startsWith('callcard:')) wantCards.add(n.image.key)
+    for (const v of Object.values(n)) if (v && typeof v === 'object') findCards(v)
+  }
+  findCards(gui)
+  for (const key of wantCards) {
+    const file = join(ROOT, 'build/callcards', key.slice(9) + '.png')
+    if (existsSync(file)) images[key] = 'data:image/png;base64,' + readFileSync(file).toString('base64')
+  }
   // The sky's faces (tools/sky/build.mjs) for the step the scene asks for.
   const sky = {}
   if (scene.sky) {
@@ -319,19 +331,24 @@ function draw(node, into = ui, ox = 0, oy = 0) {
     const fit = { Crop: 'cover', Fit: 'contain' }[node.image.scale] || 'fill'
     const wrap = document.createElement('div')
     Object.assign(wrap.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 1 - node.image.t, isolation: 'isolate' })
-    const img = document.createElement('img')
-    img.src = src
-    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit })
+    const r = node.image.rect
+    // A sheet's piece: the sheet drawn scaled so the piece fills the box.
+    const piece = r && { backgroundImage: 'url(' + src + ')', backgroundSize: (1024 * pw / r[2]) + 'px ' + (1024 * ph / r[3]) + 'px', backgroundPosition: (-r[0] * pw / r[2]) + 'px ' + (-r[1] * ph / r[3]) + 'px', backgroundRepeat: 'no-repeat' }
+    const img = document.createElement(r ? 'div' : 'img')
+    if (!r) img.src = src
+    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit }, piece || {})
     wrap.append(img)
     if (node.image.color && node.image.color.toLowerCase() !== 'ffffff') {
       const tint = document.createElement('div')
-      const mask = { WebkitMaskImage: 'url(' + src + ')', maskImage: 'url(' + src + ')', WebkitMaskSize: '100% 100%', maskSize: '100% 100%' }
+      const mask = r
+        ? { WebkitMaskImage: piece.backgroundImage, maskImage: piece.backgroundImage, WebkitMaskSize: piece.backgroundSize, maskSize: piece.backgroundSize, WebkitMaskPosition: piece.backgroundPosition, maskPosition: piece.backgroundPosition, WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat' }
+        : { WebkitMaskImage: 'url(' + src + ')', maskImage: 'url(' + src + ')', WebkitMaskSize: '100% 100%', maskSize: '100% 100%' }
       Object.assign(tint.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', background: '#' + node.image.color, mixBlendMode: 'multiply' }, mask)
       wrap.append(tint)
     }
     el.append(wrap)
   }
-  if (node.clip) el.style.overflow = 'hidden'
+  if (node.clip || (node.image && node.corner != null)) el.style.overflow = 'hidden'
   into.append(el)
   // Children nest inside so a clipping frame (a scrolling list) hides what runs past it.
   const kids = (Array.isArray(node.children) ? node.children : []).map((k, i) => [k, i]).sort((a, b) => (a[0].z ?? 1) - (b[0].z ?? 1) || a[1] - b[1])

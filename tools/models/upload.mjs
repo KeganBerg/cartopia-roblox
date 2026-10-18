@@ -87,13 +87,17 @@ const splashList = existsSync(join(SPLASH_DIR, 'list.json')) ? JSON.parse(readFi
 // The sky's faces (tools/sky/build.mjs).
 const SKY_DIR = join(ROOT, 'build/sky')
 const skyList = existsSync(join(SKY_DIR, 'list.json')) ? JSON.parse(readFileSync(join(SKY_DIR, 'list.json'), 'utf8')) : []
-// Textures and pictures share assets.json with the packs, as "texture:<name>", "splash:<name>" and
-// "sky:<name>".
+// The Call Cards' picture sheets (tools/callcards/build.mjs).
+const CARD_DIR = join(ROOT, 'build/callcards')
+const cardList = existsSync(join(CARD_DIR, 'list.json')) ? JSON.parse(readFileSync(join(CARD_DIR, 'list.json'), 'utf8')) : []
+// Textures and pictures share assets.json with the packs, as "texture:<name>", "splash:<name>",
+// "sky:<name>" and "callcard:<name>".
 const packs = [
   ...JSON.parse(readFileSync(join(GLB_DIR, 'packs.json'), 'utf8')).map((p) => ({ ...p, path: join(GLB_DIR, p.file) })),
   ...texList.map((t) => ({ name: `texture:${t.name}`, path: join(TEX_DIR, t.file), image: true })),
   ...splashList.map((t) => ({ name: `splash:${t.name}`, path: join(SPLASH_DIR, t.file), image: true })),
   ...skyList.map((t) => ({ name: `sky:${t.name}`, path: join(SKY_DIR, t.file), image: true })),
+  ...cardList.map((t) => ({ name: `callcard:${t.name}`, path: join(CARD_DIR, t.file), image: true })),
 ]
 const assets = existsSync(ASSETS) ? JSON.parse(readFileSync(ASSETS, 'utf8')) : {}
 const todo = packs.filter((p) => !assets[p.name])

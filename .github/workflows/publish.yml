@@ -65,6 +65,8 @@ jobs:
           # The sky past the town, baked from the web game's sky shader in a headless browser.
           (cd web && npx playwright install --with-deps chromium)
           node tools/sky/build.mjs web
+          # The Call Cards, baked from the web game's own CSS scenes in the same browser.
+          node tools/callcards/build.mjs web
 
       - name: Upload new 3D shapes to Roblox
         if: env.CAN_PUBLISH == 'true'
@@ -81,6 +83,7 @@ jobs:
           node tools/models/build.mjs --json build/models.json
           node tools/splash/build.mjs web
           node tools/sky/build.mjs --ids
+          node tools/callcards/build.mjs --ids
 
       - name: Install Luau 0.700 (newer releases flag type errors in the port)
         run: |
@@ -91,7 +94,7 @@ jobs:
       - name: See whether the web game changed
         id: diff
         run: |
-          git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau tests/Golden.luau tests/StoreGolden.luau tests/SpeedwayGolden.luau
+          git add src/shared/Game src/shared/CallCardLooks.luau src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau tests/Golden.luau tests/StoreGolden.luau tests/SpeedwayGolden.luau
           if [ -f tools/models/assets.json ]; then git add tools/models/assets.json; fi
           if [ -f tools/models/images.json ]; then git add tools/models/images.json; fi
           if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi

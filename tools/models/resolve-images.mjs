@@ -28,7 +28,7 @@ const oneLine = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 300)
 const assets = JSON.parse(readFileSync(ASSETS, 'utf8'))
 const images = existsSync(IMAGES) ? JSON.parse(readFileSync(IMAGES, 'utf8')) : {}
 const decals = Object.entries(assets)
-  .filter(([name]) => name.startsWith('texture:') || name.startsWith('splash:') || name.startsWith('sky:'))
+  .filter(([name]) => name.startsWith('texture:') || name.startsWith('splash:') || name.startsWith('sky:') || name.startsWith('callcard:'))
   .map(([, id]) => id)
 const todo = [...new Set(decals)].filter((id) => !images[id])
 console.log(`${decals.length} pictures, ${todo.length} to look up`)
