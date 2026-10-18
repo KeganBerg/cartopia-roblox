@@ -483,6 +483,13 @@ clickAll("custom", function()
 		signalFor(b, "Activated"):Fire()
 	end
 end)
+clickAll("trim", function()
+	hud.openPanel("cars", "garage")
+	local b = hud.gui:FindFirstChild("trim", true)
+	if b then
+		signalFor(b, "Activated"):Fire()
+	end
+end)
 clickAll("paint", function()
 	hud.openPanel("cars", "garage")
 	local b = hud.gui:FindFirstChild("paint", true)
@@ -657,6 +664,31 @@ if SHOTS then
 	local custom = towns:snapshot(1).save.cars[1].panels
 	assert(custom and custom.hood and custom.hood.color == "#1e88e5" and custom.hood.pattern == "camo", "the custom paint didn't stick")
 	shot("custom-bought", nil)
+	-- Trim: try limo tint, violet headlights and black handles, buy them, then save the look.
+	towns:_with(1, function()
+		local cars = {}
+		for i, c in store.useGame.getState().cars do
+			cars[i] = table.clone(c)
+			cars[i].trim = nil
+		end
+		store.useGame.setState({ coins = 1000000, level = 10, cars = cars, presets = {} })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("cars", "garage")
+	tap("trim")
+	shot("trim", nil)
+	tap("tint:smoke")
+	tap("lights:violet")
+	tap("handles:black")
+	shot("trim-try", nil)
+	tap("Go")
+	local trimmed = towns:snapshot(1).save.cars[1].trim
+	assert(trimmed and trimmed.tint == "smoke" and trimmed.lights == "violet" and trimmed.handles == "black", "the trim didn't stick")
+	tap("Save")
+	local saved = towns:snapshot(1).save.presets
+	assert(saved and saved[1] and saved[1].trim and saved[1].trim.tint == "smoke", "the look didn't save")
+	shot("trim-bought", nil)
 	-- Call Cards: wearing one you won, then looking at one still locked.
 	towns:_with(1, function()
 		store.useGame.setState({ callCards = { "neonalley", "plasma", "goldrush" }, callCard = "neonalley" })

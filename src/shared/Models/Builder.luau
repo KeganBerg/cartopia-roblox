@@ -19,6 +19,7 @@ local Builder = {}
 local MOD_DROPS: { [string]: any } = (Catalog :: any).MOD_DROPS or {}
 local WHEELS: { [string]: any } = (Catalog :: any).WHEELS or {}
 local PANEL_DROPS: { [string]: any } = (Catalog :: any).PANEL_DROPS or {}
+local TRIM: { [string]: any } = (Catalog :: any).TRIM or {}
 
 local templates: { [string]: Model } = {}
 local meshParts: { [string]: MeshPart } = {}
@@ -340,8 +341,8 @@ local function template(name: string): Model?
 	local mod = name:sub(1, 4) == "mod:" or name:sub(1, 6) == "panel:"
 	local scenery = (merged ~= nil or mod or name:sub(1, 7) == "stripe:" or name:sub(1, 4) == "hat:") and not Builder.previewMeshes
 	-- A car's parts and its mods' are named by their place in the list, which Catalog.MOD_DROPS,
-	-- WHEELS and PANEL_DROPS point at.
-	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil or PANEL_DROPS[name] ~= nil
+	-- WHEELS, PANEL_DROPS and TRIM point at.
+	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil or PANEL_DROPS[name] ~= nil or TRIM[name] ~= nil
 	local missing = false
 	for i, p in parts do
 		if scenery and p[1] == "m" and not meshParts[p[13]] then

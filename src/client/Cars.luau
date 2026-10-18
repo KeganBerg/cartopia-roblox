@@ -23,6 +23,7 @@ local PaintShop = require(script.Parent.PaintShop)
 local HatShop = require(script.Parent.HatShop)
 local ModShop = require(script.Parent.ModShop)
 local CustomShop = require(script.Parent.CustomShop)
+local TrimShop = require(script.Parent.TrimShop)
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 
 local Cars = {}
@@ -239,8 +240,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	end
 
 	-- The car on the turntable, turning slowly, framed in the space between the two cards.
-	local function stage(model: string, job: Paint.Job, pi: number, owned: number?, hat: any?, mods: { string }?, panels: any?)
-		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job, hat, mods, panels)
+	local function stage(model: string, job: Paint.Job, pi: number, owned: number?, hat: any?, mods: { string }?, panels: any?, trim: any?)
+		local v = Thumb.car(model, UDim2.new(1, -700, 1, -40), job, hat, mods, panels, trim)
 		v.Position = UDim2.fromOffset(280, 10)
 		v.ZIndex = 1
 		v.Parent = content
@@ -292,6 +293,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	local modding: { uid: string, id: string }? = nil
 	-- Custom paint being tried on in the Custom tab.
 	local customing: { uid: string, panels: any }? = nil
+	-- Trim being tried on in the Trim tab.
+	local trimming: { uid: string, trim: any }? = nil
 	-- Cars whose mod meshes have been asked for (they load the first time a car needs them).
 	local asked: { [string]: boolean } = {}
 	local function garage()
@@ -359,7 +362,9 @@ function Cars.open(ctx: any, tab: string?): Instance
 		local mods = ModShop.withMod(car.c.mods, tryMod)
 		local tryPanels = if customing and customing.uid == car.c.uid and garageTab == "custom" then customing.panels else nil
 		local panels = tryPanels or car.c.panels
-		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat, mods, panels)
+		local tryTrim = if trimming and trimming.uid == car.c.uid and garageTab == "trim" then trimming.trim else nil
+		local trim = tryTrim or car.c.trim
+		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat, mods, panels, trim)
 		-- The car's mod and custom paint meshes, the first time it shows them or opens the Mods or
 		-- Custom tab: drawn again once in.
 		if not asked[car.c.model] and (#mods > 0 or panels ~= nil or garageTab == "mods" or garageTab == "custom") then
@@ -498,6 +503,13 @@ function Cars.open(ctx: any, tab: string?): Instance
 			local space = Ui.new("Frame", { Name = "Shop", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 4, 1, -y), BackgroundTransparency = 1, ZIndex = 3, Parent = pad })
 			CustomShop.draw(space, ctx, car.c, panels, function(p: any)
 				customing = if p then { uid = car.c.uid, panels = p } else nil
+				render()
+			end)
+			return
+		elseif garageTab == "trim" then
+			local space = Ui.new("Frame", { Name = "Shop", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 4, 1, -y), BackgroundTransparency = 1, ZIndex = 3, Parent = pad })
+			TrimShop.draw(space, ctx, car.c, trim, function(t: any)
+				trimming = if t then { uid = car.c.uid, trim = t } else nil
 				render()
 			end)
 			return
