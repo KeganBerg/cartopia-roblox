@@ -8,6 +8,8 @@
 --   Race   RemoteFunction  client -> server: ("rivals" | "campaign" | "start" | "finish", ...)
 --                          -> ok, result or error text (see Races)
 --   Crate  RemoteFunction  client -> server: (crate id, free source?, count) -> ok, the opens or why
+--   Arcade RemoteFunction  client -> server: ("state" | "start" | "submit" | "board" | "prizes" |
+--                          "claim", ...) -> ok, result or why (see Arcade)
 --   Meshes RemoteFunction  client -> server: (car id) -> loads that car's mod meshes into
 --                          ReplicatedStorage.MeshLibrary, answering once they're in
 --
@@ -37,6 +39,7 @@ local Races = require(script.Races)
 local Boards = require(script.Boards)
 local Ghosts = require(script.Ghosts)
 local Crates = require(script.Crates)
+local Arcade = require(script.Arcade)
 local Policies = require(script.Policies)
 local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
@@ -144,6 +147,50 @@ local crates = Crates.new(towns, require(Game.store), require(Game.crates), func
 	return Policy.canOpenCrate(policies:get(userId), pay, free)
 end)
 
+-- The arcade: one weekly board per board game, and each player's bests, free plays and claimed
+-- prizes in the Arcade_v1 DataStore.
+local arcadeRecords = DataStoreService:GetDataStore("Arcade_v1")
+local arcade = Arcade.new(towns, {
+	store = require(Game.store),
+	data = require(Game.data),
+	arcade = require(Game.arcade),
+	arcadeMore = require(Game.arcadeMore),
+	trial = require(Game.trial),
+	boards = (function()
+		local out = {}
+		for _, g in Arcade.BOARD_GAMES do
+			out[g] = Boards.new(`Arcade_{g}`, {
+				ordered = function(name: string): any
+					return DataStoreService:GetOrderedDataStore(name)
+				end,
+				plain = function(name: string): any
+					return DataStoreService:GetDataStore(name)
+				end,
+			}, os.clock)
+		end
+		return out
+	end)(),
+	records = {
+		get = function(userId: number): any
+			local ok, v = pcall(arcadeRecords.GetAsync, arcadeRecords, tostring(userId))
+			-- A failed read mustn't start a fresh record over the saved one (Studio without API
+			-- access plays on a fresh one).
+			if not ok and not RunService:IsStudio() then
+				error(`arcade record: {v}`)
+			end
+			return if ok then v else nil
+		end,
+		set = function(userId: number, record: any): boolean
+			return (pcall(arcadeRecords.SetAsync, arcadeRecords, tostring(userId), record))
+		end,
+	},
+	clock = os.clock,
+	now = now,
+	random = function(): number
+		return math.random()
+	end,
+})
+
 local remotes = Instance.new("Folder")
 remotes.Name = "Cartopia"
 local act = Instance.new("RemoteFunction")
@@ -158,6 +205,9 @@ raceRemote.Parent = remotes
 local crateRemote = Instance.new("RemoteFunction")
 crateRemote.Name = "Crate"
 crateRemote.Parent = remotes
+local arcadeRemote = Instance.new("RemoteFunction")
+arcadeRemote.Name = "Arcade"
+arcadeRemote.Parent = remotes
 local meshRemote = Instance.new("RemoteFunction")
 meshRemote.Name = "Meshes"
 meshRemote.Parent = remotes
@@ -363,6 +413,7 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	-- First, so a double-or-nothing rematch left half way is settled in the save.
 	races:close(player.UserId)
+	arcade:close(player.UserId)
 	save(player, true)
 	towns:close(player.UserId)
 	policies:forget(player.UserId)
@@ -454,6 +505,42 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 		return false, "error"
 	end
 	if op == "start" or op == "finish" or op == "act" then
+		push(player)
+	end
+	if result == nil then
+		return false, why
+	end
+	return true, result
+end
+
+arcadeRemote.OnServerInvoke = function(player: Player, op: any, a: any, b: any, c: any)
+	if not towns:isOpen(player.UserId) then
+		return false, "town not loaded"
+	end
+	if not allow(player) then
+		return false, "slow down"
+	end
+	local ran, result, why = pcall(function(): (any, any)
+		if op == "state" then
+			return arcade:state(player.UserId), nil
+		elseif op == "start" then
+			return arcade:start(player.UserId, a, b)
+		elseif op == "submit" then
+			return arcade:submit(player.UserId, a, b, c)
+		elseif op == "board" then
+			return arcade:board(player.UserId, a)
+		elseif op == "prizes" then
+			return arcade:prizes(player.UserId), nil
+		elseif op == "claim" then
+			return arcade:claim(player.UserId, a, b)
+		end
+		return nil, "not an arcade call"
+	end)
+	if not ran then
+		warn(`[Cartopia] {player.Name} arcade {op}: {result}`)
+		return false, "error"
+	end
+	if op == "start" or op == "submit" or op == "claim" then
 		push(player)
 	end
 	if result == nil then
