@@ -448,6 +448,9 @@ for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory"
 		hud.openPanel(p)
 	end)
 end
+clickAll("cards", function()
+	hud.openPanel("cars", "cards")
+end)
 print(`{total} buttons pressed, {bad} problems, {silent} not wired`)
 
 local fs = require("@lune/fs")
@@ -490,6 +493,30 @@ if SHOTS then
 	hud.ctx.close()
 	hud.openPanel("book")
 	shot("book", nil)
+	-- Call Cards: wearing one you won, then looking at one still locked.
+	towns:_with(1, function()
+		store.useGame.setState({ callCards = { "neonalley", "plasma", "goldrush" }, callCard = "neonalley" })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("cars", "cards")
+	shot("cards", nil)
+	local thunder = hud.gui:FindFirstChild("thunderroad", true)
+	if thunder then
+		signalFor(thunder, "Activated"):Fire()
+		shot("cards-locked", nil)
+	end
+	local gold = hud.gui:FindFirstChild("goldrush", true)
+	local go = nil
+	if gold then
+		signalFor(gold, "Activated"):Fire()
+		go = hud.gui:FindFirstChild("Go", true)
+	end
+	if go then
+		signalFor(go, "Activated"):Fire()
+		assert(towns:snapshot(1).save.callCard == "goldrush", "equipping a Call Card didn't stick")
+		shot("cards-equipped", nil)
+	end
 	hud.ctx.close()
 	hud.openPanel("crates")
 	shot("crates", nil)
