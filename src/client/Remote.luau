@@ -37,6 +37,7 @@ local WHY = {
 	["That race isn't open yet"] = "That race isn't open yet",
 	["too quick"] = "That race didn't count. Try again.",
 	filter = "Couldn't check that name. Try again.",
+	["paid crates restricted"] = "Gem crates aren't available where you live",
 }
 
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
@@ -93,6 +94,39 @@ function Remote.crate(id: string, free: string?, count: number?): { any }?
 		return nil
 	end
 	return result
+end
+
+-- Spins today's Daily Spin on the server (server/Crates spin, through the Crate remote). Returns
+-- the spin { slice, open } for the wheel to land on, or nil (with a toast saying why).
+function Remote.spin(): any?
+	local sent, ok, result = pcall(crateRemote.InvokeServer, crateRemote, "wheel")
+	if not sent then
+		warn(`[Cartopia] wheel: {ok}`)
+		failed:Fire("Couldn't reach the server. Try again.")
+		return nil
+	end
+	if not ok then
+		warn(`[Cartopia] wheel refused: {result}`)
+		failed:Fire(if result == "spun today" then "Spun today. Back tomorrow!" else WHY[result] or "Couldn't spin. Try again.")
+		return nil
+	end
+	return result
+end
+
+-- The Bank's gem and car packs (server/Purchases): "shop" -> { open, packs = { [id] = { robux,
+-- owned } } }, or "buy" with a pack id, which opens Roblox's purchase prompt. Returns ok and the
+-- answer or why not ("soon", "crew", "owned").
+function Remote.bank(op: string, id: string?): (boolean, any)
+	local bankRemote = remotes:FindFirstChild("Bank") :: RemoteFunction?
+	if not bankRemote then
+		return false, "soon"
+	end
+	local sent, ok, result = pcall(bankRemote.InvokeServer, bankRemote, op, id)
+	if not sent then
+		warn(`[Cartopia] bank {op}: {ok}`)
+		return false, "no answer"
+	end
+	return ok, result
 end
 
 townEvent.OnClientEvent:Connect(function(snap)

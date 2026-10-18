@@ -20,7 +20,8 @@ const ROOT = resolve(HERE, '../..')
 export async function render({ web, scene, out, gui, width = 1280, height = 800, camera }) {
   // Lune writes an empty list as {}.
   if (!Array.isArray(scene.parts)) scene = { ...scene, parts: [] }
-  const dir = join(resolve(web), '.rbx-preview')
+  // One folder per run, so renders running side by side don't swap scenes.
+  const dir = join(resolve(web), '.rbx-preview', String(process.pid))
   mkdirSync(dir, { recursive: true })
   const req = createRequire(join(resolve(web), 'package.json'))
   const threeDir = dirname(req.resolve('three'))
@@ -64,7 +65,12 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
     find(gui)
     for (const e of list) if (want.has(e.key)) images[e.key] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/splash', e.file)).toString('base64')
   } catch {}
-  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, gui: gui ?? null, camera: camera ?? null })}`)
+  // The sky's faces (tools/sky/build.mjs) for the step the scene asks for.
+  const sky = {}
+  if (scene.sky) {
+    for (const face of ['Lf', 'Bk', 'Rt', 'Ft', 'Up', 'Dn']) sky[face] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/sky', `${scene.sky.season}-${scene.sky.step}-${face}.png`)).toString('base64')
+  }
+  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, sky, gui: gui ?? null, camera: camera ?? null })}`)
   writeFileSync(join(dir, 'scene.html'), PAGE)
   const server = createServer((q, r) => {
     const f = join(dir, decodeURIComponent(new URL(q.url, 'http://x').pathname))
@@ -113,7 +119,16 @@ sun.position.set(300, 500, 200); sun.castShadow = true
 sun.shadow.mapSize.set(4096, 4096)
 Object.assign(sun.shadow.camera, { left: -400, right: 400, top: 400, bottom: -400, near: 10, far: 1500 })
 scene.add(sun)
-const unit = { Block: new T.BoxGeometry(1, 1, 1), Cylinder: new T.CylinderGeometry(0.5, 0.5, 1, 28).rotateZ(-Math.PI / 2), Ball: new T.SphereGeometry(0.5, 24, 16), ellipsoid: new T.SphereGeometry(0.5, 24, 16) }
+// Roblox's wedge: the full bottom, the full back (+Z) face, and a slope down to the front edge.
+const wedgeGeo = (() => {
+  const v = [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [0.5, 0.5, 0.5]]
+  const tris = [[0, 1, 2], [0, 2, 3], [3, 2, 5], [3, 5, 4], [0, 4, 5], [0, 5, 1], [0, 3, 4], [1, 5, 2]]
+  const g = new T.BufferGeometry()
+  g.setAttribute('position', new T.Float32BufferAttribute(tris.flatMap((t) => t.flatMap((k) => v[k])), 3))
+  g.computeVertexNormals()
+  return g
+})()
+const unit = { Wedge: wedgeGeo, Block: new T.BoxGeometry(1, 1, 1), Cylinder: new T.CylinderGeometry(0.5, 0.5, 1, 28).rotateZ(-Math.PI / 2), Ball: new T.SphereGeometry(0.5, 24, 16), ellipsoid: new T.SphereGeometry(0.5, 24, 16) }
 const MAT = { Neon: { emissive: 0.9 }, Metal: { metalness: 0.55, roughness: 0.35 }, Glass: { roughness: 0.1 }, Grass: { roughness: 1 }, Asphalt: { roughness: 1 }, Concrete: { roughness: 0.95 } }
 const geoCache = {}
 // Ground textures, as Roblox's Texture lays them on a part's top face.
@@ -136,6 +151,7 @@ for (const p of parts) {
   }
   const look = MAT[p.material] || {}
   const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
+  if (p.shape === 'Wedge') mat.side = T.DoubleSide
   let mats = mat
   if (p.texture && TEX[p.texture.image] && !p.mesh && (p.shape === 'Block' || !p.shape)) {
     const t = TEX[p.texture.image].clone()
@@ -229,12 +245,28 @@ for (const p of parts) {
 addParts(scene, S.parts)
 // A near plane well out from the camera: the software renderer's depth buffer is coarse, and road
 // paint a tenth of a stud above the asphalt sank into it.
-const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, 6000)
+const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.sky?.Up ? 40000 : 6000)
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 // Haze starts past what the camera looks at, as the game's light Atmosphere does.
 const reach = cam.position.distanceTo(new T.Vector3(...c.at))
 scene.fog = S.fog ? new T.Fog('#' + S.fog.color, S.fog.start, S.fog.end) : new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
+// The sky: each face is a picture of what a camera looking that way saw (tools/sky/build.mjs),
+// so each hangs square in front of the camera that way, a skybox round where it stands.
+if (S.sky?.Up) {
+  const FACES = { Lf: [[1, 0, 0], [0, 1, 0]], Bk: [[0, 0, 1], [0, 1, 0]], Rt: [[-1, 0, 0], [0, 1, 0]], Ft: [[0, 0, -1], [0, 1, 0]], Up: [[0, 1, 0], [-1, 0, 0]], Dn: [[0, -1, 0], [1, 0, 0]] }
+  const D = 20000
+  for (const [face, [look, up]] of Object.entries(FACES)) {
+    const t = await new T.TextureLoader().loadAsync(S.sky[face])
+    t.colorSpace = T.SRGBColorSpace
+    const L = new T.Vector3(...look), U = new T.Vector3(...up), R = new T.Vector3().crossVectors(L, U)
+    const q = new T.Mesh(new T.PlaneGeometry(2 * D, 2 * D), new T.MeshBasicMaterial({ map: t, fog: false, toneMapped: false, depthWrite: false }))
+    q.matrixAutoUpdate = false
+    q.matrix.makeBasis(R, U, L.clone().negate()).setPosition(L.clone().multiplyScalar(D).add(cam.position))
+    q.renderOrder = -1
+    scene.add(q)
+  }
+}
 renderer.render(scene, cam)
 
 // Screens: ScreenGui frames as absolutely placed boxes, drawn as Roblox would: children over

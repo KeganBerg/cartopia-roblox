@@ -107,7 +107,43 @@ local function extrasFor(ctx: any, mode: string, which: any, started: any, back:
 	if PAGES[mode] and PAGES[mode].extras then
 		return PAGES[mode].extras(ctx, which, started, again)
 	end
-	if mode == "row" then
+	if mode == "quick" or mode == "next" then
+		-- A win brings a faster challenger straight away, a loss the rematch (Race.tsx).
+		local chal = rv.id:match("^chal%-(%d+)$")
+		return {
+			title = if chal then `⚔️ Challenger {tonumber(chal) + 1}` else nil,
+			buttons = function(res: any): { DragStrip.Button }?
+				local nx = res.next
+				if not nx then
+					return nil
+				end
+				local label = if nx.challenger then `⚔️ Challenger · {money(nx.prize)}` else "↻ Rematch"
+				local list: { DragStrip.Button } = { { text = "Back", kind = "garage" }, { text = label, go = again("next", nil) } }
+				return list
+			end,
+		}
+	elseif mode == "campaign" then
+		local chId, i = rv.id:match("^camp%-(.+)%-(%d+)$")
+		local ch: any = nil
+		for _, c in data.CAMPAIGN do
+			if c.id == chId then
+				ch = c
+			end
+		end
+		local n = tonumber(i) or 0
+		return {
+			title = if ch then `{ch.name} · {if n == data.CAMPAIGN_RACES - 1 then "Boss race" else `Race {n + 1} of {data.CAMPAIGN_RACES}`}` else nil,
+			buttons = function(res: any): { DragStrip.Button }?
+				local nx = res.next
+				if not nx then
+					return nil
+				end
+				local label = if nx.retry then "↻ Retry" else `▶ Next · {money(nx.prize)}`
+				local list: { DragStrip.Button } = { { text = "Back", kind = "garage" }, { text = label, go = again("campaign", { chapter = nx.chapter, race = nx.race }) } }
+				return list
+			end,
+		}
+	elseif mode == "row" then
 		local def = paintRivals.paintRival(which)
 		return {
 			title = rv.name,

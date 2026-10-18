@@ -18,7 +18,7 @@ the web game's.
 | `src/shared/Models/` | `Catalog.luau`, `Scenery.luau` and `Meshes.luau` are **generated** by `tools/models`: every building (`id@level`), car and street piece as Roblox parts, and the countryside round the town (forest, farm, lake, each plot's wild meadow) with its meshes merged so it stays cheap to draw. `Builder.luau` builds them. |
 | `src/server/TownView.luau` | Draws each player's town in `Workspace.Towns` from their save: land, lawn, roads (put together like the web's `RoadTile`), buildings and cars. |
 | `src/client/Remote.luau` | The client's side: `Remote.act("buyCar", "pip", "#c62828")`, and a copy of the town in the client's store. |
-| `src/client/` (rest) | The screens (HUD, shop, showroom, build mode, job bubbles), the web-style town camera (`TownCamera`) and the shared day and night (`DayNight`) and the countryside round the town (`Countryside`). |
+| `src/client/` (rest) | The screens (HUD, shop, showroom, build mode, job bubbles), the web-style town camera (`TownCamera`), the shared day and night (`DayNight`), the countryside round the town (`Countryside`), the town's traffic and townspeople (`TownLife`) and the race and crowd at a Speedway (`SpeedwayLife`). |
 | `tools/transpile/` | The TypeScript-to-Luau converter (see below). |
 | `tools/models/` | The model converter: renders the web game's models in Node, turns them into parts and meshes, and uploads the meshes to Roblox (`upload.mjs`). |
 | `tools/emulate/` | Runs the real Luau outside Roblox (with Lune) and draws what it built, for previews without Studio. |
@@ -52,6 +52,21 @@ Saves are the web game's `SaveState`, so a save moves between the two games unch
 a lock in the same `UpdateAsync` that reads the save; a lock not refreshed for 30 minutes counts as
 abandoned. If another server still holds a player's lock after 5 tries, the player is kicked with a
 "try again" message instead of getting a blank town that would overwrite theirs.
+
+### Gem packs and car packs (Robux)
+
+The Bank sells the web game's gem packs and car packs (`bucksPacks.ts`) as Roblox Developer
+Products, one per pack, named exactly like the pack. `tools/products/sync.mjs` (run by
+`.github/workflows/products.yml` when `tools/products/` changes) makes them, pricing each pack from
+the web game's dollar price at Roblox's own Robux store rates (`prices.json`: "match-dollars", with
+per-pack overrides; `null` stops selling a pack). The Open Cloud key needs the
+`developer-product:read` and `developer-product:write` permissions for it.
+
+The server (`src/server/Purchases.luau`) finds the products by name, opens Roblox's purchase prompt
+from the `Bank` remote, and in `ProcessReceipt` pays the pack through the web store's own
+`applyPurchases` (gems, plus coins and parts for the buyer's level, plus the car). Each PurchaseId
+is written with the save in the same DataStore update, so a receipt Roblox sends twice pays once.
+Car packs are one per account, and buying waits for the town's Crew House, as on the web.
 
 ## The converter
 

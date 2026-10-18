@@ -4,6 +4,14 @@
 local ____lualib = require("./lualib_bundle")
 local __TS__Class = ____lualib.__TS__Class
 local __TS__New = ____lualib.__TS__New
+local __TS__ParseInt = ____lualib.__TS__ParseInt
+local Error = ____lualib.Error
+local RangeError = ____lualib.RangeError
+local ReferenceError = ____lualib.ReferenceError
+local SyntaxError = ____lualib.SyntaxError
+local TypeError = ____lualib.TypeError
+local URIError = ____lualib.URIError
+local __TS__ClassExtends = ____lualib.__TS__ClassExtends
 local ____exports = {}
 ---
 -- @noSelfInFile
@@ -26,6 +34,12 @@ function Vector3.prototype.____constructor(self, x, y, z)
 end
 function Vector3.prototype.distanceTo(self, v)
     return math.sqrt((self.x - v.x) ^ 2 + (self.y - v.y) ^ 2 + (self.z - v.z) ^ 2)
+end
+function Vector3.prototype.set(self, x, y, z)
+    self.x = x
+    self.y = y
+    self.z = z
+    return self
 end
 local function poly(x0, x1, x2, x3, dt0, dt1, dt2)
     local t1 = (x1 - x0) / dt0 - (x2 - x0) / (dt0 + dt1) + (x2 - x1) / dt1
@@ -196,5 +210,275 @@ function CatmullRomCurve3.prototype.getSpacedPoints(self, divisions)
         end
     end
     return points
+end
+____exports.Color = __TS__Class()
+local Color = ____exports.Color
+Color.name = "Color"
+function Color.prototype.____constructor(self, hex)
+    self.r = 1
+    self.g = 1
+    self.b = 1
+    if hex ~= nil then
+        self:set(hex)
+    end
+end
+function Color.prototype.set(self, hex)
+    self.r = __TS__ParseInt(
+        string.sub(hex, 2, 3),
+        16
+    ) / 255
+    self.g = __TS__ParseInt(
+        string.sub(hex, 4, 5),
+        16
+    ) / 255
+    self.b = __TS__ParseInt(
+        string.sub(hex, 6, 7),
+        16
+    ) / 255
+    return self
+end
+function Color.prototype.lerp(self, c, t)
+    self.r = self.r + (c.r - self.r) * t
+    self.g = self.g + (c.g - self.g) * t
+    self.b = self.b + (c.b - self.b) * t
+    return self
+end
+____exports.DoubleSide = 2
+____exports.MeshStandardMaterial = __TS__Class()
+local MeshStandardMaterial = ____exports.MeshStandardMaterial
+MeshStandardMaterial.name = "MeshStandardMaterial"
+function MeshStandardMaterial.prototype.____constructor(self, params)
+    if params == nil then
+        params = {}
+    end
+    self.onBeforeCompile = nil
+    self.customProgramCacheKey = nil
+    self.params = params
+end
+____exports.Euler = __TS__Class()
+local Euler = ____exports.Euler
+Euler.name = "Euler"
+function Euler.prototype.____constructor(self)
+    self.x = 0
+    self.y = 0
+    self.z = 0
+    self.order = "XYZ"
+end
+function Euler.prototype.set(self, x, y, z, order)
+    self.x = x
+    self.y = y
+    self.z = z
+    if order ~= nil then
+        self.order = order
+    end
+    return self
+end
+____exports.Matrix4 = __TS__Class()
+local Matrix4 = ____exports.Matrix4
+Matrix4.name = "Matrix4"
+function Matrix4.prototype.____constructor(self)
+    self.elements = {
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+    }
+end
+function Matrix4.prototype.copy(self, m)
+    do
+        local i = 0
+        while i < 16 do
+            self.elements[i + 1] = m.elements[i + 1]
+            i = i + 1
+        end
+    end
+    return self
+end
+function Matrix4.prototype.setPosition(self, x, y, z)
+    self.elements[13] = x
+    self.elements[14] = y
+    self.elements[15] = z
+    return self
+end
+function Matrix4.prototype.makeRotationFromEuler(self, r)
+    local te = self.elements
+    local a = math.cos(r.x)
+    local b = math.sin(r.x)
+    local c = math.cos(r.y)
+    local d = math.sin(r.y)
+    local e = math.cos(r.z)
+    local f = math.sin(r.z)
+    if r.order == "XYZ" then
+        local ae = a * e
+        local af = a * f
+        local be = b * e
+        local bf = b * f
+        te[1] = c * e
+        te[5] = -c * f
+        te[9] = d
+        te[2] = af + be * d
+        te[6] = ae - bf * d
+        te[10] = -b * c
+        te[3] = bf - ae * d
+        te[7] = be + af * d
+        te[11] = a * c
+    elseif r.order == "YXZ" then
+        local ce = c * e
+        local cf = c * f
+        local de = d * e
+        local df = d * f
+        te[1] = ce + df * b
+        te[5] = de * b - cf
+        te[9] = a * d
+        te[2] = a * f
+        te[6] = a * e
+        te[10] = -b
+        te[3] = cf * b - de
+        te[7] = df + ce * b
+        te[11] = a * c
+    elseif r.order == "ZXY" then
+        local ce = c * e
+        local cf = c * f
+        local de = d * e
+        local df = d * f
+        te[1] = ce - df * b
+        te[5] = -a * f
+        te[9] = de + cf * b
+        te[2] = cf + de * b
+        te[6] = a * e
+        te[10] = df - ce * b
+        te[3] = -a * d
+        te[7] = b
+        te[11] = a * c
+    else
+        error(
+            __TS__New(Error, ("Euler order " .. r.order) .. " is not in the three.js stand-in"),
+            0
+        )
+    end
+    te[4] = 0
+    te[8] = 0
+    te[12] = 0
+    te[13] = 0
+    te[14] = 0
+    te[15] = 0
+    te[16] = 1
+    return self
+end
+____exports.Object3D = __TS__Class()
+local Object3D = ____exports.Object3D
+Object3D.name = "Object3D"
+function Object3D.prototype.____constructor(self)
+    self.position = __TS__New(____exports.Vector3)
+    self.rotation = __TS__New(____exports.Euler)
+    self.scale = __TS__New(____exports.Vector3, 1, 1, 1)
+    self.matrix = __TS__New(____exports.Matrix4)
+end
+function Object3D.prototype.updateMatrix(self)
+    local te = self.matrix:makeRotationFromEuler(self.rotation).elements
+    local s = {self.scale.x, self.scale.y, self.scale.z}
+    do
+        local col = 0
+        while col < 3 do
+            do
+                local row = 0
+                while row < 3 do
+                    local ____te_0, ____temp_1 = te, col * 4 + row + 1
+                    ____te_0[____temp_1] = ____te_0[____temp_1] * s[col + 1]
+                    row = row + 1
+                end
+            end
+            col = col + 1
+        end
+    end
+    self.matrix:setPosition(self.position.x, self.position.y, self.position.z)
+end
+____exports.BufferAttribute = __TS__Class()
+local BufferAttribute = ____exports.BufferAttribute
+BufferAttribute.name = "BufferAttribute"
+function BufferAttribute.prototype.____constructor(self, array, itemSize)
+    self.array = array
+    self.itemSize = itemSize
+    self.count = math.floor(array.length / itemSize)
+end
+____exports.BufferGeometry = __TS__Class()
+local BufferGeometry = ____exports.BufferGeometry
+BufferGeometry.name = "BufferGeometry"
+function BufferGeometry.prototype.____constructor(self)
+    self.index = nil
+end
+function BufferGeometry.prototype.translate(self, _x, _y, _z)
+    return self
+end
+function BufferGeometry.prototype.scale(self, _x, _y, _z)
+    return self
+end
+function BufferGeometry.prototype.rotateX(self, _a)
+    return self
+end
+function BufferGeometry.prototype.rotateY(self, _a)
+    return self
+end
+function BufferGeometry.prototype.rotateZ(self, _a)
+    return self
+end
+function BufferGeometry.prototype.toNonIndexed(self)
+    return self
+end
+function BufferGeometry.prototype.getAttribute(self, _name)
+    return __TS__New(____exports.BufferAttribute, {}, 3)
+end
+function BufferGeometry.prototype.setAttribute(self, _name, _a)
+    return self
+end
+function BufferGeometry.prototype.deleteAttribute(self, _name)
+    return self
+end
+____exports.BoxGeometry = __TS__Class()
+local BoxGeometry = ____exports.BoxGeometry
+BoxGeometry.name = "BoxGeometry"
+__TS__ClassExtends(BoxGeometry, ____exports.BufferGeometry)
+function BoxGeometry.prototype.____constructor(self, ...)
+    local _args = {...}
+    BoxGeometry.____super.prototype.____constructor(self)
+end
+____exports.SphereGeometry = __TS__Class()
+local SphereGeometry = ____exports.SphereGeometry
+SphereGeometry.name = "SphereGeometry"
+__TS__ClassExtends(SphereGeometry, ____exports.BufferGeometry)
+function SphereGeometry.prototype.____constructor(self, ...)
+    local _args = {...}
+    SphereGeometry.____super.prototype.____constructor(self)
+end
+____exports.CapsuleGeometry = __TS__Class()
+local CapsuleGeometry = ____exports.CapsuleGeometry
+CapsuleGeometry.name = "CapsuleGeometry"
+__TS__ClassExtends(CapsuleGeometry, ____exports.BufferGeometry)
+function CapsuleGeometry.prototype.____constructor(self, ...)
+    local _args = {...}
+    CapsuleGeometry.____super.prototype.____constructor(self)
+end
+____exports.CylinderGeometry = __TS__Class()
+local CylinderGeometry = ____exports.CylinderGeometry
+CylinderGeometry.name = "CylinderGeometry"
+__TS__ClassExtends(CylinderGeometry, ____exports.BufferGeometry)
+function CylinderGeometry.prototype.____constructor(self, ...)
+    local _args = {...}
+    CylinderGeometry.____super.prototype.____constructor(self)
+end
+function ____exports.mergeGeometries(_list)
+    return __TS__New(____exports.BufferGeometry)
 end
 return ____exports
