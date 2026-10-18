@@ -1,19 +1,5 @@
 {
-  "_": "Robux price of each pack's Developer Product, by pack id (web src/game/bucksPacks.ts). null = not on sale yet. Prices are Kegan's call: ask before changing one.",
-  "handful": null,
-  "stack": null,
-  "bag": null,
-  "vault": null,
-  "truck": null,
-  "tanker": null,
-  "car-scatto": null,
-  "car-stinger": null,
-  "car-thunderjet": null,
-  "car-sora": null,
-  "car-hayate": null,
-  "car-kestrel": null,
-  "car-firebolt": null,
-  "car-kaze": null,
-  "car-sturm": null,
-  "car-vanta": null
+  "_": "How each pack's Robux price is set. \"match-dollars\" (Kegan's pick, 2026-10-18): the web game's dollar price (src/game/bucksPacks.ts) turned into Robux at Roblox's own Robux store rates (400 = $4.99, 800 = $9.99, 1,700 = $19.99, 4,500 = $49.99, 10,000 = $99.99), so prices follow the web. overrides: a fixed Robux price for a pack id, or null to stop selling it. Prices are Kegan's call: ask before changing one.",
+  "rule": "match-dollars",
+  "overrides": {}
 }
