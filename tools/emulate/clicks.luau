@@ -1473,3 +1473,12 @@ modePage("flair", "Flair", "frost", true)
 local flairSave = towns:snapshot(1).save
 print(`flair: trail {flairSave.trail}, seen {flairSave.flairSeen}`)
 assert(flairSave.trail == "frost", "Frost wasn't picked")
+-- Class Cups: the race car's own class opens first; race its first cup race.
+modeRace("cup", "Class Cups", "🏁 %$")
+print(`class cups won: {(function()
+	local n = 0
+	for _, w in towns:snapshot(1).save.cups or {} do
+		n += w
+	end
+	return n
+end)()}`)
