@@ -18,6 +18,7 @@ local Icons = require(script.Parent.Icons)
 local Thumb = require(script.Parent.Thumb)
 local Collection = require(script.Parent.Collection)
 local CrateDepot = require(script.Parent.Crates)
+local CallCards = require(script.Parent.CallCards)
 
 local Cars = {}
 
@@ -175,6 +176,7 @@ end
 function Cars.open(ctx: any, tab: string?): Instance
 	local s0 = store.useGame.getState()
 	local current = tab or lastTab
+	CallCards.reset()
 	CrateDepot.reset()
 	local overlay = Ui.new("TextButton", { Name = "Panel", Text = "", AutoButtonColor = false, ZIndex = 20, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = ctx.gui })
 	local page = Ui.new("Frame", { Name = "Cars", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0f141d"), BorderSizePixel = 0, Parent = overlay })
@@ -687,16 +689,31 @@ function Cars.open(ctx: any, tab: string?): Instance
 			end)
 		elseif current == "crates" then
 			CrateDepot.draw(content, ctx)
+		elseif current == "cards" then
+			-- Your race car turns on the stage; its card is picked on the right.
+			local car = raceCar.raceCarOf(s.cars, s.raceCar)
+			if car then
+				local d = data.carDef(car.model)
+				stage(car.model, car.color, data.performance(d, car.upgrades, car.mods))
+			end
+			CallCards.draw(content, ctx, function()
+				CrateDepot.reset()
+				pickTab("crates")
+				current = "crates"
+				lastTab = "crates"
+				render()
+			end, render)
 		else
 			garage()
 		end
 	end
-	local READY = { garage = true, shop = true, book = true, crates = true }
+	local READY = { garage = true, shop = true, book = true, cards = true, crates = true }
 	local _tabs
 	_tabs, pickTab = Ui.tabs(page, TABS, current, function(id)
 		if READY[id] then
-			if id == "crates" and current ~= id then
+			if current ~= id then
 				CrateDepot.reset()
+				CallCards.reset()
 			end
 			current = id
 			lastTab = id
