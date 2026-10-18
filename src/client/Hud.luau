@@ -354,18 +354,30 @@ function Hud.start()
 	Icons.draw("flag", raceFace, 30, Ui.WHITE, Color3.fromHex("#5cce47"), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
 	Ui.text({ Text = "RACE", TextSize = 20, Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 22), Shadow = 2, Stroke = 0.6, Parent = raceFace })
 
-	-- Walk: drops the camera behind the avatar to walk the town on foot; Town goes back up.
+	-- Drive: hops in your race car to drive round the shared world (server/Drive), with the camera
+	-- behind it; Town always brings you back to the view over your own town, wherever you were.
 	local walk = Ui.new("Frame", { Name = "Walk", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -250), Size = UDim2.fromOffset(60, 78), BackgroundTransparency = 1, Parent = root })
 	local walkLabel: TextLabel
 	local walkIcon: TextLabel
 	local _, walkFace = Ui.button({ Name = "WalkButton", Position = UDim2.fromOffset(2.5, 5.5), Size = UDim2.fromOffset(55, 55), Parent = walk }, "white", function()
 		TownCamera.setWalking(not TownCamera.isWalking())
 	end, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
-	walkIcon = Ui.text({ Text = "🚶", TextSize = 30, Size = UDim2.fromScale(1, 1), Parent = walkFace })
-	walkLabel = Ui.text({ Text = "WALK", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
+	walkIcon = Ui.text({ Text = "🚗", TextSize = 30, Size = UDim2.fromScale(1, 1), Parent = walkFace })
+	walkLabel = Ui.text({ Text = "DRIVE", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
 	TownCamera.onWalking(function(on: boolean)
-		walkIcon.Text = if on then "🏙️" else "🚶"
-		walkLabel.Text = if on then "TOWN" else "WALK"
+		walkIcon.Text = if on then "🏙️" else "🚗"
+		walkLabel.Text = if on then "TOWN" else "DRIVE"
+		-- The server puts them in their car, or takes them out and back home.
+		if not on or Players.LocalPlayer:GetAttribute("Driving") ~= true then
+			task.spawn(Remote.social, if on then "drive" else "home", nil, true)
+		end
+	end)
+	-- The server can start a drive too (Visit in the Social menu drives you over).
+	Players.LocalPlayer:GetAttributeChangedSignal("Driving"):Connect(function()
+		local driving = Players.LocalPlayer:GetAttribute("Driving") == true
+		if driving ~= TownCamera.isWalking() then
+			TownCamera.setWalking(driving)
+		end
 	end)
 	-- On phones Roblox's jump button sits in the bottom right corner, under Race and the buttons
 	-- above it: keep it just left of Race instead.
@@ -555,9 +567,12 @@ function Hud.start()
 			Ui.setText(readyText, tostring(ready))
 		end
 		local editing = Placement.active()
-		bar.Visible = not editing and not visiting
-		race.Visible = not editing and not visiting
-		dock.Visible = not editing and not visiting
+		-- Before they've picked a plot (Popups/Claim) there's no town to play yet.
+		local picking = Players.LocalPlayer:GetAttribute("NeedsPlot") == true
+		bar.Visible = not editing and not visiting and not picking
+		race.Visible = not editing and not visiting and not picking
+		dock.Visible = not editing and not visiting and not picking
+		walk.Visible = not editing and not picking
 		chatButton.Visible = Players.LocalPlayer:GetAttribute("CanChat") == true
 	end
 

@@ -158,7 +158,9 @@ function Countryside.draw(origin: Vector3, parent: Instance): (save: any) -> ()
 	root.Name = "Countryside"
 	root.Parent = parent
 
-	local forest = Builder.build("outskirts:forest")
+	-- The forest ring reaches 2,000 studs out: in the shared world (server/World) it would cover
+	-- the neighbours' towns, so there the land between towns is the world's own.
+	local forest = if workspace:FindFirstChild("World") then nil else Builder.build("outskirts:forest")
 	if forest then
 		forest:PivotTo(CFrame.new(origin))
 		forest.Parent = root

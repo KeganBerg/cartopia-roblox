@@ -70,6 +70,9 @@ end
 
 local TownView = {}
 TownView.__index = TownView
+-- On in the shared world (server/World), whose own ground runs under every town: each town then
+-- skips its meadow, which would overlap its neighbours'.
+TownView.sharedGround = false
 
 export type TownView = typeof(setmetatable(
 	{} :: {
@@ -136,6 +139,10 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		-- The web lines its meadow images up 8 units off the town's middle (World.tsx OUTER).
 		groundTexture(meadow, "meadow", origin + Vector3.new(8, 0, 8) * SCALE)
 		meadow.Parent = meadows
+	end
+	-- The shared world (server/World) has its own ground under every town instead.
+	if TownView.sharedGround then
+		meadows:Destroy()
 	end
 	folder.Parent = parent
 	return setmetatable({
@@ -718,5 +725,8 @@ function TownView.render(self: TownView, save: any)
 	self:_renderLawn(save.land or {}, list, save.buildings or {})
 	self:_renderCars(save.cars or {}, save.buildings or {}, roadSet)
 end
+
+TownView.MEADOW = MEADOW
+TownView.groundTexture = groundTexture
 
 return TownView

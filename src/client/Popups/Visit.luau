@@ -4,9 +4,10 @@
 -- the help meter, + Friend and Home) in place of the bottom bar, a help bubble over each business
 -- asking for a hand today (a tick once helped), and the countryside round their town.
 --
--- The server moves the avatar and sets the player's "Visiting" attribute (server/Social); the
--- Friends menu hands over the town's details with ctx.setVisit. Tapping a bubble, or the building
--- itself, helps there.
+-- Driving onto someone's plot in the shared world makes it a visit: the server sets the player's
+-- "Visiting" attribute (server/init's plot watch) and this asks for the town's details; Visit in
+-- the Friends menu drives you over and hands them in with ctx.setVisit. Tapping a bubble, or the
+-- building itself, helps there. Home takes you back to the view over your own town.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,7 +15,6 @@ local StarterGui = game:GetService("StarterGui")
 
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
-local Town = require(script.Parent.Parent.Town)
 local Countryside = require(script.Parent.Parent.Countryside)
 local Builder = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Builder"))
 
@@ -62,6 +62,19 @@ local function helpedList(): { string }
 		end
 	end
 	return out
+end
+
+-- The town folder (Workspace.Towns) of the player with this user id.
+local function townOf(userId: number): Folder?
+	local towns = workspace:FindFirstChild("Towns")
+	if towns then
+		for _, f in towns:GetChildren() do
+			if f:GetAttribute("Owner") == userId then
+				return f :: Folder
+			end
+		end
+	end
+	return nil
 end
 
 function Visit.start(ctx: any)
@@ -147,7 +160,7 @@ function Visit.start(ctx: any)
 		if not bubbles or not town then
 			return
 		end
-		local f = Town.shown()
+		local f = townOf(town.host)
 		local list = f and f:FindFirstChild("Buildings")
 		if not list then
 			return
@@ -210,8 +223,8 @@ function Visit.start(ctx: any)
 		task.spawn(function()
 			local f: Folder? = nil
 			for _ = 1, 40 do
-				f = Town.shown()
-				if f and f:GetAttribute("Owner") == info.host then
+				f = townOf(info.host)
+				if f then
 					break
 				end
 				task.wait(0.25)
@@ -230,8 +243,17 @@ function Visit.start(ctx: any)
 	ctx.setVisit = setVisit
 
 	me:GetAttributeChangedSignal("Visiting"):Connect(function()
-		if me:GetAttribute("Visiting") == nil and town then
-			setVisit(nil)
+		local host = me:GetAttribute("Visiting")
+		if host == nil then
+			if town then
+				setVisit(nil)
+			end
+		elseif not town or town.host ~= host then
+			-- Drove into their town: ask for its details.
+			local ok, info = Remote.social("town", host, true)
+			if ok and me:GetAttribute("Visiting") == host then
+				setVisit(info)
+			end
 		end
 	end)
 	me:GetAttributeChangedSignal("Helped"):Connect(function()

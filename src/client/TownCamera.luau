@@ -49,9 +49,9 @@ local function update()
 	cam.Focus = CFrame.new(view)
 end
 
--- Keeps the view over the player's land (or the land of the town they're visiting).
+-- Keeps the view over the player's land.
 local function clamp()
-	local f = Town.shown()
+	local f = Town.folder()
 	if not f then
 		return
 	end
@@ -83,13 +83,6 @@ function TownCamera.start()
 		end
 	end)
 	fitZoom()
-	-- A visit (or going home) moves the view to that town's middle.
-	player:GetAttributeChangedSignal("Visiting"):Connect(function()
-		placed = false
-		if walking then
-			TownCamera.setWalking(false)
-		end
-	end)
 	-- A new avatar (after a fall off the map, say) keeps the camera on it while walking.
 	player.CharacterAdded:Connect(function()
 		if walking then
@@ -121,7 +114,7 @@ function TownCamera.start()
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.MouseWheel and not processed then
-			zoom = math.clamp(zoom * (1 + input.Position.Z * 0.12), ZOOM_MIN, ZOOM_MAX)
+			zoom = math.clamp(zoom * (1 + input.Position.Z * 0.12), if overview then 1.2 else ZOOM_MIN, ZOOM_MAX)
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.Touch and touches[input] then
@@ -170,7 +163,7 @@ function TownCamera.start()
 			return
 		end
 		if not placed then
-			local f = Town.shown()
+			local f = Town.folder()
 			if f then
 				view = f:GetAttribute("Origin") :: any
 				placed = true
@@ -240,6 +233,20 @@ function TownCamera.setWalking(on: boolean)
 			clamp()
 		end
 		update()
+	end
+end
+
+-- The view over the whole shared world, zoomed out, for picking a plot (true); back over the
+-- player's own town (false).
+local overview = false
+function TownCamera.setOverview(on: boolean)
+	overview = on
+	if on then
+		view = Vector3.zero
+		zoom = 2.2
+	else
+		fitZoom()
+		placed = false
 	end
 end
 
