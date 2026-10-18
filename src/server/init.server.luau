@@ -49,6 +49,7 @@ local Purchases = require(script.Purchases)
 local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
 local Sky = require(script.Sky)
+local Prefs = require(script.Prefs)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
@@ -59,7 +60,7 @@ local saves = Saves.new({
 	job = if RunService:IsStudio() then "studio" else game.JobId,
 	now = os.time,
 })
-local towns = Towns.new(require(Game.store), now)
+local towns = Towns.new(require(Game.store), now, require(Game.lib_sound))
 -- Everyone's ghost (their best time, or their best car for a par) and the taunts left for them.
 local ghosts = Ghosts.new({
 	ghosts = DataStoreService:GetDataStore("Ghosts_v1"),
@@ -219,9 +220,13 @@ bankRemote.Parent = remotes
 local meshRemote = Instance.new("RemoteFunction")
 meshRemote.Name = "Meshes"
 meshRemote.Parent = remotes
+local prefsRemote = Instance.new("RemoteEvent")
+prefsRemote.Name = "Prefs"
+prefsRemote.Parent = remotes
 -- Rave Mode's button (the DJ only), shared with every server.
 require(script.Rave).start(remotes)
 remotes.Parent = ReplicatedStorage
+Prefs.start(DataStoreService:GetDataStore("Prefs_v1"), prefsRemote, Players)
 
 Splash.start()
 Sky.start()
@@ -319,7 +324,7 @@ local sent: { [Player]: string } = {}
 local function push(player: Player, force: boolean?)
 	local snap = towns:snapshot(player.UserId)
 	local key = HttpService:JSONEncode(snap.save)
-	if force or #snap.toasts > 0 or snap.panel ~= nil or snap.need ~= nil or sent[player] ~= key then
+	if force or #snap.toasts > 0 or #snap.sounds > 0 or snap.panel ~= nil or snap.need ~= nil or sent[player] ~= key then
 		sent[player] = key
 		townEvent:FireClient(player, snap)
 		local view = views[player]

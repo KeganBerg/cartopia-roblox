@@ -22,6 +22,7 @@ local arcade = require(Game.arcade) :: any
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Arcade = {}
 
@@ -598,6 +599,11 @@ function Arcade.result(ctx: any, gui: ScreenGui, hudGui: ScreenGui, id: string, 
 	if res == nil then
 		win = false
 		title = "😬 Didn't count"
+	end
+	if win then
+		Sfx.win()
+	else
+		Sfx.lose()
 	end
 	-- The backdrop: a gold glow for a win (.rr.win), a dark wash otherwise.
 	local back = Ui.new("Frame", { Name = "Backdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0a1428"), BackgroundTransparency = if win then 0.35 else 0.45, BorderSizePixel = 0, ZIndex = 0, Parent = screen })

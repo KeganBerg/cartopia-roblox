@@ -11,9 +11,10 @@
 --     Owl's Rave button: Workspace's RaveFrom / RaveUntil attributes, the same for every player;
 --   - every Friday at 10:00 pm on the player's own clock, for a minute (RaveTime.weekly).
 --
--- No music plays from here (the game's music player owns that). Its hook: Rave.onChange(fn) calls
--- fn(on, window) when Rave Mode starts or stops, and the LocalPlayer carries RaveOn, RaveDrop and
--- RaveUntil attributes (ms, this device's clock) for anything that would rather not require this.
+-- No audio is made here: starting and stopping hands the drop time to client/Sounds (Rave.start(
+-- dropAt) / Rave.stop()), which plays the build-up and drop on the same wall clock. Anything else
+-- can follow along with Rave.onChange(fn), called fn(on, window) when Rave Mode starts or stops,
+-- or the LocalPlayer's RaveOn, RaveDrop and RaveUntil attributes (Unix ms).
 -- The beat itself is techno.technoBeat(now) / techno.technoDrop() from Shared.Game.techno: the
 -- music runs on the wall clock from the drop, so everyone hears the same bar.
 --
@@ -516,6 +517,16 @@ local function announce(on: boolean)
 		p:SetAttribute("RaveUntil", if on and window then window.to else nil)
 	end
 	changed:Fire(on, if on then window else nil)
+	-- The music (client/Sounds/Rave, the music thread's): its build-up and drop on the same
+	-- wall-clock drop as the lights.
+	local ok, Sounds = pcall(require, script.Parent:FindFirstChild("Sounds") :: any)
+	if ok and type(Sounds) == "table" and Sounds.Rave then
+		if on and window then
+			Sounds.Rave.start(window.drop)
+		elseif not on then
+			Sounds.Rave.stop()
+		end
+	end
 end
 
 -- Picks up a rave from the server or the weekly schedule (checked about once a second).
