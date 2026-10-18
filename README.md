@@ -18,7 +18,7 @@ the web game's.
 | `src/shared/Models/` | `Catalog.luau`, `Scenery.luau` and `Meshes.luau` are **generated** by `tools/models`: every building (`id@level`), car and street piece as Roblox parts, and the countryside round the town (forest, farm, lake, each plot's wild meadow) with its meshes merged so it stays cheap to draw. `Builder.luau` builds them. |
 | `src/server/TownView.luau` | Draws each player's town in `Workspace.Towns` from their save: land, lawn, roads (put together like the web's `RoadTile`), buildings and cars. |
 | `src/client/Remote.luau` | The client's side: `Remote.act("buyCar", "pip", "#c62828")`, and a copy of the town in the client's store. |
-| `src/client/` (rest) | The screens (HUD, shop, showroom, build mode, job bubbles), the web-style town camera (`TownCamera`) and the shared day and night (`DayNight`). |
+| `src/client/` (rest) | The screens (HUD, shop, showroom, build mode, job bubbles), the web-style town camera (`TownCamera`) and the shared day and night (`DayNight`) and the countryside round the town (`Countryside`). |
 | `tools/transpile/` | The TypeScript-to-Luau converter (see below). |
 | `tools/models/` | The model converter: renders the web game's models in Node, turns them into parts and meshes, and uploads the meshes to Roblox (`upload.mjs`). |
 | `tools/emulate/` | Runs the real Luau outside Roblox (with Lune) and draws what it built, for previews without Studio. |
