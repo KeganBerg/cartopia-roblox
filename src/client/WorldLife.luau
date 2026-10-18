@@ -16,16 +16,25 @@ local Game = Shared:WaitForChild("Game")
 local data = require(Game:WaitForChild("data")) :: any
 local Builder = require(Shared:WaitForChild("Models"):WaitForChild("Builder")) :: any
 local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
+local Catalog = require(Shared.Models:WaitForChild("Catalog")) :: any
+
+-- Leaves for the season the models were made in (Catalog.SEASON), like the countryside's trees.
+local LEAVES: { [string]: { string } } = {
+	fall = { "#d84315", "#ef6c00", "#f9a825", "#c62828", "#2e7d32" },
+	winter = { "#eceff1", "#cfd8dc", "#2e5d3a" },
+	spring = { "#7cb342", "#9ccc65", "#f8bbd0", "#558b2f" },
+	summer = { "#558b2f", "#689f38", "#33691e", "#7cb342" },
+}
 
 local WorldLife = {}
 
-local CARS = 18
-local CARS_PHONE = 10
+local CARS = 26
+local CARS_PHONE = 14
 local SCALE = 0.8 -- the size cars are drawn at (server/Drive.SCALE)
 local LANE = 0.25 -- of the road's width, right of the middle
 local GAP = 40 -- studs kept behind the car in front
-local SHOWN = 1800 -- studs from the camera a car is drawn within; past it, it comes back nearer
-local RESPAWN_NEAR, RESPAWN_FAR = 700, 1500 -- how far from the camera it comes back
+local SHOWN = 1400 -- studs from the camera a car is drawn within; past it, it comes back nearer
+local RESPAWN_NEAR, RESPAWN_FAR = 500, 1200 -- how far from the camera it comes back
 local VERGE_NEAR = 1100 -- verge stretches within this are built...
 local VERGE_FAR = 1500 -- ...and cleared past this
 local STRETCH = 700 -- studs of road per verge stretch
@@ -285,6 +294,30 @@ local function buildStretch(g: Grid, folder: Folder, along: "x" | "z", line: num
 		piece:PivotTo(CFrame.new(p) * CFrame.Angles(0, turn, 0))
 		piece.Parent = m
 	end
+	local leaves = LEAVES[Catalog.SEASON or "summer"] or LEAVES.summer
+	-- A low-poly tree like the town's: a short trunk and a round crown of leaves. Two parts.
+	local function tree(p: Vector3, size: number)
+		local trunk = Instance.new("Part")
+		trunk.Shape = Enum.PartType.Cylinder
+		trunk.Size = Vector3.new(size * 0.6, size * 0.16, size * 0.16)
+		trunk.CFrame = CFrame.new(p + Vector3.new(0, size * 0.3, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+		trunk.Color = Color3.fromHex("#6d4c41")
+		local crown = Instance.new("Part")
+		crown.Shape = Enum.PartType.Ball
+		crown.Size = Vector3.new(size * 0.8, size * 0.8, size * 0.8)
+		crown.CFrame = CFrame.new(p + Vector3.new(0, size * 0.85, 0))
+		crown.Color = Color3.fromHex(leaves[rng:NextInteger(1, #leaves)])
+		for _, x in { trunk, crown } do
+			x.Anchored = true
+			x.CanCollide = x == trunk
+			x.CanTouch = false
+			x.CanQuery = false
+			x.Material = Enum.Material.SmoothPlastic
+			x.TopSurface = Enum.SurfaceType.Smooth
+			x.BottomSurface = Enum.SurfaceType.Smooth
+			x.Parent = m
+		end
+	end
 	local s = from + 60
 	local side = 1
 	while s < from + STRETCH do
@@ -292,16 +325,21 @@ local function buildStretch(g: Grid, folder: Folder, along: "x" | "z", line: num
 			-- A lamp facing the road, sides taking turns.
 			local face = if along == "x" then (if side > 0 then math.pi else 0) else (if side > 0 then -math.pi / 2 else math.pi / 2)
 			place("prop:lamp", at(s, side, 6), face, 2.2)
-			-- Something growing further out.
-			local r = rng:NextNumber()
-			local out = rng:NextNumber(18, 70)
+			-- Something growing further out: mostly trees in little clumps.
 			local other = -side
-			if r < 0.45 then
-				place("bush", at(s + rng:NextNumber(-40, 40), other, out), rng:NextNumber(0, 6.28), rng:NextNumber(2, 3.5))
-			elseif r < 0.7 then
-				place(`rock:{rng:NextInteger(1, 3)}`, at(s + rng:NextNumber(-40, 40), other, out), rng:NextNumber(0, 6.28), rng:NextNumber(2, 4))
-			elseif r < 0.85 then
-				place(`tuft:{rng:NextInteger(1, 5)}`, at(s + rng:NextNumber(-40, 40), other, out * 0.5), rng:NextNumber(0, 6.28), 3)
+			for _ = 1, rng:NextInteger(1, 3) do
+				local r = rng:NextNumber()
+				local out = rng:NextNumber(20, 90)
+				local p = at(s + rng:NextNumber(-55, 55), if rng:NextNumber() < 0.7 then other else side, out)
+				if r < 0.6 then
+					tree(p, rng:NextNumber(14, 22))
+				elseif r < 0.8 then
+					place("bush", p, rng:NextNumber(0, 6.28), rng:NextNumber(2, 3))
+				elseif r < 0.9 then
+					place(`rock:{rng:NextInteger(1, 3)}`, p, rng:NextNumber(0, 6.28), rng:NextNumber(0.8, 1.4))
+				else
+					place(`tuft:{rng:NextInteger(1, 5)}`, p, rng:NextNumber(0, 6.28), 3)
+				end
 			end
 		end
 		side = -side
