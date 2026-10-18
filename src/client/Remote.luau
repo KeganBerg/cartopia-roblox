@@ -21,6 +21,7 @@ local changed = Instance.new("BindableEvent")
 Remote.changed = changed.Event
 -- The last snapshot, or nil until the town arrives.
 Remote.last = nil :: any
+Remote.search = nil :: any
 
 -- Fires when the server couldn't run an action at all (not loaded yet, too many taps, an error),
 -- with what to tell the player, so a tap never silently does nothing.
@@ -34,6 +35,7 @@ local WHY = {
 	["You need a car to race"] = "You need a car to race",
 	["That race isn't open yet"] = "That race isn't open yet",
 	["too quick"] = "That race didn't count. Try again.",
+	filter = "Couldn't check that name. Try again.",
 }
 
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
@@ -96,6 +98,8 @@ townEvent.OnClientEvent:Connect(function(snap)
 	store.useGame.getState().loadSave(snap.save)
 	store.useGame.setState({ need = snap.need, panel = snap.panel })
 	Remote.last = snap
+	-- Rusty's search in progress (not part of the save), or nil.
+	Remote.search = snap.search
 	changed:Fire(snap)
 end)
 

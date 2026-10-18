@@ -679,6 +679,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 					pickTab("shop")
 					current = "shop"
 					render()
+				elseif def.rescueOnly and store.hasRusty(store.useGame.getState()) then
+					ctx.open("rescue")
 				else
 					ctx.toast(`{def.name}: {data.carSource(def).text}`)
 				end

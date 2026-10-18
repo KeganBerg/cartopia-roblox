@@ -60,8 +60,7 @@ local function goTo(ctx: any, stat: string, def: string?)
 	end
 	if stat == "rusty" or stat == "searches" or stat == "rescued" then
 		if firstOf(function(b) return b.def == "rescue" end) then
-			ctx.close()
-			ctx.toast("Rusty's yard is coming to Roblox soon")
+			ctx.open("rescue")
 		else
 			shopFor("rescue")
 		end

@@ -17,6 +17,7 @@ local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TextService = game:GetService("TextService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local Js = require(Game.__js)
@@ -249,6 +250,19 @@ Players.PlayerRemoving:Connect(function(player)
 	races:close(player.UserId)
 end)
 
+-- Names players type that others can see (a town's name, a restored car's plate), by action and
+-- argument: Roblox's text filter runs on them before the town keeps them.
+local TYPED = { renameTown = 1, collectRestored = 1 }
+local function filtered(player: Player, text: string): string?
+	if not text:match("%S") then
+		return text
+	end
+	local ok, result = pcall(function()
+		return TextService:FilterStringAsync(text, player.UserId):GetNonChatStringForBroadcastAsync()
+	end)
+	return if ok then result else nil
+end
+
 act.OnServerInvoke = function(player: Player, name: any, ...: any)
 	if not towns:isOpen(player.UserId) then
 		return false, "town not loaded"
@@ -260,6 +274,14 @@ act.OnServerInvoke = function(player: Player, name: any, ...: any)
 	local ok, why = Towns.check(name, args, args.n)
 	if not ok then
 		return false, why
+	end
+	local typed = TYPED[name]
+	if typed and type(args[typed]) == "string" then
+		local clean = filtered(player, args[typed])
+		if not clean then
+			return false, "filter"
+		end
+		args[typed] = clean
 	end
 	local ran, result = pcall(towns.run, towns, player.UserId, name, table.unpack(args, 1, args.n))
 	if not ran then
