@@ -60,6 +60,7 @@ local ALLOWED: { [string]: { any } } = {
 	toggleShowcase = { S },
 	equipCallCard = { "string?" },
 	pickFlair = { { "trail", "cheer" }, S },
+	seeFlair = {},
 	-- Rewards and shop
 	claimGoal = { S },
 	claimTask = { { "daily", "weekly" }, S },
