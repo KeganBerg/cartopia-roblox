@@ -147,7 +147,7 @@ for _, d in game.Workspace:GetChildren() do
 		table.insert(parts, Gui.partOf(d))
 	end
 end
-for _, name in { "Townspeople", "TrafficSignals" } do
+for _, name in { "Townspeople", "TrafficSignals", "TownTraffic" } do
 	local f = game.Workspace:FindFirstChild(name)
 	for _, d in if f then f:GetDescendants() else {} do
 		if d:IsA("BasePart") and d.Transparency < 1 and d.CFrame.Position.Y > -100 then

@@ -60,7 +60,7 @@ local function signalFor(inst, name)
 	signals[key] = s
 	return s
 end
-for _, pair in { { "GuiButton", "Activated" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputChanged" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
+for _, pair in { { "GuiButton", "Activated" }, { "RunService", "RenderStepped" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputChanged" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
 	roblox.implementProperty(pair[1], pair[2], function(inst)
 		return signalFor(inst, pair[2])
 	end)
@@ -147,6 +147,9 @@ crateRemote.Parent = remotes
 local meshRemote = Instance.new("RemoteFunction")
 meshRemote.Name = "Meshes"
 meshRemote.Parent = remotes
+local socialRemote = Instance.new("RemoteFunction")
+socialRemote.Name = "Social"
+socialRemote.Parent = remotes
 local bankRemote = Instance.new("RemoteFunction")
 bankRemote.Name = "Bank"
 bankRemote.Parent = remotes
@@ -231,6 +234,14 @@ end
 lib.Parent = RS
 -- SHOTS=1: the real models, and pictures of the race screens (build/shot-*.json, for render.mjs).
 local SHOTS = process.env.SHOTS ~= nil
+-- Previews draw the Call Cards from build/callcards as if their sheets were uploaded (render.mjs
+-- finds each sheet by its Key), so the cards show their real scenes rather than stand-ins.
+if SHOTS and require("@lune/fs").isFile("build/callcards/list.json") then
+	local looks = emu.require(RS.Shared.CallCardLooks)
+	for i in looks.sheets do
+		looks.sheets[i] = i
+	end
+end
 if SHOTS then
 	local Builder = emu.require(RS.Shared.Models.Builder)
 	Builder.previewMeshes = true
@@ -348,6 +359,93 @@ local crateDesk = emu.require(SSS.Server.Crates).new(towns, store, emu.require(G
 		return player:GetAttribute(k)
 	end), pay, free)
 end)
+-- Playing together: a second player in the server (Rosa, not a friend yet) with a town to visit,
+-- and Roblox friends elsewhere (Milo in another Cartopia server, Ada online, Sam offline).
+towns:open(2, nil)
+towns:run(2, "renameTown", "Rosaville")
+local rosa = Instance.new("Player")
+rosa.Name = "RosaRacer"
+rosa.UserId = 2
+pcall(function() rosa.DisplayName = "Rosa" end)
+rosa.Parent = players
+roblox.implementMethod("Players", "GetPlayerByUserId", function(_, id)
+	for _, p in players:GetChildren() do
+		if p:IsA("Player") and p.UserId == id then
+			return p
+		end
+	end
+	return nil
+end)
+roblox.implementMethod("Player", "IsFriendsWith", function(_, id)
+	return id == 3 or id == 4 or id == 5
+end)
+roblox.implementMethod("Player", "GetFriendsOnline", function()
+	return {
+		{ VisitorId = 3, UserName = "MiloMoves", DisplayName = "Milo", PlaceId = game.PlaceId, GameId = "other-server", LocationType = 4 },
+		{ VisitorId = 4, UserName = "AdaDrives", DisplayName = "Ada", PlaceId = 1234, GameId = "elsewhere", LocationType = 4 },
+	}
+end)
+roblox.implementMethod("Players", "GetFriendsAsync", function()
+	return {
+		GetCurrentPage = function()
+			return {
+				{ Id = 3, Username = "MiloMoves", DisplayName = "Milo", IsOnline = true },
+				{ Id = 4, Username = "AdaDrives", DisplayName = "Ada", IsOnline = true },
+				{ Id = 5, Username = "SamSpeed", DisplayName = "Sam", IsOnline = false },
+			}
+		end,
+	}
+end)
+roblox.implementMethod("SocialService", "CanSendGameInviteAsync", function()
+	return true
+end)
+roblox.implementMethod("SocialService", "PromptGameInvite", function() end)
+local Social = emu.require(SSS.Server.Social)
+local social = Social.new({ towns = towns, data = emu.require(G.data), today = store.today })
+local function socialDesk(op, arg)
+	local ran, result, why = pcall(function()
+		if op == "players" then
+			local save = towns:save(2)
+			return { { id = 2, name = "Rosa", user = "RosaRacer", townName = save.townName, level = save.level, trophies = save.trophies or 0, cars = #save.cars, friend = false, helped = #social:helped(1, 2) } }, nil
+		elseif op == "visit" and arg == 2 then
+			player:SetAttribute("Visiting", 2)
+			player:SetAttribute("Helped", table.concat(social:helped(1, 2), ","))
+			return social:townInfo(1, 2), nil
+		elseif op == "home" then
+			player:SetAttribute("Driving", nil)
+			player:SetAttribute("Visiting", nil)
+			player:SetAttribute("Helped", nil)
+			return true, nil
+		elseif op == "help" and type(arg) == "string" then
+			local r, w = social:help(1, 2, arg)
+			if r then
+				player:SetAttribute("Helped", table.concat(r.helped, ","))
+			end
+			return r, w
+		elseif op == "drive" then
+			player:SetAttribute("Driving", true)
+			return true, nil
+		elseif op == "claim" then
+			return 0, nil
+		elseif op == "join" then
+			return { here = false }, nil
+		end
+		return nil, "not a social action"
+	end)
+	if not ran then
+		table.insert(calls, `SERVER ERROR social {op}: {result}`)
+		return false, "error"
+	end
+	checkSend(`social {op} result`, result)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	if result == nil then
+		table.insert(calls, `social {op} refused: {why}`)
+		return false, why
+	end
+	table.insert(calls, `ok social {op}`)
+	return true, result
+end
+
 -- The server end of Cartopia.Bank (server/Purchases), with every product made.
 local bankDesk = emu.require(SSS.Server.Purchases).new(towns, store, emu.require(G.bucksPacks), function()
 	return true
@@ -361,7 +459,9 @@ do
 	bankDesk:load(1, {})
 end
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
-	if remote.Name == "Race" then
+	if remote.Name == "Social" then
+		return socialDesk(name, ...)
+	elseif remote.Name == "Race" then
 		return raceDesk(name, ...)
 	elseif remote.Name == "Meshes" then
 		-- Every mesh is already here in the previews.
@@ -496,31 +596,35 @@ local function scanDead(label)
 		end
 	end
 end
-local function clickAll(label, open)
+local function clickAll(label, open, screen)
+	-- `screen`: where the menu draws when it isn't the HUD (a full-screen scene's own gui).
+	local function root()
+		return screen and screen() or hud.gui
+	end
 	open()
-	local n = #buttons(hud.gui)
+	local n = #buttons(root())
 	scanDead(label)
 	for i = 1, n do
 		hud.ctx.close()
 		open()
-		local b = buttons(hud.gui)[i]
+		local b = buttons(root())[i]
 		if not b then
 			continue
 		end
 		total += 1
-		local where = path(b, hud.gui)
+		local where = path(b, root())
 		calls = {}
 		handlerErrors = {}
 		local wired = hears(b)
 		local shape = {}
-		for _, d in hud.gui:GetDescendants() do
+		for _, d in root():GetDescendants() do
 			if d:IsA("GuiObject") and d.Visible then
 				shape[d] = true
 			end
 		end
-		local beforeN = #hud.gui:GetDescendants()
+		local beforeN = #root():GetDescendants()
 		local beforeText = {}
-		for _, d in hud.gui:GetDescendants() do
+		for _, d in root():GetDescendants() do
 			if d:IsA("TextLabel") then
 				table.insert(beforeText, d.Text)
 			end
@@ -541,12 +645,12 @@ local function clickAll(label, open)
 		end
 		if VERBOSE and ok and wired then
 			local afterText = {}
-			for _, d in hud.gui:GetDescendants() do
+			for _, d in root():GetDescendants() do
 				if d:IsA("TextLabel") then
 					table.insert(afterText, d.Text)
 				end
 			end
-			local changed = #hud.gui:GetDescendants() ~= beforeN or table.concat(afterText, "|") ~= table.concat(beforeText, "|")
+			local changed = #root():GetDescendants() ~= beforeN or table.concat(afterText, "|") ~= table.concat(beforeText, "|")
 			print(`[{label}] {if changed or #calls > 0 then "does something" else "NO VISIBLE EFFECT"}: {where} {table.concat(calls, ", ")}`)
 		end
 		scanDead(label)
@@ -596,7 +700,7 @@ local function rustyTown()
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 end
 rustyTown()
-for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue", "season", "deals" } do
+for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue", "season", "deals", "friends" } do
 	clickAll(p, function()
 		hud.openPanel(p)
 	end)
@@ -610,10 +714,29 @@ local function unspun()
 	end)
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 end
+-- Lune's Destroy is its own and can't fire Destroying, so the Daily Spin's tyre shop (taken down
+-- when its panel goes) is closed by hand, as Roblox would.
+local wheelGone = nil
+local function wheelOpened()
+	local p = hud.root:FindFirstChild("Panel")
+	wheelGone = p and signalFor(p, "Destroying")
+end
+local function closeWheel()
+	hud.ctx.close()
+	if wheelGone then
+		wheelGone:Fire()
+		wheelGone = nil
+	end
+end
 clickAll("daily", function()
+	closeWheel()
 	unspun()
 	hud.openPanel("daily")
+	wheelOpened()
+end, function()
+	return player.PlayerGui:FindFirstChild("DailySpin") or hud.gui
 end)
+closeWheel()
 clickAll("cards", function()
 	hud.openPanel("cars", "cards")
 end)
@@ -732,7 +855,8 @@ local function shot(name, world, w, h)
 	local parts = {}
 	if world then
 		for _, d in world:GetDescendants() do
-			if d:IsA("BasePart") and d.Transparency < 1 then
+			-- An invisible part still shows the words on its SurfaceGui (the Daily Spin's amounts).
+			if d:IsA("BasePart") and (d.Transparency < 1 or d:FindFirstChildOfClass("SurfaceGui")) then
 				table.insert(parts, Gui.partOf(d))
 			end
 		end
@@ -742,7 +866,26 @@ local function shot(name, world, w, h)
 	local fog = if lighting.FogEnd < 10000 and not lighting:FindFirstChildOfClass("Atmosphere")
 		then { color = lighting.FogColor:ToHex(), start = lighting.FogStart, ["end"] = lighting.FogEnd }
 		else nil
-	fs.writeFile(`build/shot-{name}.json`, serde.encode("json", { parts = parts, fog = fog }))
+	-- A room's own lamps (the Daily Spin's tyre shop shuts the sun out).
+	local lights = {}
+	if world then
+		for _, d in world:GetDescendants() do
+			if (d:IsA("PointLight") or d:IsA("SpotLight")) and d.Parent and d.Parent:IsA("BasePart") then
+				local cf = (d.Parent :: any).CFrame
+				table.insert(lights, {
+					kind = d.ClassName,
+					at = { cf.Position.X, cf.Position.Y, cf.Position.Z },
+					dir = { cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z },
+					color = d.Color:ToHex(),
+					brightness = d.Brightness,
+					range = d.Range,
+					angle = if d:IsA("SpotLight") then d.Angle else nil,
+				})
+			end
+		end
+	end
+	local room = if lighting.Brightness == 0 then { ambient = lighting.OutdoorAmbient:ToHex() } else nil
+	fs.writeFile(`build/shot-{name}.json`, serde.encode("json", { parts = parts, fog = fog, lights = lights, room = room }))
 	local toasts = hud.gui:FindFirstChild("Toasts", true)
 	if toasts then
 		for _, t in toasts:GetChildren() do
@@ -751,7 +894,7 @@ local function shot(name, world, w, h)
 			end
 		end
 	end
-	local raceGui = player.PlayerGui:FindFirstChild("Race")
+	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("DailySpin")
 	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, w or 1280, h or 800), bubbles = {} }))
 	local cam = game.Workspace.CurrentCamera
 	local cf = cam.CFrame
@@ -1064,9 +1207,54 @@ if SHOTS then
 		hud.openPanel("race", t)
 		shot(`menu-{t}`, nil)
 	end
+	-- The front page's tiles move (client/Motion loops): frames of them a quarter second apart,
+	-- run by firing only the loops the page started.
+	do
+		local rs = signalFor(game:GetService("RunService"), "RenderStepped")
+		local before = {}
+		for c in rs.fns do
+			before[c] = true
+		end
+		hud.ctx.close()
+		hud.openPanel("race", "hub")
+		local loops = {}
+		for c, fn in rs.fns do
+			if not before[c] then
+				table.insert(loops, fn)
+			end
+		end
+		for f = 1, 20 do
+			for _, fn in loops do
+				fn(0.25)
+			end
+			shot(`hub-anim-{f}`, nil)
+		end
+	end
 	hud.ctx.close()
 	hud.openPanel("book")
 	shot("book", nil)
+	-- Social: the Friends tab, then a visit to Rosa's town with one shop helped.
+	hud.ctx.close()
+	player:SetAttribute("CanChat", true)
+	hud.openPanel("friends")
+	shot("panel-friends", nil)
+	hud.ctx.close()
+	local info = select(2, socialDesk("visit", 2))
+	hud.ctx.setVisit(info)
+	local shop = info.asking[1]
+	assert(shop, "Rosa's town has no business to help")
+	socialDesk("help", shop)
+	shot("visit", nil)
+	local home
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "🏠 Home" and d.Parent:IsA("GuiButton") then
+			home = d.Parent
+		end
+	end
+	assert(home, "no Home button on the visit banner")
+	signalFor(home, "Activated"):Fire()
+	assert(hud.ctx.visiting == nil, "going home didn't end the visit")
+	print("social: friends, visit, help, home")
 	-- The Bank, wide and on a phone: an 844 x 390 screen scales the HUD by 0.55, so it lays out at
 	-- 1535 x 709 (render at that size, then shrink the picture to 844 x 390).
 	local root = hud.gui:FindFirstChild("Root")
@@ -2011,10 +2199,16 @@ do
 	unspun()
 	local before = towns:snapshot(1).save
 	hud.openPanel("daily")
+	wheelOpened()
+	local spinGui = player.PlayerGui:FindFirstChild("DailySpin")
+	assert(spinGui, "the Daily Spin didn't take the screen")
+	assert(not hud.gui.Enabled, "the HUD stayed up over the Daily Spin")
+	local shopWorld = game.Workspace:FindFirstChild("DailySpinShop")
+	assert(shopWorld, "no tyre shop built")
 	if SHOTS then
-		shot("wheel", nil)
+		shot("wheel", shopWorld)
 	end
-	local spinBtn = find(hud.gui, function(d)
+	local spinBtn = find(spinGui, function(d)
 		return d:IsA("TextButton") and d.Name == "Face" and d.Parent and d.Parent.Name == "Spin"
 	end)
 	assert(spinBtn, "no Spin button")
@@ -2026,13 +2220,10 @@ do
 		frames += 1
 		renderSteps.DailySpin(1 / 60)
 		if frames == 40 and SHOTS then
-			shot("wheel-spin", nil)
+			shot("wheel-spin", shopWorld)
 		end
 	end
-	local rotor = find(hud.gui, function(d)
-		return d.Name == "Rotor"
-	end)
-	local prize = find(hud.gui, function(d)
+	local prize = find(spinGui, function(d)
 		return d.Name == "PrizeLine"
 	end)
 	local words = {}
@@ -2044,14 +2235,35 @@ do
 		end
 	end
 	local after = towns:snapshot(1).save
-	print(`daily spin: {frames} frames, wheel at {rotor and math.floor(rotor.Rotation) or "?"}°, prize "{table.concat(words, " ")}"; coins {before.coins} -> {after.coins}, gems {before.bucks} -> {after.bucks}, spun {after.lastDaily}`)
+	print(`daily spin: {frames} frames, wheel at {math.floor(shopWorld:GetAttribute("Angle") or -1)}°, prize "{table.concat(words, " ")}"; coins {before.coins} -> {after.coins}, gems {before.bucks} -> {after.bucks}, spun {after.lastDaily}`)
 	print(`daily spin calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
 	if SHOTS then
-		shot("wheel-won", nil)
+		-- A moment after it lands, with the confetti in the air.
+		for _ = 1, 30 do
+			renderSteps.DailySpinScene(1 / 60)
+		end
+		shot("wheel-won", shopWorld)
 	end
 	local again = Remote.spin()
 	print(`daily spin again the same day: {if again then "SPUN AGAIN" else "refused"}`)
-	hud.ctx.close()
+	handlerErrors = {}
+	closeWheel()
+	if #handlerErrors > 0 then
+		print(`daily spin close: {table.concat(handlerErrors, "; ")}`)
+	end
+	assert(not game.Workspace:FindFirstChild("DailySpinShop") and not player.PlayerGui:FindFirstChild("DailySpin"), "the tyre shop stayed after closing")
+	assert(hud.gui.Enabled, "the HUD didn't come back after the Daily Spin")
+	if SHOTS then
+		-- On a phone: the dock under the wheel, as the web's.
+		local cam = game.Workspace.CurrentCamera
+		cam.ViewportSize = roblox.Vector2.new(844, 390)
+		unspun()
+		hud.openPanel("daily")
+		wheelOpened()
+		shot("wheel-phone", game.Workspace:FindFirstChild("DailySpinShop"), 844, 390)
+		closeWheel()
+		cam.ViewportSize = roblox.Vector2.new(1280, 800)
+	end
 end
 
 -- The Star Pass: 45 stars, two tiers already claimed; Collect takes the other three.

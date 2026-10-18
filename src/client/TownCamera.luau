@@ -115,7 +115,7 @@ function TownCamera.start()
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.MouseWheel and not processed then
-			zoom = math.clamp(zoom * (1 + input.Position.Z * 0.12), ZOOM_MIN, ZOOM_MAX)
+			zoom = math.clamp(zoom * (1 + input.Position.Z * 0.12), if overview then 1.2 else ZOOM_MIN, ZOOM_MAX)
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.Touch and touches[input] then
@@ -236,6 +236,20 @@ function TownCamera.setWalking(on: boolean)
 			clamp()
 		end
 		update()
+	end
+end
+
+-- The view over the whole shared world, zoomed out, for picking a plot (true); back over the
+-- player's own town (false).
+local overview = false
+function TownCamera.setOverview(on: boolean)
+	overview = on
+	if on then
+		view = Vector3.zero
+		zoom = 2.2
+	else
+		fitZoom()
+		placed = false
 	end
 end
 

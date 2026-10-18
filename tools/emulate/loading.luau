@@ -25,7 +25,7 @@ local Images = emu.require(folder.SplashImages)
 local n = 0
 local function fake(t)
 	for k, v in t do
-		if type(v) == "number" and v == 0 and k ~= "cx" and k ~= "cy" then
+		if type(v) == "number" and v == 0 and k ~= "cx" and k ~= "cy" and k ~= "x" and k ~= "y" then
 			n += 1
 			t[k] = n
 		elseif type(v) == "table" then
@@ -36,8 +36,10 @@ end
 fake(Images.sun)
 fake(Images.town)
 fake(Images.cars)
+fake(Images.tiles)
 Images.wordmark = 9001
 Images.vignette = 9002
+Images.shadow = 9003
 local LoadingScreen = emu.require(folder.LoadingScreen)
 fs.writeFile("build/empty.json", "{\"parts\": []}")
 for _, size in { { "wide", 1280, 800 }, { "phone", 390, 844 }, { "landscape", 932, 430 } } do

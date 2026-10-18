@@ -454,7 +454,7 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		if input.KeyCode == Enum.KeyCode.Space then
 			spaceHeld = true
 			pressDown()
-		elseif input.KeyCode == Enum.KeyCode.B or input.KeyCode == Enum.KeyCode.Up then
+		elseif input.KeyCode == Enum.KeyCode.B or input.KeyCode == Enum.KeyCode.Up or input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 			fireBoost()
 		end
 	end))

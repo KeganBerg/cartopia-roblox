@@ -128,6 +128,13 @@ function Mixer.sound(id: number, into: SoundGroup, name: string?): Sound?
 		return nil
 	end
 	local s = Instance.new("Sound")
+	-- Somewhere sounds can't play (the preview emulator, tools/emulate): nothing to play.
+	if not pcall(function()
+		return s.Play
+	end) then
+		s:Destroy()
+		return nil
+	end
 	s.Name = name or tostring(id)
 	s.SoundId = `rbxassetid://{id}`
 	s.SoundGroup = into
