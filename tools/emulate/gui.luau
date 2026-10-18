@@ -409,6 +409,24 @@ local function layout(g, r)
 			end
 		end
 	end
+	-- A UIScale grows or shrinks the object and everything in it about its anchor point (the HUD's
+	-- root on a phone).
+	local scale = child(g, "UIScale")
+	if scale and scale.Scale ~= 1 then
+		local s = scale.Scale
+		local ax, ay = r.x + g.AnchorPoint.X * r.w, r.y + g.AnchorPoint.Y * r.h
+		local function shrink(c)
+			c.abs = { ax + (c.abs[1] - ax) * s, ay + (c.abs[2] - ay) * s, c.abs[3] * s, c.abs[4] * s }
+			c.textSize = c.textSize and c.textSize * s
+			c.corner = c.corner and c.corner * s
+			c.stroke = c.stroke and { c.stroke[1] * s, c.stroke[2], c.stroke[3] }
+			c.textStroke = c.textStroke and { c.textStroke[1] * s, c.textStroke[2], c.textStroke[3] }
+			for _, cc in c.children do
+				shrink(cc)
+			end
+		end
+		shrink(n)
+	end
 	return n
 end
 

@@ -13,7 +13,7 @@ import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
   Color, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
-  type BufferGeometry, type Material, type MeshStandardMaterial, type Object3D,
+  type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D,
 } from 'three'
 import { BUILDINGS, CARS } from './game/data'
 
@@ -753,6 +753,63 @@ it('exports every building and car', async () => {
   if (!only || only === 'outskirts') {
     await outskirts('outskirts:forest', plots, true)
     for (const key of plots) await outskirts(`wilds:${key}`, plots.filter((k) => k !== key), false)
+  }
+  // The world past the countryside (Horizon.tsx, the web's free view): land rolling out to the
+  // horizon with its mountains and wind farm, the lake, farms and railway, the highway and the far
+  // city, and balloons. One still frame of it at noon in fair weather; the sky is baked into
+  // skybox pictures separately (tools/sky/build.mjs).
+  if (!only || only === 'outskirts' || only === 'horizon') await horizon()
+  async function horizon() {
+    const { Horizon } = await import('./scene/Horizon')
+    const { useThree } = await import('@react-three/fiber')
+    const { DAY_MS } = await import('./game/clock')
+    const { weatherNow } = await import('./game/weather')
+    const st: { state?: { internal: { subscribers: { ref: { current: (s: unknown, dt: number) => void } }[] } } } = {}
+    const Grab = () => {
+      st.state = useThree() as never
+      return null
+    }
+    // Noon on the first fair day from a fixed date, so lamps stay off and the balloons fly.
+    let noon = Math.ceil(Date.UTC(2026, 0, 1) / DAY_MS) * DAY_MS
+    for (let i = 0; i < 500 && weatherNow(noon).kind !== 'clear'; i++) noon += DAY_MS
+    const realNow = Date.now
+    Date.now = () => noon
+    try {
+      const r = await ReactThreeTestRenderer.create(
+        <>
+          <Grab />
+          <Horizon />
+        </>,
+        { width: 1280, height: 800 },
+      )
+      for (let i = 0; i < 3; i++) for (const sub of st.state!.internal.subscribers) sub.ref.current(st.state, 1 / 60)
+      const root = r.scene.instance as Object3D
+      const dimmed: [MeshStandardMaterial, number][] = []
+      root.traverse((o) => {
+        const m = (o as Mesh).material as (MeshBasicMaterial & MeshStandardMaterial) | undefined
+        if (!m || Array.isArray(m)) return
+        // Unlit pieces: lamps and blinking aircraft lights, shown only after dark or now and then,
+        // and the flocks of birds, which would hang still in the air.
+        if (m.isMeshBasicMaterial) o.visible = false
+        // The city's lit windows are for the night (a faint glow by day would read as Neon).
+        // Materials can be shared with what's exported after, so each is put back below.
+        if (m.isMeshStandardMaterial && m.emissiveIntensity) {
+          dimmed.push([m, m.emissiveIntensity])
+          m.emissiveIntensity = 0
+        }
+      })
+      // The sky dome (a shader sphere): Roblox shows the baked skybox instead.
+      const pieces = walk(root, geos, geoList).filter((p) => {
+        const g = geoList[p.g]
+        return !(g.type === 'SphereGeometry' && (g.params.radius as number) >= 1000)
+      })
+      for (const [m, v] of dimmed) m.emissiveIntensity = v
+      models.push({ id: 'horizon:land', kind: 'scenery', pieces })
+      console.log(`horizon:land: ${pieces.length} pieces`)
+      await r.unmount()
+    } finally {
+      Date.now = realNow
+    }
   }
   // The drag strip at each venue (RaceScene.tsx), everything but the cars: the road and its
   // markings, the sidewalks or shoulders, lamps, banners, barriers, bunting, the crowd, and the

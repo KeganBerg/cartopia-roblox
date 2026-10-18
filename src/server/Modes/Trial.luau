@@ -129,6 +129,10 @@ function Trial.finish(self: any, s: any, p: any, _won: boolean, myTime: number, 
 		look = if car then look(car) else { model = p.model },
 	}
 	local kept = board(self):submit(e.week, p.userId, myTime, row)
+	-- A trial time is a ghost time too (ghost_best takes the best of both).
+	if self.mods.ghosts then
+		self.mods.ghosts:record(p.userId, kept, row.pi, row.car, p.model, if car then car.color else "#eceff1")
+	end
 	local place, total = board(self):place(e.week, kept)
 	result.trial = { t = myTime, kept = kept, before = e.before, target = e.target, ghost = e.ghost, place = place, total = total }
 end

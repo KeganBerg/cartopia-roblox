@@ -224,6 +224,30 @@ function Emu.fakeMeshPacks(emu)
 	end)
 end
 
+-- Roblox's seeded Random, which Lune doesn't have: the same calls on a small 32-bit generator
+-- (mulberry32), so a seed always gives the same run. Not Roblox's own sequence.
+Emu.Random = {
+	new = function(seed)
+		local state = math.floor(seed or os.clock() * 1e6) % 4294967296
+		local r = {}
+		local function nextFloat()
+			state = (state + 0x6D2B79F5) % 4294967296
+			local t = state
+			t = bit32.bxor(t, bit32.rshift(t, 15)) * bit32.bor(t, 1) % 4294967296
+			t = bit32.bxor(t, (t + bit32.bxor(t, bit32.rshift(t, 7)) * bit32.bor(t, 61) % 4294967296) % 4294967296)
+			return bit32.bxor(t, bit32.rshift(t, 14)) / 4294967296
+		end
+		function r:NextNumber(lo, hi)
+			lo, hi = lo or 0, hi or 1
+			return lo + nextFloat() * (hi - lo)
+		end
+		function r:NextInteger(lo, hi)
+			return lo + math.floor(nextFloat() * (hi - lo + 1))
+		end
+		return r
+	end,
+}
+
 function Emu.load(placeFile: string)
 	local game = roblox.deserializePlace(fs.readFile(placeFile))
 	pcall(function()
@@ -293,6 +317,7 @@ function Emu.load(placeFile: string)
 			e[k] = roblox[k]
 		end
 		e.CFrame = FixedCFrame
+		e.Random = e.Random or Emu.Random
 		-- Nothing is laid out here, so screens read a zero size, as before Roblox's first frame.
 		e.Instance = setmetatable({
 			new = function(class, parent)

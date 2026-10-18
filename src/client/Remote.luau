@@ -96,6 +96,23 @@ function Remote.crate(id: string, free: string?, count: number?): { any }?
 	return result
 end
 
+-- Spins today's Daily Spin on the server (server/Crates spin, through the Crate remote). Returns
+-- the spin { slice, open } for the wheel to land on, or nil (with a toast saying why).
+function Remote.spin(): any?
+	local sent, ok, result = pcall(crateRemote.InvokeServer, crateRemote, "wheel")
+	if not sent then
+		warn(`[Cartopia] wheel: {ok}`)
+		failed:Fire("Couldn't reach the server. Try again.")
+		return nil
+	end
+	if not ok then
+		warn(`[Cartopia] wheel refused: {result}`)
+		failed:Fire(if result == "spun today" then "Spun today. Back tomorrow!" else WHY[result] or "Couldn't spin. Try again.")
+		return nil
+	end
+	return result
+end
+
 townEvent.OnClientEvent:Connect(function(snap)
 	store.useGame.getState().loadSave(snap.save)
 	store.useGame.setState({ need = snap.need, panel = snap.panel })

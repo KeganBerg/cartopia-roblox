@@ -72,6 +72,24 @@ if process.env.NO_MESHES == nil then
 	pcall(emu.require(RS.Shared.Models.Builder).useLibrary, 1)
 end
 Countryside.draw(Vector3.new(0, 0, 0), folder)(save)
+-- HORIZON=<sky step>: the far land and the sky (client Horizon) as well, at that step of the day
+-- (1 is noon; see Shared.Models.SkyImages). Written to the JSON as sky and fog for render.mjs.
+local skyStep = tonumber(process.env.HORIZON or "")
+local sky, fog = nil, nil
+if skyStep then
+	local Builder = emu.require(RS.Shared.Models.Builder)
+	if process.env.NO_MESHES == nil then
+		Builder.loadLate()
+		pcall(Builder.useLibrary, 1)
+	end
+	local Horizon = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.Horizon)
+	Horizon.draw(Vector3.new(0, 0, 0), folder)
+	local SkyImages = emu.require(RS.Shared.Models.SkyImages)
+	local step = SkyImages.steps[skyStep]
+	sky = { step = skyStep - 1, season = SkyImages.SEASON }
+	-- The web game's far fog (Horizon.tsx FarFog: 170 to 1,820 units), in the sky's horizon colour.
+	fog = { color = string.sub(step.haze, 2), start = 1700, ["end"] = 18200 }
+end
 -- LIFE=<seconds>: the town's traffic and townspeople (client TownLife), run that long.
 local life = tonumber(process.env.LIFE or "")
 if life then
@@ -120,7 +138,7 @@ for _, d in folder:GetDescendants() do
 		table.insert(parts, Gui.partOf(d))
 	end
 end
-fs.writeFile(out, serde.encode("json", { parts = parts, buildings = #save.buildings, cars = #save.cars }))
+fs.writeFile(out, serde.encode("json", { parts = parts, buildings = #save.buildings, cars = #save.cars, sky = sky, fog = fog }))
 print(`drew {#parts} parts: {#save.buildings} buildings, {#save.roads} road tiles, {#save.cars} cars`)
 
 -- The client: the HUD over this town, optionally with a screen open (process.args[4]).

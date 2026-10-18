@@ -169,6 +169,8 @@ const REWRITES = [
   // Passing a named function straight to map/filter trips TypeScriptToLua's `this` checks.
   [/\(Boolean\)/g, "((x: any) => !!x)"],
   [/\.(map|filter|some|every|forEach|find)\(([A-Za-z_]\w*)\)/g, '.$1((x: any) => $2(x))'],
+  // The arcade's device bests are parsed JSON (untyped); give the list its type so .map converts.
+  [/Array\.isArray\(b\.park\) \? b\.park\.map\(/, 'Array.isArray(b.park) ? (b.park as unknown[]).map('],
 ]
 
 function walk(dir) {
