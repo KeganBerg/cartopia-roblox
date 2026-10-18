@@ -49,10 +49,11 @@ function Town.tileSize(): number
 	return if f then f:GetAttribute("TileSize") :: any else 20
 end
 
--- Where a screen point (mouse or finger) meets the ground.
+-- Where a screen point (mouse or finger, as InputObject.Position gives it: below Roblox's top
+-- bar) meets the ground.
 function Town.groundAt(screen: Vector2): Vector3?
 	local cam = workspace.CurrentCamera
-	local ray = cam:ViewportPointToRay(screen.X, screen.Y)
+	local ray = cam:ScreenPointToRay(screen.X, screen.Y)
 	if math.abs(ray.Direction.Y) < 1e-4 then
 		return nil
 	end

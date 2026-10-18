@@ -20,10 +20,30 @@ Remote.changed = changed.Event
 -- The last snapshot, or nil until the town arrives.
 Remote.last = nil :: any
 
+-- Fires when the server couldn't run an action at all (not loaded yet, too many taps, an error),
+-- with what to tell the player, so a tap never silently does nothing.
+local failed = Instance.new("BindableEvent")
+Remote.failed = failed.Event
+
+local WHY = {
+	["town not loaded"] = "Your town is still loading",
+	["slow down"] = "Slow down a little",
+}
+
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
 -- Returns ok and the action's result (or why it was refused).
 function Remote.act(name: string, ...: any): (boolean, any)
-	return actRemote:InvokeServer(name, ...)
+	local sent, ok, result = pcall(actRemote.InvokeServer, actRemote, name, ...)
+	if not sent then
+		warn(`[Cartopia] {name}: {ok}`)
+		failed:Fire("Couldn't reach the server. Try again.")
+		return false, "no answer"
+	end
+	if not ok then
+		warn(`[Cartopia] {name} refused: {result}`)
+		failed:Fire(WHY[result] or "That didn't work. Try again.")
+	end
+	return ok, result
 end
 
 townEvent.OnClientEvent:Connect(function(snap)

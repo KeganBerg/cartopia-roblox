@@ -9,6 +9,7 @@ local roblox = require("@lune/roblox")
 local Instance = roblox.Instance
 
 -- Real signals, one per instance and event, so clicks can be fired.
+local VERBOSE = process.args[2] == "-v"
 local nextId = 0
 local handlerErrors = {}
 local signals = {}
@@ -132,6 +133,45 @@ for _, kind in { "Cars", "Buildings" } do
 end
 lib.Parent = RS
 
+-- What Roblox can't send through a remote, or HttpService:JSONEncode can't encode (the server
+-- encodes every save to see if it changed): functions, NaN and infinities, tables mixing list and
+-- named keys, lists with holes, and number keys that aren't a list.
+local function unsafe(v, at, out, seen)
+	local t = type(v)
+	if t == "function" or t == "userdata" or t == "thread" then
+		table.insert(out, `{at}: a {t}`)
+	elseif t == "number" and (v ~= v or math.abs(v) == math.huge) then
+		table.insert(out, `{at}: {v}`)
+	elseif t == "table" then
+		if seen[v] then
+			return
+		end
+		seen[v] = true
+		local n, strings, numbers = #v, 0, 0
+		for k, x in v do
+			if type(k) == "string" then
+				strings += 1
+			elseif type(k) == "number" then
+				numbers += 1
+			else
+				table.insert(out, `{at}: a {type(k)} key`)
+			end
+			unsafe(x, `{at}.{tostring(k)}`, out, seen)
+		end
+		if strings > 0 and numbers > 0 then
+			table.insert(out, `{at}: mixes list and named keys`)
+		elseif numbers ~= n then
+			table.insert(out, `{at}: number keys that aren't a list ({numbers} keys, length {n})`)
+		end
+	end
+	return out
+end
+local function checkSend(what, v)
+	for _, problem in unsafe(v, what, {}, {}) or {} do
+		table.insert(calls, `CAN'T SEND {problem}`)
+	end
+end
+
 -- The server end of Cartopia.Act, as init.server.luau runs it.
 local calls = {}
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(_, name, ...)
@@ -147,7 +187,10 @@ roblox.implementMethod("RemoteFunction", "InvokeServer", function(_, name, ...)
 		return false, "error"
 	end
 	table.insert(calls, `ok {name}`)
-	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	local snap = towns:snapshot(1)
+	checkSend(`{name} snapshot`, snap)
+	checkSend(`{name} result`, result)
+	signalFor(townEvent, "OnClientEvent"):Fire(snap)
 	return true, result
 end)
 
@@ -202,6 +245,19 @@ local function clickAll(label, open)
 		calls = {}
 		handlerErrors = {}
 		local wired = next(signalFor(b, "Activated").fns) ~= nil
+		local shape = {}
+		for _, d in hud.gui:GetDescendants() do
+			if d:IsA("GuiObject") and d.Visible then
+				shape[d] = true
+			end
+		end
+		local beforeN = #hud.gui:GetDescendants()
+		local beforeText = {}
+		for _, d in hud.gui:GetDescendants() do
+			if d:IsA("TextLabel") then
+				table.insert(beforeText, d.Text)
+			end
+		end
 		local ok, err = pcall(function()
 			signalFor(b, "MouseButton1Down"):Fire()
 			signalFor(b, "MouseButton1Up"):Fire()
@@ -213,6 +269,16 @@ local function clickAll(label, open)
 		elseif not wired then
 			silent += 1
 			print(`[{label}] not wired: {where}`)
+		end
+		if VERBOSE and ok and wired then
+			local afterText = {}
+			for _, d in hud.gui:GetDescendants() do
+				if d:IsA("TextLabel") then
+					table.insert(afterText, d.Text)
+				end
+			end
+			local changed = #hud.gui:GetDescendants() ~= beforeN or table.concat(afterText, "|") ~= table.concat(beforeText, "|")
+			print(`[{label}] {if changed or #calls > 0 then "does something" else "NO VISIBLE EFFECT"}: {where} {table.concat(calls, ", ")}`)
 		end
 		for _, e in handlerErrors do
 			bad += 1
