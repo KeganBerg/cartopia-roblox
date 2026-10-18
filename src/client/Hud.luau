@@ -21,7 +21,6 @@ local data = require(Game.data) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Motion = require(script.Parent.Motion)
-local Sfx = require(script.Parent.Sounds.Sfx)
 local Icons = require(script.Parent.Icons)
 local Shop = require(script.Parent.Shop)
 local Cars = require(script.Parent.Cars)
@@ -80,6 +79,8 @@ function Hud.start()
 	})
 	-- Everything sits in one frame laid out at the web's 1280x800 and scaled to fit the screen:
 	-- phones see the same screen, smaller (never bigger than on the web).
+	-- Every button on the screen presses, hovers and taps, as on the web (UIMotion).
+	Motion.bindAll(gui)
 	local root = Ui.new("Frame", { Name = "Root", BackgroundTransparency = 1, Size = UDim2.fromOffset(REF_W, REF_H), Parent = gui })
 	local scale = Ui.new("UIScale", { Scale = 1, Parent = root })
 	local left = Ui.new("Frame", { Name = "Left", Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(250, 120), BackgroundTransparency = 1, Parent = root })
@@ -125,12 +126,7 @@ function Hud.start()
 		if open then
 			local o = open
 			open = nil
-			if instant then
-				o:Destroy()
-			else
-				Sfx.menuClose()
-				Motion.panelOut(o)
-			end
+			Motion.panelOut(o, instant)
 		end
 	end
 
@@ -470,6 +466,7 @@ function Hud.start()
 		if panel ~= "shop" and panel ~= "inventory" and panel ~= "upgrade" and panel ~= "need" then
 			Placement.cancel()
 		end
+		Motion.swapping = open ~= nil
 		close(true)
 		if panel == "edit" then
 			Placement.edit(root, ctx, arg)
@@ -496,6 +493,7 @@ function Hud.start()
 		else
 			toast("That screen is coming to Roblox soon")
 		end
+		Motion.swapping = false
 	end
 
 	-- ── Refresh ───────────────────────────────────────────────────────────────────────────────

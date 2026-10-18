@@ -240,10 +240,10 @@ function Ui.bevel(face: GuiObject, radius: number, top: number?, bottom: number?
 	}, { Ui.round() })
 end
 
--- Presses a button down onto its shadow while it's held (the web's :active translateY), and
--- bounces it back up.
-local function press(face: GuiButton, drop: number)
-	Motion.pressFace(face, drop)
+-- Presses a button down onto its shadow while it's held (the web's :active translateY), springs
+-- it back up, and taps (UIMotion).
+local function press(face: GuiButton, _drop: number)
+	Motion.bindButton(face)
 end
 
 -- A bevelled colour button. colors: a gradient name. Returns the laid-out frame and the face (a
@@ -339,6 +339,8 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 		Parent = gui,
 	})
 	overlay.Activated:Connect(opts.onClose)
+	-- The backdrop doesn't press or grow under the mouse like a button.
+	overlay:SetAttribute("NoMotion", true)
 	local w = if opts.wide then 860 else (opts.width or 460)
 	local h = if opts.wide then 900 else (opts.height or 600)
 	local shadow, sheet = Ui.shadowed({
@@ -407,15 +409,8 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 		Size = UDim2.new(1, -pad * 2, 1, -61 - (opts.bodyTop or 10) - 14),
 		Parent = sheet,
 	})
-	-- Every button put in the menu presses down and bounces back; then the menu rises in.
-	overlay.DescendantAdded:Connect(function(d)
-		if d:IsA("GuiButton") then
-			-- Once its maker has finished it (Ui.button gives its own press).
-			task.defer(Motion.pressable, d)
-		end
-	end)
+	-- It rises in with the menu sound (Motion, UIMotion).
 	Motion.panelIn(overlay, shadow, titleLabel)
-	Sfx.menuOpen()
 	return overlay, sheet, body, extras
 end
 
