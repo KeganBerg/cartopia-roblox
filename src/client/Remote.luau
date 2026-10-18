@@ -12,6 +12,7 @@ local remotes = ReplicatedStorage:WaitForChild("Cartopia")
 local actRemote = remotes:WaitForChild("Act") :: RemoteFunction
 local townEvent = remotes:WaitForChild("Town") :: RemoteEvent
 local raceRemote = remotes:WaitForChild("Race") :: RemoteFunction
+local crateRemote = remotes:WaitForChild("Crate") :: RemoteFunction
 
 local Remote = {}
 
@@ -69,6 +70,26 @@ function Remote.race(op: string, arg: any?, quiet: boolean?): (boolean, any)
 		end
 	end
 	return ok, result
+end
+
+-- Opens crates on the server (server/Crates): count of crate id, or the free crate from source
+-- `free`. Returns the opens for the reveal, or nil (the "you need" popup or a toast says why).
+function Remote.crate(id: string, free: string?, count: number?): { any }?
+	local sent, ok, result = pcall(crateRemote.InvokeServer, crateRemote, id, free, count or 1)
+	if not sent then
+		warn(`[Cartopia] crate {id}: {ok}`)
+		failed:Fire("Couldn't reach the server. Try again.")
+		return nil
+	end
+	if not ok then
+		warn(`[Cartopia] crate {id} refused: {result}`)
+		-- Short on coins or level opens the "you need" popup instead (sent with the snapshot).
+		if result ~= "not opened" then
+			failed:Fire(WHY[result] or "Couldn't open the crate. Try again.")
+		end
+		return nil
+	end
+	return result
 end
 
 townEvent.OnClientEvent:Connect(function(snap)

@@ -118,12 +118,10 @@ local function goTo(ctx: any, stat: string, def: string?)
 		ctx.close()
 		ctx.toast("Cars sometimes get flats or run dry on jobs. Run a few and watch for the 🛞 and ⛽ bubbles.")
 	elseif stat == "cratesOpened" then
-		ctx.close()
-		ctx.toast("Crates are coming to Roblox soon")
+		ctx.open("crates")
 	else
-		-- Races, the campaign, Grand Prix, daily runs.
-		ctx.close()
-		ctx.toast("Racing is coming to Roblox soon")
+		-- Races, the campaign, Grand Prix, daily runs: the race hub.
+		ctx.open("race")
 	end
 end
 

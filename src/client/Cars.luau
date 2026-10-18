@@ -16,6 +16,8 @@ local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Thumb = require(script.Parent.Thumb)
+local Collection = require(script.Parent.Collection)
+local CrateDepot = require(script.Parent.Crates)
 
 local Cars = {}
 
@@ -173,6 +175,7 @@ end
 function Cars.open(ctx: any, tab: string?): Instance
 	local s0 = store.useGame.getState()
 	local current = tab or lastTab
+	CrateDepot.reset()
 	local overlay = Ui.new("TextButton", { Name = "Panel", Text = "", AutoButtonColor = false, ZIndex = 20, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = ctx.gui })
 	local page = Ui.new("Frame", { Name = "Cars", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0f141d"), BorderSizePixel = 0, Parent = overlay })
 	room(page)
@@ -268,6 +271,8 @@ function Cars.open(ctx: any, tab: string?): Instance
 	end
 
 	local render: () -> ()
+	-- Switches the tab strip's highlight (set once the tabs are made below).
+	local pickTab: (string) -> () = function() end
 
 	-- ── My Cars ───────────────────────────────────────────────────────────────────────────────
 	local selected: string? = s0.selectedCar
@@ -661,12 +666,36 @@ function Cars.open(ctx: any, tab: string?): Instance
 		Ui.setText(powerText, `⚡{Ui.compact(data.garagePower(s.cars))}`)
 		if current == "shop" then
 			sale()
+		elseif current == "book" then
+			-- A missing car: its card in For Sale when the dealer sells it.
+			Collection.draw(content, ctx, function(model: string)
+				local def = data.carDef(model)
+				if def.secret then
+					pickTab("crates")
+					current = "crates"
+					render()
+				elseif not def.rescueOnly and not def.season and not def.pack then
+					lastSale = model
+					pickTab("shop")
+					current = "shop"
+					render()
+				else
+					ctx.toast(`{def.name}: {data.carSource(def).text}`)
+				end
+			end)
+		elseif current == "crates" then
+			CrateDepot.draw(content, ctx)
 		else
 			garage()
 		end
 	end
-	local _, pickTab = Ui.tabs(page, TABS, current, function(id)
-		if id == "garage" or id == "shop" then
+	local READY = { garage = true, shop = true, book = true, crates = true }
+	local _tabs
+	_tabs, pickTab = Ui.tabs(page, TABS, current, function(id)
+		if READY[id] then
+			if id == "crates" and current ~= id then
+				CrateDepot.reset()
+			end
 			current = id
 			lastTab = id
 			render()
@@ -674,7 +703,7 @@ function Cars.open(ctx: any, tab: string?): Instance
 	end, { dark = true, position = UDim2.fromOffset(0, 61), size = UDim2.new(1, 0, 0, 52) })
 	-- The tabs the Roblox game doesn't have yet say so and stay on the page you're on.
 	for _, t in TABS do
-		if t.id ~= "garage" and t.id ~= "shop" then
+		if not READY[t.id] then
 			local face = (page :: any).Tabs[t.id].Face :: TextButton
 			face.Activated:Connect(function()
 				ctx.toast(`{t.label:sub(((t.label:find(" ")) or 0) + 1)} is coming to Roblox soon`)

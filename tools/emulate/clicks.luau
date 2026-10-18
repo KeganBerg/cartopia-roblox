@@ -126,6 +126,9 @@ townEvent.Parent = remotes
 local raceRemote = Instance.new("RemoteFunction")
 raceRemote.Name = "Race"
 raceRemote.Parent = remotes
+local crateRemote = Instance.new("RemoteFunction")
+crateRemote.Name = "Crate"
+crateRemote.Parent = remotes
 -- The race desk, as init.server.luau makes it (a seeded stand-in for Random).
 local seed = 7
 local G = RS.Shared.Game
@@ -262,9 +265,26 @@ local function raceDesk(op, arg)
 	table.insert(calls, `ok race {op}`)
 	return true, result
 end
+-- The server end of Cartopia.Crate.
+local crateDesk = emu.require(SSS.Server.Crates).new(towns, store, emu.require(G.crates))
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
 	if remote.Name == "Race" then
 		return raceDesk(name, ...)
+	elseif remote.Name == "Crate" then
+		local ran, result, why = pcall(crateDesk.open, crateDesk, 1, name, ...)
+		if not ran then
+			table.insert(calls, `SERVER ERROR crate {name}: {result}`)
+			return false, "error"
+		end
+		checkSend(`crate {name} result`, result)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		if result == nil then
+			-- Short on coins or level: the town's "you need" popup says so, as on the web.
+			table.insert(calls, if why == "not opened" then `ok crate {name} (needs more)` else `crate {name} refused: {why}`)
+			return false, why
+		end
+		table.insert(calls, `ok crate {name}`)
+		return true, result
 	end
 	local args = table.pack(...)
 	local ok, why = Towns.check(name, args, args.n)
@@ -400,7 +420,7 @@ local function clickAll(label, open)
 end
 
 clickAll("hud", function() end)
-for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race" } do
+for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates" } do
 	clickAll(p, function()
 		hud.openPanel(p)
 	end)
@@ -443,6 +463,40 @@ if SHOTS then
 		hud.ctx.close()
 		hud.openPanel("race", t)
 		shot(`menu-{t}`, nil)
+	end
+	hud.ctx.close()
+	hud.openPanel("book")
+	shot("book", nil)
+	hud.ctx.close()
+	hud.openPanel("crates")
+	shot("crates", nil)
+	-- Open one with coins to spare, let the crate burst, and picture the prize; then ten.
+	towns:_with(1, function()
+		store.useGame.setState({ coins = 1000000 })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("crates")
+	local depot = hud.gui:FindFirstChild("Depot", true)
+	local openB = depot and depot:FindFirstChild("Open", true)
+	if openB then
+		signalFor(openB, "Activated"):Fire()
+		-- Once for the server's answer, once for the burst.
+		Emu.resumeWaits()
+		Emu.resumeWaits()
+		shot("crate-prize", nil)
+	end
+	hud.ctx.close()
+	hud.openPanel("crates")
+	depot = hud.gui:FindFirstChild("Depot", true)
+	for _, d in (depot and depot:GetDescendants() or {}) do
+		if d:IsA("TextLabel") and d.Text:find("^×10") then
+			signalFor(d.Parent, "Activated"):Fire()
+			Emu.resumeWaits()
+			Emu.resumeWaits()
+			shot("crate-ten", nil)
+			break
+		end
 	end
 end
 

@@ -121,14 +121,23 @@ end
 
 local sizeOf
 
--- The size an AutomaticSize object grows to hold its text or its laid-out children.
-local function contentSize(g, parent)
+-- What a label shows: rich text's tags aren't drawn.
+local function shownText(g): string
+	if g.RichText then
+		return (g.Text:gsub("<[^>]->", ""))
+	end
+	return g.Text
+end
+
+-- The size an AutomaticSize object grows to hold its text or its laid-out children. ownW/ownH:
+-- its size before growing; children sized by scale follow it along an axis that doesn't grow.
+local function contentSize(g, ownW, ownH)
 	local l, r, t, b = padOf(g)
 	-- A text object sizes to its text; a TextButton with no text (a tappable row) to its children.
 	if isText(g) and g.Text ~= "" then
 		local family = fontOf(g)
 		local lines, widest = 0, 0
-		for line in (g.Text .. "\n"):gmatch("(.-)\n") do
+		for line in (shownText(g) .. "\n"):gmatch("(.-)\n") do
 			lines += 1
 			widest = math.max(widest, textWidth(line, g.TextSize, family))
 		end
@@ -139,8 +148,23 @@ local function contentSize(g, parent)
 	local w, h = 0, 0
 	-- As in Roblox, children sized by scale don't push an automatic size out (they'd follow it):
 	-- only their offsets and their own automatic sizes count.
-	local area = rect(0, 0, 0, 0)
-	local _ = parent
+	local auto = enumName(g.AutomaticSize)
+	local area = rect(0, 0, if auto == "Y" then math.max(0, ownW - l - r) else 0, if auto == "X" then math.max(0, ownH - t - b) else 0)
+	local grid = child(g, "UIGridLayout")
+	if grid then
+		local cw = grid.CellSize.X.Offset + grid.CellSize.X.Scale * area.w
+		local ch = grid.CellSize.Y.Offset + grid.CellSize.Y.Scale * area.h
+		local px, py = grid.CellPadding.X.Offset, grid.CellPadding.Y.Offset
+		local n = 0
+		for _, k in kids do
+			if k.Visible then
+				n += 1
+			end
+		end
+		local per = math.max(1, math.floor((area.w + px) / (cw + px)))
+		local rows = math.ceil(n / per)
+		return math.min(n, per) * (cw + px) - px + l + r, math.max(0, rows * (ch + py) - py) + t + b
+	end
 	if list then
 		local horizontal = enumName(list.FillDirection) == "Horizontal"
 		local gap = list.Padding.Offset
@@ -171,7 +195,7 @@ sizeOf = function(g, parent)
 	local w, h = udim2(g.Size, parent)
 	local auto = enumName(g.AutomaticSize)
 	if auto and auto ~= "None" then
-		local cw, ch = contentSize(g, parent)
+		local cw, ch = contentSize(g, w, h)
 		if auto == "X" or auto == "XY" then
 			w = math.max(w, cw)
 		end
@@ -231,7 +255,7 @@ local function node(g, r)
 		end
 	end
 	if isText(g) then
-		n.text = g.Text
+		n.text = shownText(g)
 		n.textColor = hex(g.TextColor3)
 		n.textT = g.TextTransparency
 		n.textSize = g.TextSize

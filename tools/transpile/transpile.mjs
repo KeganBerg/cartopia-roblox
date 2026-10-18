@@ -98,6 +98,10 @@ function patchLualib(src) {
   if (start < 0) throw new Error('lualib changed: __TS__ObjectAssign not found')
   const end = src.indexOf('\nend\n', start) + 5
   src = src.slice(0, start) + LUALIB_PATCH + src.slice(end)
+  // Roblox's _G is a plain shared table, not the globals, so the Promise and async helpers'
+  // _G.pcall and _G.coroutine came back nil there (any async function failed in the live game).
+  src = src.replace('local ____pcall = _G.pcall', 'local ____pcall = pcall').replace('local ____coroutine = _G.coroutine or ({})', 'local ____coroutine = coroutine')
+  if (/_G\./.test(src)) throw new Error('lualib changed: it reads _G, which Roblox does not fill')
   return src.replace(/\nreturn \{\n/, '\nreturn {\n  __TS__Obj = __TS__Obj,\n  __TS__SPREAD = __TS__SPREAD,\n')
 }
 

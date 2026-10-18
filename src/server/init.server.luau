@@ -7,6 +7,7 @@
 --   Town   RemoteEvent     server -> client: { save, need, panel, toasts } after every change
 --   Race   RemoteFunction  client -> server: ("rivals" | "campaign" | "start" | "finish", ...)
 --                          -> ok, result or error text (see Races)
+--   Crate  RemoteFunction  client -> server: (crate id, free source?, count) -> ok, the opens or why
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -30,6 +31,7 @@ local Saves = require(script.Saves)
 local Towns = require(script.Towns)
 local TownView = require(script.TownView)
 local Races = require(script.Races)
+local Crates = require(script.Crates)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
@@ -54,6 +56,7 @@ local races = Races.new(towns, {
 	random = Random.new(),
 	clock = os.clock,
 })
+local crates = Crates.new(towns, require(Game.store), require(Game.crates))
 
 local remotes = Instance.new("Folder")
 remotes.Name = "Cartopia"
@@ -66,6 +69,9 @@ townEvent.Parent = remotes
 local raceRemote = Instance.new("RemoteFunction")
 raceRemote.Name = "Race"
 raceRemote.Parent = remotes
+local crateRemote = Instance.new("RemoteFunction")
+crateRemote.Name = "Crate"
+crateRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
 
 -- The mesh packs load first, so towns are drawn with real meshes rather than stand-in boxes.
@@ -290,6 +296,25 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 	if op == "start" or op == "finish" then
 		push(player)
 	end
+	if result == nil then
+		return false, why
+	end
+	return true, result
+end
+
+crateRemote.OnServerInvoke = function(player: Player, id: any, free: any, count: any)
+	if not towns:isOpen(player.UserId) then
+		return false, "town not loaded"
+	end
+	if not allow(player) then
+		return false, "slow down"
+	end
+	local ran, result, why = pcall(crates.open, crates, player.UserId, id, free, count)
+	if not ran then
+		warn(`[Cartopia] {player.Name} crate {id}: {result}`)
+		return false, "error"
+	end
+	push(player)
 	if result == nil then
 		return false, why
 	end
