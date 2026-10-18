@@ -236,9 +236,11 @@ cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 const reach = cam.position.distanceTo(new T.Vector3(...c.at))
 scene.fog = S.fog ? new T.Fog('#' + S.fog.color, S.fog.start, S.fog.end) : new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
 // The sky: each face is a picture of what a camera looking that way saw (tools/sky/build.mjs),
-// so each hangs square in front of the camera that way, a skybox round where it stands.
+// so each hangs square in front of the camera that way, a skybox round where it stands. Hung the
+// way Roblox hangs them: Left, Back, Right, Front an upright strip, Up's top edge on Left and
+// Down's top edge on Right (a cubemap's py turned clockwise, ny anticlockwise).
 if (S.sky?.Up) {
-  const FACES = { Lf: [[1, 0, 0], [0, 1, 0]], Bk: [[0, 0, 1], [0, 1, 0]], Rt: [[-1, 0, 0], [0, 1, 0]], Ft: [[0, 0, -1], [0, 1, 0]], Up: [[0, 1, 0], [-1, 0, 0]], Dn: [[0, -1, 0], [1, 0, 0]] }
+  const FACES = { Lf: [[1, 0, 0], [0, 1, 0]], Bk: [[0, 0, 1], [0, 1, 0]], Rt: [[-1, 0, 0], [0, 1, 0]], Ft: [[0, 0, -1], [0, 1, 0]], Up: [[0, 1, 0], [1, 0, 0]], Dn: [[0, -1, 0], [-1, 0, 0]] }
   const D = 20000
   for (const [face, [look, up]] of Object.entries(FACES)) {
     const t = await new T.TextureLoader().loadAsync(S.sky[face])

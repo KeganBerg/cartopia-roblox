@@ -74,6 +74,7 @@ end
 Countryside.draw(Vector3.new(0, 0, 0), folder)(save)
 -- HORIZON=<sky step>: the far land and the sky (client Horizon) as well, at that step of the day
 -- (1 is noon; see Shared.Models.SkyImages). Written to the JSON as sky and fog for render.mjs.
+-- HORIZON_T=<seconds> moves the rotors and balloons on that far.
 local skyStep = tonumber(process.env.HORIZON or "")
 local sky, fog = nil, nil
 if skyStep then
@@ -84,6 +85,9 @@ if skyStep then
 	end
 	local Horizon = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.Horizon)
 	Horizon.draw(Vector3.new(0, 0, 0), folder)
+	-- The turning rotors and the balloons, HORIZON_T seconds after they appeared.
+	local t = tonumber(process.env.HORIZON_T or "") or 0
+	Horizon.movers(Vector3.new(0, 0, 0), folder)(1 / 30, t)
 	local SkyImages = emu.require(RS.Shared.Models.SkyImages)
 	local step = SkyImages.steps[skyStep]
 	sky = { step = skyStep - 1, season = SkyImages.SEASON }

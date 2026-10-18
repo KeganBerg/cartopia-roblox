@@ -12,7 +12,7 @@ import { deflateSync } from 'zlib'
 import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
-  Color, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
+  Color, Euler, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
   type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D,
 } from 'three'
 import { BUILDINGS, CARS } from './game/data'
@@ -449,6 +449,8 @@ it('exports every building and car', async () => {
   const geos = new Map<BufferGeometry, number>()
   const geoList: Geo[] = []
   const models: { id: string; kind: string; level?: number; pieces: Piece[]; paint?: number[] }[] = []
+  // The far land's wind turbines, for the rotors client/Horizon spins: [x, y, z, yaw, tint].
+  const turbines: number[][] = []
   const { BuildingModel } = await import('./scene/BuildingModel')
   const { CarModel } = await import('./scene/CarModel')
   const render = async (el: React.ReactElement) => {
@@ -804,6 +806,33 @@ it('exports every building and car', async () => {
           m.emissiveIntensity = 0
         }
       })
+      // The wind farm's rotors and the hot-air balloons move, so they stay out of the still land:
+      // client/Horizon builds and moves them itself, the rotors round the hubs kept here (the
+      // middle of each rotor, its heading, and its tint, which the web starts its spin from).
+      root.traverse((o) => {
+        const im = o as InstancedMesh
+        if (!im.isInstancedMesh || im.frustumCulled) return
+        const g = im.geometry as BufferGeometry & { parameters?: Record<string, number> }
+        const prm = g.parameters ?? {}
+        const color = (im.material as MeshStandardMaterial).color?.getHexString()
+        const rotor = g.type === 'BufferGeometry' && color === 'f2f4f5'
+        const balloon =
+          (g.type === 'SphereGeometry' && prm.radius === 1) ||
+          (g.type === 'CylinderGeometry' && prm.radiusTop === 9.15) ||
+          (g.type === 'BoxGeometry' && prm.width === 3.2 && prm.height === 2.6)
+        if (!rotor && !balloon) return
+        im.visible = false
+        if (!rotor) return
+        const m = new Matrix4(), at = new Vector3(), q = new Quaternion(), s = new Vector3()
+        for (let i = 0; i < im.count; i++) {
+          im.getMatrixAt(i, m)
+          m.decompose(at, q, s)
+          const e = new Euler().setFromQuaternion(q, 'YXZ')
+          const spin = ((e.z % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+          turbines.push([r4(at.x), r4(at.y), r4(at.z), r4(e.y), r4(spin / (2 * Math.PI))])
+        }
+      })
+      if (!turbines.length) throw new Error('horizon: no wind turbine rotors found')
       // The sky dome (a shader sphere): Roblox shows the baked skybox instead.
       const pieces = walk(root, geos, geoList).filter((p) => {
         const g = geoList[p.g]
@@ -917,7 +946,7 @@ it('exports every building and car', async () => {
   const fd = openSync(`${OUT}.geos`, 'w')
   for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
   closeSync(fd)
-  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, turbines, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.
