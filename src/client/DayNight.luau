@@ -81,6 +81,21 @@ local function lerp(a: Key, b: Key, t: number): Key
 	}
 end
 
+-- look.ts lightDir: where the town's light comes from (the sun by day, easing off the horizon in
+-- the morning and evening; the moon's spot by night). Phase 0 is noon and 0.5 midnight.
+local NOON = Vector3.new(25, 40, 15).Unit
+local MOON_DIR = Vector3.new(-10, 40, 25).Unit
+local function lightDir(phase: number, night: number): Vector3
+	local d = math.abs(phase - 0.5)
+	local x = math.clamp((d - 0.2) / 0.3, 0, 1)
+	local high = x * x * (3 - 2 * x)
+	local el = math.rad(22 + 43 * high)
+	local swing = (1 - high) * 1.1 * (if phase < 0.5 then -1 else 1)
+	local az = math.atan2(NOON.X, NOON.Z) + swing
+	local sun = Vector3.new(math.sin(az) * math.cos(el), math.sin(el), math.cos(az) * math.cos(el))
+	return sun:Lerp(MOON_DIR, night).Unit
+end
+
 local function effect<T>(class: string, name: string): T
 	local e = Lighting:FindFirstChild(name)
 	if not e then
@@ -98,11 +113,18 @@ local function apply(now: number)
 	local nudge = NUDGE[Catalog.SEASON] or NUDGE.summer
 	local sun = look.sun:Lerp(nudge.sun, nudge.amount * (1 - night) * (1 - dusk))
 
-	-- Phase 0 is noon and 0.5 midnight.
-	Lighting.ClockTime = (12 + phase * 24) % 24
+	-- The light never sets: the web game lights the town from 22 to 65 degrees up by day and from
+	-- the moon's fixed spot by night (look.ts lightDir), and Roblox's own night would leave the town
+	-- black. So the Roblox sun stands where the web's light is, and the keys above give it the
+	-- moon's colour and strength at night. At latitude 0 the sun's height is 90 - 15 degrees an hour
+	-- from noon.
+	local dir = lightDir(phase, night)
+	local el = math.deg(math.asin(math.clamp(dir.Y, -1, 1)))
+	Lighting.GeographicLatitude = 0
+	Lighting.ClockTime = 12 + (if dir.X < 0 then 1 else -1) * (90 - el) / 15
 	Lighting.Brightness = look.sunIntensity * 1.4
 	Lighting.ColorShift_Top = sun
-	Lighting.OutdoorAmbient = look.sky:Lerp(look.ground, 0.35):Lerp(Color3.new(0, 0, 0), 1 - math.clamp(look.hemi + 0.2, 0, 1))
+	Lighting.OutdoorAmbient = look.sky:Lerp(look.ground, 0.35):Lerp(Color3.new(0, 0, 0), 1 - math.clamp(look.hemi + 0.35, 0, 1))
 	Lighting.Ambient = Lighting.OutdoorAmbient:Lerp(Color3.new(0, 0, 0), 0.5)
 	Lighting.EnvironmentDiffuseScale = look.env
 	Lighting.EnvironmentSpecularScale = look.env
