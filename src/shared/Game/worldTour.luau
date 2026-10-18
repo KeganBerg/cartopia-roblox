@@ -110,7 +110,7 @@ ____exports.TOUR_BLUE = __TS__ArrayFind(
     function(____, p) return p.earn == "tour" end
 ).color
 ____exports.WORLD_TOUR_REP = 1
-____exports.worldPrize = function(i, first) return math.floor((400 + ____exports.WORLD_TOUR[i + 1].pi * 12) * if first then 2 else 1 / 10 + 0.5) * 10 end
+____exports.worldPrize = function(i, first) return math.floor((400 + ____exports.WORLD_TOUR[i + 1].pi * 12) * (if first then 2 else 1) / 10 + 0.5) * 10 end
 ____exports.worldShift = function(i) return math.min(0.97, 0.5 + i * 0.06) end
 ____exports.worldDone = function(beaten) return (beaten or 0) >= #____exports.WORLD_TOUR end
 local ZERO = {engine = 0, turbo = 0, tires = 0, weight = 0}

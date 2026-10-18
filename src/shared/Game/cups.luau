@@ -91,6 +91,6 @@ ____exports.cupWon = function(cups, cls) return __TS__ArrayEvery(
     ____exports.cupRacesOf(cls),
     function(____, r) return (cups and cups[r.id] or 0) > 0 end
 ) end
-____exports.cupPrize = function(r, first) return math.floor((340 + r.pi * 10) * if first then 2 else 1 / 10 + 0.5) * 10 end
+____exports.cupPrize = function(r, first) return math.floor((340 + r.pi * 10) * (if first then 2 else 1) / 10 + 0.5) * 10 end
 ____exports.cupShift = function(r) return math.min(0.95, 0.4 + r.tier * 0.17) end
 return ____exports

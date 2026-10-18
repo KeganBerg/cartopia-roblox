@@ -201,6 +201,6 @@ function ____exports.hostMods(t)
         function(____, id) return not not __truthy(id) end
     )
 end
-____exports.tunerPrize = function(t, first) return math.floor((320 + t.pi * 10) * if first then 2 else 1 / 10 + 0.5) * 10 end
+____exports.tunerPrize = function(t, first) return math.floor((320 + t.pi * 10) * (if first then 2 else 1) / 10 + 0.5) * 10 end
 ____exports.tunerShift = function(t) return math.min(0.97, 0.45 + t.tier * 0.17) end
 return ____exports

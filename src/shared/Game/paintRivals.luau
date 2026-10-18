@@ -227,7 +227,7 @@ ____exports.rivalForPaint = function(color) return __TS__ArrayFind(
 ) end
 ____exports.rowShift = function(r) return math.min(0.97, 0.3 + r.tier * 0.13) end
 ____exports.rowSkills = function(r) return r.tier >= 3 end
-____exports.rowPrize = function(r, first) return math.floor((260 + r.pi * 9) * if first then 2 else 1 / 10 + 0.5) * 10 end
+____exports.rowPrize = function(r, first) return math.floor((260 + r.pi * 9) * (if first then 2 else 1) / 10 + 0.5) * 10 end
 function ____exports.paintOpen(s, color)
     if __ns___data_1.hasCustomPaint(s) then
         return __ns___data_1.isHexColor(color)

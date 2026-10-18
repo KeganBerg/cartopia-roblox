@@ -24,7 +24,7 @@ function ____exports.seasonOf(month, southern)
         southern = false
     end
     local i = math.floor(month % 12 / 3)
-    return ORDER[(i + if southern then 2 else 0) % 4 + 1]
+    return ORDER[(i + (if southern then 2 else 0)) % 4 + 1]
 end
 local function currentSeason()
     local pin = if type(location) ~= "nil" then __TS__New(URLSearchParams, location.search).get("season") else nil

@@ -46,5 +46,5 @@ ____exports.colorTheme = function(id) return __TS__ArrayFind(
     ____exports.COLOR_THEMES,
     function(____, t) return t.id == id end
 ) or nil end
-____exports.themeFor = function(own, city, decor) return ____exports.colorTheme(own) or if decor then nil else ____exports.colorTheme(city) end
+____exports.themeFor = function(own, city, decor) return ____exports.colorTheme(own) or (if decor then nil else ____exports.colorTheme(city)) end
 return ____exports

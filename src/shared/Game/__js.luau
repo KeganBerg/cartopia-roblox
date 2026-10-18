@@ -58,7 +58,7 @@ local function civilFromDays(z)
     local mp = math.floor((5 * doy + 2) / 153)
     local d = doy - math.floor((153 * mp + 2) / 5) + 1
     local m = if mp < 10 then mp + 3 else mp - 9
-    return {yoe + era * 400 + if m <= 2 then 1 else 0, m, d}
+    return {yoe + era * 400 + (if m <= 2 then 1 else 0), m, d}
 end
 local function pad(n, w)
     local s = tostring(n)
@@ -132,7 +132,7 @@ function JsDate.parse(self, s)
             1,
             3
         )
-        ms = ms + (if ____exports.__truthy(h) then h else 0 * 3600000 + if ____exports.__truthy(mi) then mi else 0 * 60000 + if ____exports.__truthy(sec) then sec else 0 * 1000)
+        ms = ms + ((if ____exports.__truthy(h) then h else 0) * 3600000 + (if ____exports.__truthy(mi) then mi else 0) * 60000 + (if ____exports.__truthy(sec) then sec else 0) * 1000)
     end
     return ms
 end
@@ -265,7 +265,7 @@ function ____exports.localeString(n)
         out = ("," .. __TS__StringSlice(s, #s - 3)) .. out
         s = __TS__StringSlice(s, 0, #s - 3)
     end
-    return (if neg then "-" else "" .. s) .. out
+    return ((if neg then "-" else "") .. s) .. out
 end
 ____exports.__truthy = function(v) return v ~= nil and v ~= nil and v ~= false and v ~= 0 and v ~= "" and v == v end
 ____exports.setTimeout = function(_fn, _ms) return 0 end
@@ -288,7 +288,7 @@ local function quote(str)
         local i = 0
         while i < #str do
             local c = __TS__StringCharAt(str, i)
-            out = out .. if c == "\"" then "\\\"" else if c == "\\" then "\\\\" else if c == "\n" then "\\n" else c
+            out = out .. (if c == "\"" then "\\\"" else if c == "\\" then "\\\\" else if c == "\n" then "\\n" else c)
             i = i + 1
         end
     end

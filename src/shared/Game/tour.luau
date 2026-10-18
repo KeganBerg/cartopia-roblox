@@ -96,7 +96,7 @@ ____exports.tourLegOf = function(race) return math.floor(race / ____exports.TOUR
 ____exports.tourIsBoss = function(race) return race % ____exports.TOUR_RACES == ____exports.TOUR_RACES - 1 end
 ____exports.tourRivalPi = function(race) return math.min(
     __ns___race_1.MAX_RACE_PI,
-    math.floor(34 + 1.6 * math.min(race, 40) + 0.6 * math.max(0, race - 40) + if ____exports.tourIsBoss(race) then 3 else 0 + 0.5)
+    math.floor(34 + 1.6 * math.min(race, 40) + 0.6 * math.max(0, race - 40) + (if ____exports.tourIsBoss(race) then 3 else 0) + 0.5)
 ) end
 ____exports.tourShift = function(race) return math.min(1, 0.35 + race / 90) end
 ____exports.tourSkills = function(race) return ____exports.tourLegOf(race) >= 2 or ____exports.tourIsBoss(race) end

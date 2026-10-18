@@ -68,7 +68,7 @@ function ____exports.boostFor(b, mode, won, now, paid)
     local weekend = paid and ____exports.isWeekend(now)
     local was = cur.streak or 0
     local streak = if mode ~= "arcade" and won and paid then math.min(____exports.STREAK_MAX, was * ____exports.STREAK_STEP) else 0
-    local mult = math.min(____exports.BOOST_CAP, 1 + if firstWin then ____exports.FIRST_WIN_BONUS else 0 + if welcome then ____exports.WELCOME_BONUS else 0 + if weekend then ____exports.WEEKEND_BONUS else 0 + streak)
+    local mult = math.min(____exports.BOOST_CAP, 1 + (if firstWin then ____exports.FIRST_WIN_BONUS else 0) + (if welcome then ____exports.WELCOME_BONUS else 0) + (if weekend then ____exports.WEEKEND_BONUS else 0) + streak)
     local next = {firstWin = if firstWin then __obj(
         false and (function() return __TS__ObjectAssign({}, cur.firstWin, {[mode] = day}) end),
         __SPREAD,

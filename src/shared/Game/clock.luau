@@ -128,7 +128,7 @@ function ____exports.msUntilNight(now)
         return 0
     end
     if pinned ~= nil then
-        return (if pinned < ____exports.OPEN_FROM then ____exports.OPEN_FROM else 1 + ____exports.OPEN_FROM - pinned) * ____exports.DAY_MS
+        return ((if pinned < ____exports.OPEN_FROM then ____exports.OPEN_FROM else 1 + ____exports.OPEN_FROM) - pinned) * ____exports.DAY_MS
     end
     return ____exports.nextPhaseAt(____exports.OPEN_FROM, now) - now
 end
