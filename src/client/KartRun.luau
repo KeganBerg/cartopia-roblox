@@ -29,6 +29,7 @@ local Thumb = require(script.Parent.Thumb)
 local TownCamera = require(script.Parent.TownCamera)
 local DayNight = require(script.Parent.DayNight)
 local KartWorld = require(script.Parent.KartWorld)
+local Sfx = require(script.Parent.Sounds.Sfx)
 
 local KartRun = {}
 
@@ -667,6 +668,7 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 	local clock = 0 -- seconds since the screen opened
 	local goAt = 0.6 + 6 * 0.6 + math.random() * 0.4
 	local running = false
+	local litLamps = 0 -- the start lights heard so far
 	local acc = 0
 	local function pose(k: any): { x: number, z: number, h: number, y: number }
 		return { x = k.x, z = k.z, h = k.h, y = k.y }
@@ -705,6 +707,12 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 		local k = race.karts[me]
 		finishPlace = race:place(k)
 		local time = k.done or race.t
+		-- Heard as the line is crossed, as the web does (Kart.tsx finish).
+		if finishPlace == 1 then
+			Sfx.win()
+		else
+			Sfx.lose()
+		end
 		task.spawn(function()
 			local ok, res = Remote.race("kartFinish", { place = finishPlace, time = time }, true)
 			if ok then
@@ -739,6 +747,10 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 				running = true
 				n = 0
 				showFlash("GO!")
+				Sfx.countdown(true)
+			elseif n > litLamps then
+				litLamps = n
+				Sfx.countdown(false)
 			end
 		end
 		for i, lamp in lamps do
@@ -786,22 +798,63 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 			o.y = a.y + (k.y - a.y) * alpha
 			o.h = a.h + wrap(k.h - a.h) * alpha
 		end
-		-- Knocks shake the camera, a drift turbo kicks the view wider; laps flash up.
+		-- Knocks shake the camera, a drift turbo kicks the view wider; laps flash up. Each is heard
+		-- as the web's arcade sounds (Kart.tsx onEvents).
 		for _, e in events do
+			local kind = e.kind
 			if e.kart == meId then
-				local kind = e.kind
 				if kind == "wall" or kind == "bump" or kind == "pothole" then
 					shake = math.max(shake, 0.18)
+					Sfx.arcade.bump()
 				elseif kind == "boxes" or kind == "glass" then
 					shake = math.max(shake, 0.3)
+					Sfx.arcade.crash()
 				elseif kind == "hit" or kind == "boom" then
 					shake = math.max(shake, 0.45)
+					Sfx.arcade.crash()
 				elseif kind == "land" then
 					shake = math.max(shake, 0.12)
+					Sfx.arcade.land()
 				elseif kind == "turbo" then
 					kick = if e.value == 2 then 9 else 6
+					Sfx.arcade.ding(if e.value == 2 then 1.8 else 1.5)
 				elseif kind == "lap" then
 					showFlash(if e.value == K.LAPS then "FINAL LAP!" else `LAP {e.value}`)
+					Sfx.arcade.ding(1)
+				elseif kind == "crate" then
+					Sfx.arcade.ding(1.4)
+				elseif kind == "flat" then
+					Sfx.arcade.bump()
+					Sfx.arcade.air()
+				elseif kind == "smoke" then
+					Sfx.arcade.fuel()
+				elseif kind == "zap" then
+					Sfx.arcade.buzz()
+				elseif kind == "tow" then
+					Sfx.arcade.ding(2)
+				elseif kind == "block" then
+					Sfx.arcade.ding(2.4)
+				elseif kind == "ghost" then
+					Sfx.arcade.ding(0.7)
+					Sfx.arcade.air()
+				elseif kind == "rocket" then
+					Sfx.arcade.rev(1.2)
+				elseif kind == "splat" then
+					Sfx.arcade.splash()
+				elseif kind == "ice" then
+					Sfx.arcade.air()
+				end
+			elseif kind == "hit" and #race.hornets == 0 then
+				-- Someone else knocked (not by a hornet).
+				Sfx.arcade.bump()
+			elseif kind == "boom" then
+				-- A bomb going off nearby is heard by everyone close enough to see it.
+				local mk = ks[me]
+				for _, b in race.bombs do
+					if b.boom and math.sqrt((b.x - mk.x) ^ 2 + (b.z - mk.z) ^ 2) < 40 then
+						Sfx.arcade.crash()
+						break
+					end
 				end
 			end
 		end

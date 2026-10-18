@@ -2338,12 +2338,23 @@ do
 	assert(most <= 3000, `a kart circuit has {most} parts (phones want 3000 or fewer)`)
 end
 local kartMost, kartRaceMost, kartPeak = {}, {}, {}
+-- The sounds a kart race plays (Sfx.play by name), counted.
+local KartSfx = emu.require(client.Sounds.Sfx)
+local kartHeard = {}
+do
+	local play = KartSfx.play
+	KartSfx.play = function(name, ...)
+		kartHeard[name] = (kartHeard[name] or 0) + 1
+		return play(name, ...)
+	end
+end
 local function runKart(tag, shotAt, start)
 	topUp()
 	hud.ctx.close()
 	renderSteps = {}
 	calls = {}
 	handlerErrors = {}
+	table.clear(kartHeard)
 	start()
 	local screen = raceScreen()
 	assert(screen, `{tag}: no kart race screen ({table.concat(calls, ", ")}) {table.concat(handlerErrors, "; ")}`)
@@ -2418,6 +2429,15 @@ local function runKart(tag, shotAt, start)
 	assert(kartMost[tag] <= 3000, `{tag}: {kartMost[tag]} circuit parts during the race (phones want 3000 or fewer)`)
 	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
 	assert(podium, `{tag}: the race never reached the podium`)
+	local heard = {}
+	for name, n in kartHeard do
+		table.insert(heard, `{name} ×{n}`)
+	end
+	table.sort(heard)
+	print(`{tag} sounds: {table.concat(heard, ", ")}`)
+	assert(kartHeard.countdown == 5 and kartHeard["countdown-go"] == 1, `{tag}: the start lights weren't heard`)
+	assert((kartHeard.win or 0) + (kartHeard.lose or 0) == 1, `{tag}: no win or lose sound at the line`)
+	assert((kartHeard["arcade-ding"] or 0) >= 2, `{tag}: the laps weren't heard`)
 	assert(#handlerErrors == 0, `{tag}: {table.concat(handlerErrors, "; ")}`)
 	for _, c in calls do
 		assert(c:sub(1, 2) == "ok", `{tag}: {c}`)
