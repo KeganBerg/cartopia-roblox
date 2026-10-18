@@ -64,7 +64,12 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
     find(gui)
     for (const e of list) if (want.has(e.key)) images[e.key] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/splash', e.file)).toString('base64')
   } catch {}
-  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, gui: gui ?? null, camera: camera ?? null })}`)
+  // The sky's faces (tools/sky/build.mjs) for the step the scene asks for.
+  const sky = {}
+  if (scene.sky) {
+    for (const face of ['Lf', 'Bk', 'Rt', 'Ft', 'Up', 'Dn']) sky[face] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/sky', `${scene.sky.season}-${scene.sky.step}-${face}.png`)).toString('base64')
+  }
+  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, sky, gui: gui ?? null, camera: camera ?? null })}`)
   writeFileSync(join(dir, 'scene.html'), PAGE)
   const server = createServer((q, r) => {
     const f = join(dir, decodeURIComponent(new URL(q.url, 'http://x').pathname))
@@ -208,12 +213,28 @@ for (const p of parts) {
 addParts(scene, S.parts)
 // A near plane well out from the camera: the software renderer's depth buffer is coarse, and road
 // paint a tenth of a stud above the asphalt sank into it.
-const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, 6000)
+const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.sky?.Up ? 40000 : 6000)
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 // Haze starts past what the camera looks at, as the game's light Atmosphere does.
 const reach = cam.position.distanceTo(new T.Vector3(...c.at))
 scene.fog = S.fog ? new T.Fog('#' + S.fog.color, S.fog.start, S.fog.end) : new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
+// The sky: each face is a picture of what a camera looking that way saw (tools/sky/build.mjs),
+// so each hangs square in front of the camera that way, a skybox round where it stands.
+if (S.sky?.Up) {
+  const FACES = { Lf: [[1, 0, 0], [0, 1, 0]], Bk: [[0, 0, 1], [0, 1, 0]], Rt: [[-1, 0, 0], [0, 1, 0]], Ft: [[0, 0, -1], [0, 1, 0]], Up: [[0, 1, 0], [-1, 0, 0]], Dn: [[0, -1, 0], [1, 0, 0]] }
+  const D = 20000
+  for (const [face, [look, up]] of Object.entries(FACES)) {
+    const t = await new T.TextureLoader().loadAsync(S.sky[face])
+    t.colorSpace = T.SRGBColorSpace
+    const L = new T.Vector3(...look), U = new T.Vector3(...up), R = new T.Vector3().crossVectors(L, U)
+    const q = new T.Mesh(new T.PlaneGeometry(2 * D, 2 * D), new T.MeshBasicMaterial({ map: t, fog: false, toneMapped: false, depthWrite: false }))
+    q.matrixAutoUpdate = false
+    q.matrix.makeBasis(R, U, L.clone().negate()).setPosition(L.clone().multiplyScalar(D).add(cam.position))
+    q.renderOrder = -1
+    scene.add(q)
+  }
+}
 renderer.render(scene, cam)
 
 // Screens: ScreenGui frames as absolutely placed boxes, drawn as Roblox would: children over

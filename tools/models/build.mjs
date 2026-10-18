@@ -37,6 +37,11 @@ const PAD = 0.3
 // (Roblox takes up to 20,000 a mesh).
 const MERGE_CHUNK = 700
 const MERGE_TRIS = 10000
+// The far land (horizon:land) reaches 15,000 studs out and is only ever seen from afar, so it
+// merges over bigger patches (a part can measure at most 2,048 studs).
+const HORIZON_CHUNK = 1400
+// and rounds its colours more coarsely, so fewer looks share each patch.
+const HORIZON_SHADE = 20
 // Countryside colours are rounded to steps of this much (of 255) so near shades merge.
 const MERGE_SHADE = 14
 // Race venue pieces smaller than this (studs, longest side) are merged like the countryside, plain
@@ -150,8 +155,11 @@ function lookKey(look, paint) {
 // Meshes
 
 // The triangles of a geometry (or of one of its material groups), as positions, normals and
-// indices, split by vertex colour when it has them (each colour becomes its own mesh).
-function trianglesOf(geo, group) {
+// indices, split by vertex colour when it has them (each colour becomes its own mesh). The far
+// land's (far) are read as three.js stores them, in linear light, and rounded to HORIZON_SHADE
+// steps there and then: its terrain has a shade of its own on every facet.
+const toSrgb = (x) => (x <= 0.0031308 ? x * 12.92 : 1.055 * x ** (1 / 2.4) - 0.055)
+function trianglesOf(geo, group, far = false) {
   const g = group === undefined ? null : geo.groups?.[group]
   const start = g ? g.start : 0
   const end = g ? Math.min(geo.idx.length, g.start + g.count) : geo.idx.length
@@ -161,7 +169,8 @@ function trianglesOf(geo, group) {
     let key = ''
     if (geo.col) {
       const v = tri[0] * 3
-      key = '#' + [geo.col[v], geo.col[v + 1], geo.col[v + 2]].map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16).padStart(2, '0')).join('')
+      const level = far ? (x) => Math.min(255, Math.round((toSrgb(x) * 255) / HORIZON_SHADE) * HORIZON_SHADE) : (x) => Math.round(x * 255)
+      key = '#' + [geo.col[v], geo.col[v + 1], geo.col[v + 2]].map((x) => level(Math.max(0, Math.min(1, x))).toString(16).padStart(2, '0')).join('')
     }
     if (!byColor.has(key)) byColor.set(key, [])
     byColor.get(key).push(...tri)
@@ -170,8 +179,9 @@ function trianglesOf(geo, group) {
 }
 
 // Welds vertices that share a position and normal, drops unused ones, and simplifies dense
-// meshes. Returns positions, normals and indices.
-function cleanMesh(pos, nrm, idx) {
+// meshes (unless keep: the far land's terrain, cut up by colour into loose facets that
+// simplifying would punch holes in). Returns positions, normals and indices.
+function cleanMesh(pos, nrm, idx, keep = false) {
   const map = new Map()
   const P = []
   const N = []
@@ -194,7 +204,7 @@ function cleanMesh(pos, nrm, idx) {
   const tris = []
   for (let i = 0; i < I.length; i += 3) if (I[i] !== I[i + 1] && I[i + 1] !== I[i + 2] && I[i] !== I[i + 2]) tris.push(I[i], I[i + 1], I[i + 2])
   let out = tris
-  if (tris.length / 3 > DENSE) {
+  if (tris.length / 3 > DENSE && !keep) {
     const [simple] = MeshoptSimplifier.simplify(new Uint32Array(tris), new Float32Array(P), 3, Math.max(DENSE * 3, Math.floor((tris.length * KEEP) / 3) * 3), ERROR, [])
     out = Array.from(simple)
   }
@@ -405,12 +415,12 @@ export function convert(data) {
         }
       }
       // Anything else is a mesh. Cleaned geometry is shared by every piece that draws it.
-      for (const sub of trianglesOf(geo, piece.group)) {
+      for (const sub of trianglesOf(geo, piece.group, model.id.startsWith('horizon:'))) {
         const subLook = sub.color ? lookId({ ...piece.look, c: mul(piece.look.c, sub.color) }, paint.has(i)) : look
         const ck = `${piece.g}/${piece.group ?? 0}/${sub.color}`
         let m = cleaned.get(ck)
         if (!m) {
-          m = cleanMesh(geo.pos, geo.nrm, sub.idx)
+          m = cleanMesh(geo.pos, geo.nrm, sub.idx, model.id.startsWith('horizon:'))
           if (m.idx.length) {
             const b = bounds(m.pos)
             // Centre it: a MeshPart's position is the middle of its mesh.
@@ -484,14 +494,19 @@ export function convert(data) {
       }
       // Close shades (a tree's tint varies a few percent) share a look, so they merge too.
       const l = looks[p[11] - 1]
-      const q = '#' + [1, 3, 5].map((i) => Math.min(255, Math.round(parseInt(l.color.slice(i, i + 2), 16) / MERGE_SHADE) * MERGE_SHADE).toString(16).padStart(2, '0')).join('')
+      const shade = owner.startsWith('horizon:') ? HORIZON_SHADE : MERGE_SHADE
+      const q = '#' + [1, 3, 5].map((i) => Math.min(255, Math.round(parseInt(l.color.slice(i, i + 2), 16) / shade) * shade).toString(16).padStart(2, '0')).join('')
       const look = lookIds.get(JSON.stringify({ ...l, color: q })) ?? (looks.push({ ...l, color: q }), lookIds.set(JSON.stringify({ ...l, color: q }), looks.length), looks.length)
       p[11] = look
-      const k = `${Math.floor(p[1] / MERGE_CHUNK)},${Math.floor(p[3] / MERGE_CHUNK)}/${look}`
+      const chunk = owner.startsWith('horizon:') ? HORIZON_CHUNK : MERGE_CHUNK
+      const k = `${Math.floor(p[1] / chunk)},${Math.floor(p[3] / chunk)}/${look}`
       if (!groups.has(k)) groups.set(k, [])
       groups.get(k).push(p)
     }
-    for (const list of groups.values()) {
+    // The far land's pieces are huge (the terrain is one mesh, split only by colour), so its
+    // triangles are sorted into patches one by one; elsewhere a piece goes whole to its patch.
+    const horizon = owner.startsWith('horizon:')
+    for (const list of horizon ? regroup(groups) : groups.values()) {
       let pos = [], nrm = [], idx = []
       const flush = () => {
         if (!idx.length) return
@@ -503,28 +518,91 @@ export function convert(data) {
         pos = []; nrm = []; idx = []
       }
       for (const p of list) {
-        const m = loose.get(p[12])
+        const m = p.world ?? placed(p)
         if (idx.length / 3 + m.idx.length / 3 > MERGE_TRIS) flush()
-        const [x, y, z, qx, qy, qz, qw] = p.slice(1, 8)
-        const k = [0, 1, 2].map((i) => (m.size[i] > 1e-6 ? p[8 + i] / (m.size[i] * SCALE) : 1))
-        const rot = (v) => {
-          // v' = q v q*
-          const tx = 2 * (qy * v[2] - qz * v[1]), ty = 2 * (qz * v[0] - qx * v[2]), tz = 2 * (qx * v[1] - qy * v[0])
-          return [v[0] + qw * tx + (qy * tz - qz * ty), v[1] + qw * ty + (qz * tx - qx * tz), v[2] + qw * tz + (qx * ty - qy * tx)]
-        }
         const base = pos.length / 3
-        for (let v = 0; v < m.pos.length; v += 3) {
-          const w = rot([m.pos[v] * SCALE * k[0], m.pos[v + 1] * SCALE * k[1], m.pos[v + 2] * SCALE * k[2]])
-          pos.push(w[0] + x, w[1] + y, w[2] + z)
-          const n = rot([m.nrm[v] / k[0], m.nrm[v + 1] / k[1], m.nrm[v + 2] / k[2]])
-          const l = Math.hypot(n[0], n[1], n[2]) || 1
-          nrm.push(n[0] / l, n[1] / l, n[2] / l)
-        }
+        pos.push(...m.pos)
+        nrm.push(...m.nrm)
         for (const i of m.idx) idx.push(base + i)
       }
       flush()
     }
     return out
+  }
+
+  // A merged piece's mesh moved into place: positions in studs, as the patch holds them.
+  function placed(p) {
+    const m = loose.get(p[12])
+    const [x, y, z, qx, qy, qz, qw] = p.slice(1, 8)
+    const k = [0, 1, 2].map((i) => (m.size[i] > 1e-6 ? p[8 + i] / (m.size[i] * SCALE) : 1))
+    const rot = (v) => {
+      // v' = q v q*
+      const tx = 2 * (qy * v[2] - qz * v[1]), ty = 2 * (qz * v[0] - qx * v[2]), tz = 2 * (qx * v[1] - qy * v[0])
+      return [v[0] + qw * tx + (qy * tz - qz * ty), v[1] + qw * ty + (qz * tx - qx * tz), v[2] + qw * tz + (qx * ty - qy * tx)]
+    }
+    const pos = [], nrm = []
+    for (let v = 0; v < m.pos.length; v += 3) {
+      const w = rot([m.pos[v] * SCALE * k[0], m.pos[v + 1] * SCALE * k[1], m.pos[v + 2] * SCALE * k[2]])
+      pos.push(w[0] + x, w[1] + y, w[2] + z)
+      const n = rot([m.nrm[v] / k[0], m.nrm[v + 1] / k[1], m.nrm[v + 2] / k[2]])
+      const l = Math.hypot(n[0], n[1], n[2]) || 1
+      nrm.push(n[0] / l, n[1] / l, n[2] / l)
+    }
+    return { pos, nrm, idx: m.idx }
+  }
+
+  // Cuts triangles longer than a patch in half, longest side first, until none is (the lake is
+  // one ring of triangles 13,000 studs long).
+  function split(m) {
+    const pos = [], nrm = [], idx = []
+    const v = (i) => [m.pos.slice(i * 3, i * 3 + 3), m.nrm.slice(i * 3, i * 3 + 3)]
+    const put = (tri) => {
+      const d = [0, 1, 2].map((j) => Math.hypot(...tri[j][0].map((x, k) => x - tri[(j + 1) % 3][0][k])))
+      const j = d.indexOf(Math.max(...d))
+      if (d[j] <= 450) {
+        for (const [p, n] of tri) {
+          idx.push(pos.length / 3)
+          pos.push(...p)
+          nrm.push(...n)
+        }
+        return
+      }
+      const a = tri[j], b = tri[(j + 1) % 3], c = tri[(j + 2) % 3]
+      const mid = [a[0].map((x, k) => (x + b[0][k]) / 2), a[1].map((x, k) => (x + b[1][k]) / 2)]
+      put([a, mid, c])
+      put([mid, b, c])
+    }
+    for (let t = 0; t < m.idx.length; t += 3) put([v(m.idx[t]), v(m.idx[t + 1]), v(m.idx[t + 2])])
+    return { pos, nrm, idx }
+  }
+
+  // The far land's groups again, each triangle in the patch (a cube, mountains being tall) its middle lies in. Each patch's
+  // triangles come back as pieces of their own (world set), at most MERGE_TRIS a piece.
+  function* regroup(groups) {
+    const patches = new Map()
+    for (const list of groups.values()) {
+      for (const p of list) {
+        const m = split(placed(p))
+        for (let t = 0; t < m.idx.length; t += 3) {
+          const c = [0, 1, 2].map((k) => Math.floor((m.pos[m.idx[t] * 3 + k] + m.pos[m.idx[t + 1] * 3 + k] + m.pos[m.idx[t + 2] * 3 + k]) / 3 / HORIZON_CHUNK))
+          const key = `${c.join(',')}/${p[11]}`
+          let into = patches.get(key)
+          if (!into) patches.set(key, (into = { look: p[11], pos: [], nrm: [], idx: [] }))
+          for (let j = 0; j < 3; j++) {
+            const v = m.idx[t + j]
+            into.idx.push(into.pos.length / 3)
+            into.pos.push(m.pos[v * 3], m.pos[v * 3 + 1], m.pos[v * 3 + 2])
+            into.nrm.push(m.nrm[v * 3], m.nrm[v * 3 + 1], m.nrm[v * 3 + 2])
+          }
+        }
+      }
+    }
+    for (const d of patches.values()) {
+      const piece = []
+      piece[11] = d.look
+      piece.world = { pos: d.pos, nrm: d.nrm, idx: d.idx }
+      yield [piece]
+    }
   }
 
   function remember(m, owner) {
@@ -715,7 +793,7 @@ RaceScenery.MODELS = {
   writeFileSync(join(OUT_DIR, 'RaceScenery.luau'), rs)
 
   const list = packs(meshes)
-  let mesh = header('Each mesh: the Roblox asset (a model of MeshParts named by key) it was uploaded in, and its size in studs.') + `-- asset = 0 until tools/models/upload.mjs uploads its pack; the game draws a box in its place until then.\n-- lazy: in a car's mod pack, loaded only when a car needs it (Builder.loadFor).
+  let mesh = header('Each mesh: the Roblox asset (a model of MeshParts named by key) it was uploaded in, and its size in studs.') + `-- asset = 0 until tools/models/upload.mjs uploads its pack; the game draws a box in its place until then.\n-- lazy: in a car's mod pack, loaded only when a car needs it (Builder.loadFor).\n-- late: the far land's, loaded after everything else (Builder.loadLate), so towns don't wait for it.
 local Meshes = {}
 
 Meshes.MESHES = {
@@ -723,7 +801,7 @@ Meshes.MESHES = {
   for (const pk of list) {
     const asset = assets[pk.name] ?? 0
     writeFileSync(join(GLB_DIR, `${pk.name}.glb`), glb(pk.meshes))
-    const lazy = pk.owner.startsWith('mod:') ? ', lazy = true' : ''
+    const lazy = pk.owner.startsWith('mod:') ? ', lazy = true' : pk.owner.startsWith('horizon:') ? ', late = true' : ''
     for (const m of pk.meshes) mesh += `\t[${str(m.key)}] = { asset = ${asset}, size = Vector3.new(${m.size.map((x) => num(x * SCALE)).join(', ')})${lazy} },\n`
   }
   mesh += '}\n\nreturn Meshes\n'

@@ -39,6 +39,7 @@ local Crates = require(script.Crates)
 local Policies = require(script.Policies)
 local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
+local Sky = require(script.Sky)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
@@ -116,6 +117,7 @@ meshRemote.Parent = remotes
 remotes.Parent = ReplicatedStorage
 
 Splash.start()
+Sky.start()
 
 -- The mesh packs load first, so towns are drawn with real meshes rather than stand-in boxes.
 -- Workspace's ShapesLoaded / ShapesTotal / ShapesReady attributes tell the clients' loading screen
@@ -129,6 +131,8 @@ task.spawn(function()
 	end)
 	meshesReady = true
 	workspace:SetAttribute("ShapesReady", true)
+	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
+	Builder.loadLate()
 	-- A copy of every car and building for the client's shop pictures and placement ghost.
 	local library = Instance.new("Folder")
 	library.Name = "ModelLibrary"
