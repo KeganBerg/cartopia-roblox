@@ -101,6 +101,11 @@ end
 function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> ())?): Folder
 	local root = Instance.new("Folder")
 	root.Name = "World"
+	-- The road grid, for the clients' traffic and roadside (client/WorldLife).
+	root:SetAttribute("Pitch", World.PITCH)
+	root:SetAttribute("RoadWidth", World.ROAD_W)
+	root:SetAttribute("Rings", RINGS)
+	root:SetAttribute("RoadTop", GROUND_TOP + 0.4)
 	-- Ground and roads are kept on every client (they're few, flat parts): far towns stream in
 	-- and out, the land between them never does.
 	local ground = Instance.new("Model")

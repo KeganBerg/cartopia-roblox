@@ -60,6 +60,9 @@
       "Server": { "$path": "src/server" }
     },
     "StarterPlayer": {
+      "$properties": {
+        "EnableMouseLockOption": false
+      },
       "StarterPlayerScripts": {
         "Client": { "$path": "src/client" }
       }
