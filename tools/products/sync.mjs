@@ -1,6 +1,8 @@
 // Makes the Roblox Developer Products the Bank sells (server/Purchases): one per gem pack and car
-// pack, named exactly like the pack, at the Robux price in tools/products/prices.json. A pack whose
-// price is null isn't made (or is taken off sale if it was). Existing products are found by name and
+// pack, named exactly like the pack. The Robux price comes from the web game's dollar price, turned
+// into Robux at Roblox's own Robux store rates (tools/products/prices.json "match-dollars"), so a
+// price change on the web carries over; prices.json overrides can fix a pack's price, or null stops
+// selling it (taken off sale if it was). Existing products are found by name and
 // only changed when their price or sale state differs. The server finds the products by name too,
 // so no product id goes into the code.
 //
@@ -26,12 +28,25 @@ const prices = JSON.parse(readFileSync(resolve(HERE, 'prices.json'), 'utf8'))
 const luau = readFileSync(resolve(HERE, '../../src/shared/Game/bucksPacks.luau'), 'utf8')
 const field = (block, k) => new RegExp(`\\b${k} = "?([^",\\n]+)"?`).exec(block)?.[1]
 const PACKS = [...luau.matchAll(/\{([^{}]*)\}/g)].map((m) => m[1]).filter((b) => field(b, 'id') && field(b, 'bucks')).map((b) => ({
-  id: field(b, 'id'), name: field(b, 'name'), bucks: +field(b, 'bucks'), bonus: +field(b, 'bonus'), car: field(b, 'car'),
+  id: field(b, 'id'), name: field(b, 'name'), usd: +field(b, 'price'), bucks: +field(b, 'bucks'), bonus: +field(b, 'bonus'), car: field(b, 'car'),
 }))
-const ids = Object.keys(prices).filter((k) => k !== '_')
-const sold = PACKS.filter((p, i, all) => ids.includes(p.id) && all.findIndex((q) => q.id === p.id) === i)
-const missing = ids.filter((id) => !sold.some((p) => p.id === id))
-if (missing.length) throw new Error(`prices.json names packs the game doesn't have: ${missing.join(', ')}`)
+// Every pack still sold (ALL_PACKS: the first copy of each id; RETIRED_PACKS come after and stay unsold).
+const retired = luau.slice(luau.indexOf('RETIRED_PACKS'))
+const sold = PACKS.filter((p, i, all) => all.findIndex((q) => q.id === p.id) === i && !new RegExp(`id = "${p.id}"`).test(retired))
+if (prices.rule !== 'match-dollars') throw new Error(`prices.json: unknown rule ${prices.rule}`)
+const unknown = Object.keys(prices.overrides ?? {}).filter((id) => !sold.some((p) => p.id === id))
+if (unknown.length) throw new Error(`prices.json overrides name packs the game doesn't sell: ${unknown.join(', ')}`)
+
+// Roblox's Robux store: what a player pays for that many Robux. Between two bundles the rate runs
+// straight from one to the next; below the smallest it's the $4.99 rate. Rounded to 10 Robux.
+const BUNDLES = [[0, 0], [4.99, 400], [9.99, 800], [19.99, 1700], [49.99, 4500], [99.99, 10000]]
+export function robuxFor(usd) {
+  let i = 1
+  while (i < BUNDLES.length - 1 && usd > BUNDLES[i][0]) i++
+  const [x0, y0] = BUNDLES[i - 1], [x1, y1] = BUNDLES[i]
+  return Math.max(10, Math.round((y0 + ((usd - x0) * (y1 - y0)) / (x1 - x0)) / 10) * 10)
+}
+const priceOf = (p) => (p.id in (prices.overrides ?? {}) ? prices.overrides[p.id] : robuxFor(p.usd))
 
 const oneLine = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 400)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -62,7 +77,7 @@ console.log(`${have.size} products on Roblox now`)
 
 let changed = 0
 for (const p of sold) {
-  const price = prices[p.id]
+  const price = priceOf(p)
   const d = have.get(p.name)
   const form = new FormData()
   if (price == null) {

@@ -57,8 +57,9 @@ abandoned. If another server still holds a player's lock after 5 tries, the play
 
 The Bank sells the web game's gem packs and car packs (`bucksPacks.ts`) as Roblox Developer
 Products, one per pack, named exactly like the pack. `tools/products/sync.mjs` (run by
-`.github/workflows/products.yml` when `tools/products/prices.json` changes) makes them at the Robux
-prices in that file; a pack priced `null` isn't sold. The Open Cloud key needs the
+`.github/workflows/products.yml` when `tools/products/` changes) makes them, pricing each pack from
+the web game's dollar price at Roblox's own Robux store rates (`prices.json`: "match-dollars", with
+per-pack overrides; `null` stops selling a pack). The Open Cloud key needs the
 `developer-product:read` and `developer-product:write` permissions for it.
 
 The server (`src/server/Purchases.luau`) finds the products by name, opens Roblox's purchase prompt
