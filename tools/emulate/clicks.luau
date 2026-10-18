@@ -1477,14 +1477,12 @@ if SHOTS then
 	hud.ctx.close()
 	hud.openPanel("crates")
 	depot = hud.gui:FindFirstChild("Depot", true)
-	for _, d in (depot and depot:GetDescendants() or {}) do
-		if d:IsA("TextLabel") and d.Text:find("^×10") then
-			signalFor(d.Parent, "Activated"):Fire()
-			Emu.resumeWaits()
-			Emu.resumeWaits()
-			shot("crate-ten", nil)
-			break
-		end
+	local tenB = depot and depot:FindFirstChild("Ten", true)
+	if tenB then
+		signalFor(tenB, "Activated"):Fire()
+		Emu.resumeWaits()
+		Emu.resumeWaits()
+		shot("crate-ten", nil)
 	end
 	-- Where paid random items are restricted: no gem crates, a line saying so; coin crates as usual.
 	setRules({ ArePaidRandomItemsRestricted = true })
