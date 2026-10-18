@@ -156,17 +156,6 @@ function Kit.overlay(ctx: any, rays: boolean?, onTap: (() -> ())?): TextButton
 	if onTap then
 		o.Activated:Connect(onTap)
 	end
-	-- A warm glow at the middle (the web's radial gradient).
-	Ui.new("Frame", {
-		Name = "Glow",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.4),
-		Size = UDim2.fromOffset(900, 900),
-		BackgroundColor3 = Color3.fromHex("#ffd54f"),
-		BackgroundTransparency = 0.8,
-		BorderSizePixel = 0,
-		Parent = o,
-	}, { Ui.round() })
 	if rays then
 		local spin = Ui.new("Frame", { Name = "Rays", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.4), Size = UDim2.fromOffset(10, 10), BackgroundTransparency = 1, Parent = o })
 		for i = 0, 7 do

@@ -146,9 +146,9 @@ function Welcome.open(ctx: any, away: any?): Instance?
 		end
 		y += 40
 	end
-	local list = Ui.scroller({ Name = "List", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 1, -y - 64), CanvasSize = UDim2.fromOffset(0, listH), Parent = body })
+	local list = Ui.scroller({ Name = "List", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 1, -y - 64), CanvasSize = UDim2.fromOffset(0, listH + 4), Parent = body })
 	for i, row in rows do
-		local shadow, card = Ui.shadowed({ Name = "Row", Position = UDim2.fromOffset(0, (i - 1) * (ROW + 8)), Size = UDim2.new(1, -8, 0, ROW), Parent = list }, {
+		local shadow, card = Ui.shadowed({ Name = "Row", Position = UDim2.fromOffset(0, 2 + (i - 1) * (ROW + 8)), Size = UDim2.new(1, -8, 0, ROW), Parent = list }, {
 			radius = 12,
 			stroke = 1.5,
 			drop = 2,
