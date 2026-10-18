@@ -18,8 +18,8 @@ local templates: { [string]: Model } = {}
 local meshParts: { [string]: MeshPart } = {}
 
 -- Loads every uploaded mesh pack (server only: InsertService). Waits for all of them, up to
--- timeout seconds. Safe to call more than once.
-function Builder.loadMeshes(timeout: number?)
+-- timeout seconds, calling progress(done, total) as each one finishes. Safe to call more than once.
+function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: number) -> ())?)
 	local InsertService = game:GetService("InsertService")
 	local byAsset: { [number]: boolean } = {}
 	for _, m in Meshes.MESHES do
@@ -27,7 +27,13 @@ function Builder.loadMeshes(timeout: number?)
 			byAsset[m.asset] = true
 		end
 	end
-	local left = 0
+	local left, total = 0, 0
+	for _ in byAsset do
+		total += 1
+	end
+	if progress then
+		progress(0, total)
+	end
 	for asset in byAsset do
 		left += 1
 		task.spawn(function()
@@ -42,6 +48,9 @@ function Builder.loadMeshes(timeout: number?)
 				warn(`[Cartopia] mesh pack {asset} didn't load: {model}`)
 			end
 			left -= 1
+			if progress then
+				progress(total - left, total)
+			end
 		end)
 	end
 	local start = os.clock()

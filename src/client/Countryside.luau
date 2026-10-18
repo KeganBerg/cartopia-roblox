@@ -230,11 +230,19 @@ function Countryside.start()
 		end
 		Builder.useLibrary(60)
 		local refresh = Countryside.draw((folder :: Folder):GetAttribute("Origin") :: any, workspace)
+		-- Marked drawn after its first town, for the loading screen (ReplicatedFirst/Loading).
+		local function update(save: any)
+			refresh(save)
+			local root = workspace:FindFirstChild("Countryside")
+			if save and root then
+				root:SetAttribute("Drawn", true)
+			end
+		end
 		Remote.changed:Connect(function(snap)
-			refresh(snap.save)
+			update(snap.save)
 		end)
 		if Remote.last then
-			refresh(Remote.last.save)
+			update(Remote.last.save)
 		end
 	end)
 end

@@ -49,6 +49,10 @@
         "EnvironmentSpecularScale": 0.4
       }
     },
+    "ReplicatedFirst": {
+      "$className": "ReplicatedFirst",
+      "Loading": { "$path": "src/first" }
+    },
     "ReplicatedStorage": {
       "Shared": { "$path": "src/shared" }
     },
