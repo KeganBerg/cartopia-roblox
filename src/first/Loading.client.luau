@@ -65,6 +65,20 @@ task.spawn(function()
 	pcall(ContentProvider.PreloadAsync, ContentProvider, screen:images())
 end)
 
+-- The player's character waits, anchored, while their town streams in round it: with no ground
+-- under it yet it fell through to the place's base block, a few studs down, and stood in a pit.
+local holding = true
+local function hold(character: Model)
+	local root = character:WaitForChild("HumanoidRootPart", 10) :: BasePart?
+	if root and holding then
+		root.Anchored = true
+	end
+end
+local holdConn = player.CharacterAdded:Connect(hold)
+if player.Character then
+	task.spawn(hold, player.Character)
+end
+
 local started = os.clock()
 local spin = RunService.RenderStepped:Connect(function(dt)
 	screen:step(dt)
@@ -198,6 +212,25 @@ for _ = 1, 3 do
 end
 if timeLeft() <= 0 then
 	warn("[Cartopia] Still loading after " .. MAX .. " seconds; showing the game anyway.")
+end
+-- Let the character go, standing on whatever is under it now.
+holding = false
+holdConn:Disconnect()
+do
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if character and root then
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character }
+		local hit = workspace:Raycast(root.Position + Vector3.new(0, 4, 0), Vector3.new(0, -100, 0), params)
+		if hit and humanoid then
+			local up = humanoid.HipHeight + root.Size.Y / 2 + 0.1
+			character:PivotTo(CFrame.new(hit.Position + Vector3.new(0, up, 0)) * root.CFrame.Rotation)
+		end
+		root.Anchored = false
+	end
 end
 screen:finish()
 spin:Disconnect()

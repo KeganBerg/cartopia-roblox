@@ -8,6 +8,7 @@
 -- changes the game. The cars are the server's own car models (TownView), moved and resized here.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -256,7 +257,11 @@ end
 
 local PERSON = { scale = 1.3, leg = 0.24 }
 local LEG = PERSON.leg
-local K = PERSON.scale * S -- studs per model unit of a figure
+-- Figures are drawn at a Roblox character's height (about 5.3 studs) rather than the web's 1.3x
+-- scale, which would make them nearly twice the player's size. A figure is 0.69 model units tall
+-- (shoes to hair); FIT is how much smaller than the web's scale that is, for the dogs too.
+local K = 5.3 / 0.69 -- studs per model unit of a figure
+local FIT = K / (PERSON.scale * S)
 local SHIRTS = { "#e53935", "#1e88e5", "#fdd835", "#43a047", "#8e24aa", "#ff7043", "#fafafa", "#26c6da", "#ec407a", "#5c6bc0" }
 local PANTS = { "#37474f", "#1565c0", "#5d4037", "#212121", "#78909c", "#283593" }
 local SKIN = { "#f5d0b5", "#e0ac8a", "#c68863", "#8d5a3b", "#5c3a24", "#f1c27d" }
@@ -752,7 +757,7 @@ local function figure(p: Person, parent: Instance): Figure
 	local dog: { BasePart } = {}
 	local leash = part(m, nil, Vector3.new(0.009, 0.009, 1) * S, CFrame.new(), LEASHES[(#p.name * 3 + #p.dogName) % #LEASHES + 1])
 	if p.type == "dog" then
-		local k = p.dogSize * S
+		local k = p.dogSize * S * FIT
 		table.insert(dog, ellipsoid(m, Vector3.new(0.112, 0.104, 0.208) * k, c.dog))
 		table.insert(dog, part(m, Enum.PartType.Ball, Vector3.one * 0.11 * k, CFrame.new(), c.dog))
 		table.insert(dog, part(m, nil, Vector3.new(0.04, 0.035, 0.05) * k, CFrame.new(), c.dog))
@@ -835,7 +840,7 @@ local function draw(origin: Vector3, p: Person, wag: number, list: { BasePart },
 	end
 	put(at(0, hip + 0.4, -0.015))
 	if p.type == "dog" then
-		local k = p.dogSize
+		local k = p.dogSize * FIT
 		local still = p.state == "linger"
 		local trot = if moving then math.abs(math.sin(p.stride * 1.6)) * 0.025 * k else 0
 		local pitch = if still then -0.32 elseif moving then math.sin(p.stride * 3.2) * 0.07 else 0
@@ -1012,8 +1017,37 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		updatePeople(save)
 	end
 	local parked: { [string]: boolean } = {}
+	-- If the player's character ever ends up under their town's ground (fallen through before it
+	-- streamed in), it's stood back on top.
+	local nextCheck = 0
+	local function rescueFall()
+		local character = Players.LocalPlayer and Players.LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not (character and root and humanoid) or root.Anchored then
+			return
+		end
+		local p = root.Position
+		local flat = Vector3.new(p.X - origin.X, 0, p.Z - origin.Z)
+		if p.Y > origin.Y - 2.5 or flat.Magnitude > 1900 then
+			return
+		end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character }
+		local hit = workspace:Raycast(Vector3.new(p.X, origin.Y + 3, p.Z), Vector3.new(0, -6, 0), params)
+		local top = if hit then hit.Position.Y else origin.Y
+		character:PivotTo(CFrame.new(p.X, top + humanoid.HipHeight + root.Size.Y / 2 + 0.1, p.Z) * root.CFrame.Rotation)
+		root.AssemblyLinearVelocity = Vector3.zero
+	end
+
 	local function step(rawDt: number)
 		local dt = math.min(rawDt, 0.1)
+		nextCheck -= rawDt
+		if nextCheck <= 0 then
+			nextCheck = 1
+			rescueFall()
+		end
 		traffic:step(dt)
 		stepSignals()
 		-- The cars: each server model goes where the sim has it, at its town size.
@@ -1023,7 +1057,9 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 			end
 			local a = traffic.agents:get(m.Name)
 			if not a then
-				if not parked[m.Name] or m:GetAttribute("TownLife") == nil then
+				-- Checked every frame: the server parks its models again whenever the town changes,
+				-- which would leave them sitting (and floating) on their lots.
+				if not parked[m.Name] or m:GetAttribute("TownLife") == nil or m:GetPivot().Position.Y > HIDDEN.Position.Y + 1 then
 					parked[m.Name] = true
 					m:SetAttribute("TownLife", true)
 					m:PivotTo(HIDDEN)

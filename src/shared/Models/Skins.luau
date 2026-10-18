@@ -6,6 +6,7 @@
 -- kit or hood slot) on the whole of the part fitted there.
 
 local Catalog = require(script.Parent.Catalog)
+local Pictures = require(script.Parent.Parent.Pictures)
 local data = require(script.Parent.Parent.Game.data) :: any
 
 local Skins = {}
@@ -48,7 +49,7 @@ function Skins.lay(part: BasePart, n: number)
 			if t then
 				local tex = Instance.new("Texture")
 				tex.Name = "Skin"
-				tex.Texture = `rbxassetid://{t.image}`
+				Pictures.set(tex, "Texture", t.image)
 				tex.Face = face
 				tex.StudsPerTileU = t.span
 				tex.StudsPerTileV = t.span

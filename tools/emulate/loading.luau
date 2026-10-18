@@ -39,7 +39,7 @@ Images.wordmark = 9001
 Images.vignette = 9002
 local LoadingScreen = emu.require(folder.LoadingScreen)
 fs.writeFile("build/empty.json", "{\"parts\": []}")
-for _, size in { { "wide", 1280, 800 }, { "phone", 390, 844 } } do
+for _, size in { { "wide", 1280, 800 }, { "phone", 390, 844 }, { "landscape", 932, 430 } } do
 	for _, tod in { "day", "dusk", "night" } do
 		local screen = LoadingScreen.new(roblox.Instance.new("Folder"), {
 			isLoaded = function()

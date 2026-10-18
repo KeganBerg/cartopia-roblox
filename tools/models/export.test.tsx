@@ -715,8 +715,22 @@ it('exports every building and car', async () => {
   const { PLOT_MIN, PLOT_MAX } = await import('./game/data')
   const plots: string[] = []
   for (let x = PLOT_MIN; x <= PLOT_MAX; x++) for (let z = PLOT_MIN; z <= PLOT_MAX; z++) plots.push(`${x},${z}`)
+  // The lake's fisherman, his rowboat and the gulls (LakeLife.tsx) are only put in place by their
+  // useFrame, so the forest is drawn a few frames in; until then they sat at the town's middle.
+  const { useThree: useOutskirtsThree } = await import('@react-three/fiber')
+  const outskirtsState: { now?: { internal: { subscribers: { ref: { current: (s: unknown, dt: number) => void } }[] } } } = {}
+  const GrabOutskirts = () => {
+    outskirtsState.now = useOutskirtsThree() as never
+    return null
+  }
   const outskirts = async (id: string, land: string[], forest: boolean) => {
-    const r = await ReactThreeTestRenderer.create(<Outskirts land={land} exits="" small={false} />)
+    const r = await ReactThreeTestRenderer.create(
+      <>
+        <Outskirts land={land} exits="" small={false} />
+        <GrabOutskirts />
+      </>,
+    )
+    if (forest) for (let i = 0; i < 30; i++) for (const sub of outskirtsState.now!.internal.subscribers) sub.ref.current(outskirtsState.now, 1 / 60)
     const top = (r.scene.instance as Object3D).children[0]
     const groups = top.children.filter((c) => (c as { isGroup?: boolean }).isGroup)
     if (forest) models.push({ id, kind: 'scenery', pieces: walk(groups[groups.length - 1], geos, geoList) })
