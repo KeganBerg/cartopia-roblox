@@ -4,7 +4,7 @@
 local ____exports = {}
 local ______js = require("./__js")
 local __hypot = ______js.hypot
-local __arrayOf = ______js.__arrayOf
+local __zeros = ______js.__zeros
 local __obj = ______js.__obj
 local __shr = ______js.__shr
 local __truthy = ______js.__truthy
@@ -35,23 +35,23 @@ local function deriv(p, t)
 end
 function ____exports.cubic(p0, p1, p2, p3)
     local p = {p0, p1, p2, p3}
-    local lut = __arrayOf(N + 1, 0)
+    local lut = __zeros(N + 1)
     local prev = p0
     do
         local i = 1
         while i <= N do
             local q = bez(p, i / N)
-            lut[i + 1] = lut[i] + __hypot(q[1] - prev[1], q[2] - prev[2])
+            lut[i] = lut[i - 1] + __hypot(q[1] - prev[1], q[2] - prev[2])
             prev = q
             i = i + 1
         end
     end
     return __obj(
-        false and (function() return {p = p, len = lut[N + 1], lut = lut} end),
+        false and (function() return {p = p, len = lut[N], lut = lut} end),
         "p",
         p,
         "len",
-        lut[N + 1],
+        lut[N],
         "lut",
         lut
     )
