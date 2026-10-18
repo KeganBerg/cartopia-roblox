@@ -82,7 +82,7 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
   const page = await browser.newPage({ viewport: { width, height } })
   page.on('pageerror', (e) => console.error(e))
   page.on('console', (m) => m.type() === 'error' && console.error(m.text()))
-  await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`)
+  await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`, { timeout: 180000 })
   await page.waitForFunction('window.DONE === true', null, { timeout: 180000 })
   await page.screenshot({ path: out, timeout: 180000 })
   await browser.close()
@@ -189,7 +189,28 @@ for (const p of parts) {
     over.matrix.copy(mesh.matrix)
     scene.add(over)
   }
-  if (p.text) {
+  if (p.text?.strip) {
+    // Labels or plain frames side by side across the face, clear between them.
+    const cv = document.createElement('canvas'); cv.width = Math.min(4096, 128 * Math.max(1, p.text.strip.length)); cv.height = Math.max(16, Math.min(512, Math.round(cv.width * p.size[1] / Math.max(p.text.face === 'Left' || p.text.face === 'Right' ? p.size[2] : p.size[0], 0.01))))
+    const x2 = cv.getContext('2d')
+    for (const c of p.text.strip) {
+      x2.fillStyle = '#' + c.bg; x2.fillRect(c.x * cv.width, 0, c.w * cv.width + 1, cv.height)
+      if (c.text) {
+        let fs = cv.height * 0.7; x2.font = '900 ' + fs + 'px Arial Black, sans-serif'; x2.textAlign = 'center'; x2.textBaseline = 'middle'
+        while (x2.measureText(c.text).width > c.w * cv.width * 0.88 && fs > 6) { fs -= 1; x2.font = '900 ' + fs + 'px Arial Black, sans-serif' }
+        x2.fillStyle = '#' + c.fg; x2.fillText(c.text, (c.x + c.w / 2) * cv.width, cv.height / 2 + 1)
+      }
+    }
+    const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace
+    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex, transparent: true }))
+    face.matrixAutoUpdate = false
+    // Roblox's faces: Back is +Z (the plane's own side), Right +X, Left -X, Front -Z; the label's
+    // left to right runs as Roblox lays it out, seen from outside the face.
+    const turn = { Right: Math.PI / 2, Left: -Math.PI / 2, Front: Math.PI }[p.text.face] ?? 0
+    const across = turn === 0 || turn === Math.PI ? p.size[0] : p.size[2], depth = turn === 0 || turn === Math.PI ? p.size[2] : p.size[0]
+    face.matrix.copy(m4).multiply(new T.Matrix4().makeRotationY(turn)).multiply(new T.Matrix4().makeTranslation(0, 0, depth / 2 + 0.02)).multiply(new T.Matrix4().makeScale(across, p.size[1], 1))
+    scene.add(face)
+  } else if (p.text) {
     const cv = document.createElement('canvas'); cv.width = 512; cv.height = Math.max(64, Math.round(512 * p.size[1] / Math.max(p.size[0], 0.01)))
     const x2 = cv.getContext('2d'); x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height); x2.fillStyle = '#' + p.text.fg
     // Chequers (the finish line): two rows of squares, as Builder draws them.

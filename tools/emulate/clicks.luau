@@ -647,7 +647,8 @@ local function shot(name, world)
 	local parts = {}
 	if world then
 		for _, d in world:GetDescendants() do
-			if d:IsA("BasePart") and d.Transparency < 1 then
+			-- (A clear part can still carry a painted face: a kart circuit's crowds.)
+			if d:IsA("BasePart") and (d.Transparency < 1 or d:FindFirstChildOfClass("SurfaceGui")) then
 				table.insert(parts, Gui.partOf(d))
 			end
 		end
@@ -1449,6 +1450,46 @@ end)()}`)
 -- line (the web's ?autopilot) until the podium, then Bumper Blast from the front page's button,
 -- then a custom race's card.
 local KartRun = emu.require(client.KartRun)
+-- Parts per circuit (each track both ways round), kept low enough for phones.
+do
+	local KartWorld = emu.require(client.KartWorld)
+	local Kt = emu.require(G.kart)
+	local most = 0
+	for _, def in Kt.TRACKS do
+		for _, rev in { false, true } do
+			local m = KartWorld.circuit(Kt.buildTrack(def, rev))
+			local n, by = 0, {}
+			for _, d in m:GetDescendants() do
+				if d:IsA("BasePart") then
+					n += 1
+					-- Parts of a model (a shop, a tree) count under the model's name.
+					local top = d
+					while top.Parent ~= m do
+						top = top.Parent
+					end
+					local key = if top:IsA("Model") and top.Name ~= "Gantry" then `{top.Name}*` else d.Name
+					by[key] = (by[key] or 0) + 1
+				end
+			end
+			local top = {}
+			for k, v in by do
+				table.insert(top, { k, v })
+			end
+			table.sort(top, function(a, b)
+				return a[2] > b[2]
+			end)
+			local parts = {}
+			for i = 1, math.min(16, #top) do
+				table.insert(parts, `{top[i][1]} {top[i][2]}`)
+			end
+			print(`kart circuit {def.id}{if rev then " reversed" else ""}: {n} parts ({table.concat(parts, ", ")})`)
+			most = math.max(most, n)
+		end
+	end
+	print(`kart circuits: at most {most} parts`)
+	assert(most <= 3000, `a kart circuit has {most} parts (phones want 3000 or fewer)`)
+end
+local kartMost, kartRaceMost, kartPeak = {}, {}, {}
 local function runKart(tag, shotAt, start)
 	topUp()
 	hud.ctx.close()
@@ -1470,6 +1511,39 @@ local function runKart(tag, shotAt, start)
 		end
 		step(DT)
 		Emu.resumeWaits()
+		-- Parts in the circuit as the race goes round (shops and trees fill in near the camera).
+		if frames % 40 == 0 then
+			local c = game.Workspace:FindFirstChild("KartCircuit")
+			local n, race, by = 0, 0, {}
+			for _, d in if c then c:GetDescendants() else {} do
+				if d:IsA("BasePart") then
+					n += 1
+					if d:FindFirstAncestor("KartRace") then
+						race += 1
+					else
+						local m = d:FindFirstAncestorWhichIsA("Model")
+						local key = if m and m ~= c then `{m.Name}*` else d.Name
+						by[key] = (by[key] or 0) + 1
+					end
+				end
+			end
+			if n - race > (kartMost[tag] or 0) then
+				local top = {}
+				for k, v in by do
+					table.insert(top, { k, v })
+				end
+				table.sort(top, function(a, b)
+					return a[2] > b[2]
+				end)
+				local list = {}
+				for i = 1, math.min(10, #top) do
+					table.insert(list, `{top[i][1]} {top[i][2]}`)
+				end
+				kartPeak[tag] = `{string.format("%.0f", frames * DT)}s: {table.concat(list, ", ")}`
+			end
+			kartMost[tag] = math.max(kartMost[tag] or 0, n - race)
+			kartRaceMost[tag] = math.max(kartRaceMost[tag] or 0, race)
+		end
 		if shotAt[frames] then
 			shot(`{tag}-{frames}`, game.Workspace:FindFirstChild("KartCircuit"))
 		end
@@ -1492,6 +1566,8 @@ local function runKart(tag, shotAt, start)
 	end
 	KartRun.autopilot = false
 	print(`{tag}: {frames} frames ({string.format("%.1f", frames * DT)}s); podium: {cardText(podium)}`)
+	print(`{tag}: at most {kartMost[tag]} circuit parts and {kartRaceMost[tag]} kart and effect parts during the race (most at {kartPeak[tag]})`)
+	assert(kartMost[tag] <= 3000, `{tag}: {kartMost[tag]} circuit parts during the race (phones want 3000 or fewer)`)
 	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
 	assert(podium, `{tag}: the race never reached the podium`)
 	assert(#handlerErrors == 0, `{tag}: {table.concat(handlerErrors, "; ")}`)

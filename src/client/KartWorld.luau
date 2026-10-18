@@ -120,6 +120,68 @@ local function library(kind: string, id: string): Model?
 	return m
 end
 
+-- Detail by distance. A town circuit is lined with a hundred-odd shops of about fifty parts each,
+-- far too many for a phone, so a shop or tree further than MID web units from the camera keeps
+-- only its biggest few parts (its body and roof; a tree's crown), a shop within MID its biggest
+-- SHOP_MID (the sign, awning and windows), and only within NEAR is it whole; the kerbs' stripes
+-- are drawn within STRIPES_NEAR. KartWorld.detail(at) sets which are which.
+local NEAR, MID, STRIPES_NEAR = 16, 26, 45
+local SHOP_KEEP, SHOP_MID, TREE_KEEP = 3, 12, 2
+type Far = { at: Vector3, r2: number, extra: { { any } }, shown: boolean }
+local fars: { Far } = {}
+local function farParts(list: { BasePart }, at: Vector3, near: number)
+	local extra = {}
+	for _, p in list do
+		table.insert(extra, { p, p.Parent })
+	end
+	table.insert(fars, { at = at, r2 = (near * S) ^ 2, extra = extra, shown = true })
+end
+local function far(m: Model, keep: number, mid: number?)
+	local list = {}
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			table.insert(list, d)
+		end
+	end
+	-- Lettered parts (a shop's sign) first, as they read from far off, then the biggest.
+	local rank = {}
+	for _, p in list do
+		rank[p] = p.Size.X * p.Size.Y * p.Size.Z + if p:FindFirstChildWhichIsA("SurfaceGui") then 1e12 else 0
+	end
+	table.sort(list, function(a, b)
+		return rank[a] > rank[b]
+	end)
+	local signs = 0
+	for _, p in list do
+		if rank[p] >= 1e12 then
+			signs += 1
+		end
+	end
+	keep += signs
+	mid = if mid then mid + signs else nil
+	local at = m:GetPivot().Position
+	if mid and mid < #list then
+		farParts(table.move(list, keep + 1, mid, 1, {}), at, MID)
+		keep = mid
+	end
+	farParts(table.move(list, keep + 1, #list, 1, {}), at, NEAR)
+end
+
+-- Shows each shop's and tree's whole model near `at` (a world position, the camera's) and only
+-- its biggest parts further off.
+function KartWorld.detail(at: Vector3)
+	for _, f in fars do
+		local d = f.at - at
+		local near = d.X * d.X + d.Z * d.Z < f.r2
+		if near ~= f.shown then
+			f.shown = near
+			for _, e in f.extra do
+				e[1].Parent = if near then e[2] else nil
+			end
+		end
+	end
+end
+
 -- Lettering on one face of a part (render.mjs draws it too).
 local function sign(p: BasePart, text: string, fg: string, bg: string, face: Enum.NormalId?)
 	local g = Instance.new("SurfaceGui")
@@ -139,68 +201,187 @@ end
 
 -- ── Track geometry ─────────────────────────────────────────────────────────────────────────────
 
--- A strip following the centre line between two offsets across it (+ is left), its top at `top`
--- (web units), each piece coloured by color(i, s) where s is how far round the lap it starts.
-local function ribbon(into: Instance, t: any, a: number, b: number, top: number, thick: number, color: (number, number) -> Color3, name: string, material: Enum.Material?)
+-- The lap cut into straight runs, from point i0 to point i1 (i1 may be n, the start again), as
+-- long as every point between stays within tol of one straight box at each offset across the
+-- track in offs. Straights become one long part and bends a few short ones, which keeps a circuit
+-- light enough for a phone.
+local function chordOk(t: any, i0: number, k: number, m: number, offs: { number }, tol: number): boolean
 	local n = t.n
-	local m = (a + b) / 2
-	local w = math.abs(b - a)
-	local reach = math.max(math.abs(a), math.abs(b))
-	local s = 0
-	for i = 0, n - 1 do
-		local j = (i + 1) % n
+	local j = k % n
+	local ax, az = t.x[i0] + t.nx[i0] * m, t.z[i0] + t.nz[i0] * m
+	local dx, dz = t.x[j] + t.nx[j] * m - ax, t.z[j] + t.nz[j] * m - az
+	local len = math.sqrt(dx * dx + dz * dz)
+	if len < 1e-6 then
+		return false
+	end
+	dx, dz = dx / len, dz / len
+	-- The run's own left, the way the track's normals point.
+	local lx, lz = -dz, dx
+	if lx * t.nx[i0] + lz * t.nz[i0] < 0 then
+		lx, lz = -lx, -lz
+	end
+	for p = i0 + 1, k - 1 do
+		local q = p % n
+		for _, o in offs do
+			local qx, qz = t.x[q] + t.nx[q] * o - ax, t.z[q] + t.nz[q] * o - az
+			local along = qx * dx + qz * dz
+			if math.abs(qx * lx + qz * lz - (o - m)) > tol or along < -tol or along > len + tol then
+				return false
+			end
+		end
+	end
+	return true
+end
+
+local function runs(t: any, m: number, offs: { number }, tol: number, maxLen: number): { { number } }
+	local n = t.n
+	local out = {}
+	local i0 = 0
+	while i0 < n do
+		local best = i0 + 1
+		local k = i0 + 2
+		local s = math.sqrt((t.x[(i0 + 1) % n] - t.x[i0]) ^ 2 + (t.z[(i0 + 1) % n] - t.z[i0]) ^ 2)
+		while k <= n do
+			s += math.sqrt((t.x[k % n] - t.x[k - 1]) ^ 2 + (t.z[k % n] - t.z[k - 1]) ^ 2)
+			if s > maxLen or not chordOk(t, i0, k, m, offs, tol) then
+				break
+			end
+			best = k
+			k += 1
+		end
+		table.insert(out, { i0, best })
+		i0 = best
+	end
+	return out
+end
+
+-- One box per run at offset m, w wide, its ends pushed out far enough to close the gap round the
+-- outside of each joint (closed: the last run meets the first). Calls make(cframe, size).
+local function boxes(t: any, list: { { number } }, m: number, w: number, top: number, thick: number, closed: boolean, make: (CFrame, Vector3) -> ())
+	local n = t.n
+	local dirs = {}
+	for r, run in list do
+		local i, j = run[1] % n, run[2] % n
+		dirs[r] = math.atan2(t.x[j] + t.nx[j] * m - t.x[i] - t.nx[i] * m, t.z[j] + t.nz[j] * m - t.z[i] - t.nz[i] * m)
+	end
+	local function gap(a: number?, b: number?): number
+		if not a or not b then
+			return 0.03
+		end
+		local d = (b - a + math.pi) % (2 * math.pi) - math.pi
+		return w / 2 * math.abs(math.tan(math.clamp(d, -1.3, 1.3) / 2)) + 0.03
+	end
+	for r, run in list do
+		local i, j = run[1] % n, run[2] % n
 		local x0, z0 = t.x[i] + t.nx[i] * m, t.z[i] + t.nz[i] * m
 		local x1, z1 = t.x[j] + t.nx[j] * m, t.z[j] + t.nz[j] * m
 		local dx, dz = x1 - x0, z1 - z0
-		local len = math.sqrt(dx * dx + dz * dz)
-		-- Long enough to close the gap round the outside of a bend.
-		local extra = math.abs(t.curve[i]) * (reach + w / 2) + 0.06
-		part({
-			Name = name,
-			Size = Vector3.new(w * S, thick * S, (len + extra) * S),
-			CFrame = CFrame.new(W((x0 + x1) / 2, top - thick / 2, (z0 + z1) / 2)) * CFrame.Angles(0, math.atan2(dx, dz), 0),
-			Color = color(i, s),
-			Material = material or Enum.Material.SmoothPlastic,
-		}, into)
-		s += math.sqrt((t.x[j] - t.x[i]) ^ 2 + (t.z[j] - t.z[i]) ^ 2)
+		local len = math.max(math.sqrt(dx * dx + dz * dz), 1e-6)
+		local prev, nxt = dirs[r - 1], dirs[r + 1]
+		if closed then
+			prev, nxt = dirs[(r - 2) % #list + 1], dirs[r % #list + 1]
+		end
+		local e0, e1 = gap(prev, dirs[r]), gap(dirs[r], nxt)
+		local cx, cz = (x0 + x1) / 2 + dx / len * (e1 - e0) / 2, (z0 + z1) / 2 + dz / len * (e1 - e0) / 2
+		make(CFrame.new(W(cx, top - thick / 2, cz)) * CFrame.Angles(0, dirs[r], 0), Vector3.new(w * S, thick * S, (len + e0 + e1) * S))
 	end
 end
 
--- Sponsor boards along a barrier at offset o (each 2 units of the lap, as the web's texture),
--- lettered on the side that faces the track.
-local function boards(into: Instance, t: any, o: number)
-	local n = t.n
+-- A strip following the centre line between two offsets across it (+ is left), its top at `top`
+-- (web units), in straight runs that keep within tol of the true curve (0.1 units, a stud,
+-- unless said). widen: how much further it reaches each side, where a strip laid over it hides
+-- the edge, so it can follow the curve more loosely.
+local TOL = 0.1
+local function ribbon(into: Instance, t: any, a: number, b: number, top: number, thick: number, color: Color3, name: string, material: Enum.Material?, tol: number?, widen: number?)
+	local m, w = (a + b) / 2, math.abs(b - a)
+	boxes(t, runs(t, m, { a, m, b }, tol or TOL, 150), m, w + 2 * (widen or 0), top, thick, true, function(cf, size)
+		part({ Name = name, Size = size, CFrame = cf, Color = color, Material = material or Enum.Material.SmoothPlastic }, into)
+	end)
+end
+
+-- How far round the lap each point is.
+local function laps(t: any): { [number]: number }
+	local at, s = {}, 0
+	for i = 0, t.n - 1 do
+		at[i] = s
+		local j = (i + 1) % t.n
+		s += math.sqrt((t.x[j] - t.x[i]) ^ 2 + (t.z[j] - t.z[i]) ^ 2)
+	end
+	return at
+end
+
+-- A kerb, striped every unit of the lap: one colour laid in long runs, the other as a stripe on
+-- top of it every other unit.
+local function kerb(into: Instance, t: any, a: number, b: number, cols: { string })
+	local m, w = (a + b) / 2, math.abs(b - a)
+	ribbon(into, t, a, b, Y_KERB, 0.3, hex(cols[2]), "Kerb")
+	local at = laps(t)
+	local stripes = {}
+	local i = 0
+	while i < t.n do
+		local u = math.floor(at[i])
+		local j = i + 1
+		while j < t.n and math.floor(at[j]) == u do
+			j += 1
+		end
+		if u % 2 == 0 then
+			table.insert(stripes, { i, j })
+		end
+		i = j
+	end
+	-- Drawn near the camera only, eight stripes at a time.
+	local chunk, sum = {}, Vector3.zero
+	local function flush()
+		if #chunk > 0 then
+			farParts(chunk, sum / #chunk, STRIPES_NEAR)
+			chunk, sum = {}, Vector3.zero
+		end
+	end
+	boxes(t, stripes, m, w, Y_KERB + 0.006, 0.3, false, function(cf, size)
+		table.insert(chunk, part({ Name = "KerbStripe", Size = size, CFrame = cf, Color = hex(cols[1]) }, into))
+		sum += cf.Position
+		if #chunk == 8 then
+			flush()
+		end
+	end)
+	flush()
+end
+
+-- A barrier at offset o: the wall, with the sponsor boards on the side that faces the track (an ad
+-- every 2 units of the lap, as the web's texture) and the coloured cap along its top. The wall is
+-- one part for each straight run, lettered with as many ads as fit along it.
+local function barrier(into: Instance, t: any, o: number, wall: Color3, cap: Color3)
 	local sg = if o > 0 then 1 else -1
-	-- Points round the lap every 2 units.
-	local s, at = 0, {}
-	table.insert(at, 0)
-	for i = 1, n do
-		local j = i % n
-		s += math.sqrt((t.x[j] - t.x[i - 1]) ^ 2 + (t.z[j] - t.z[i - 1]) ^ 2)
-		if s >= 2 then
-			table.insert(at, j)
-			s = 0
-		end
-	end
-	for k = 1, #at do
-		local i, j = at[k], at[k % #at + 1]
-		local x0, z0 = t.x[i] + t.nx[i] * o, t.z[i] + t.nz[i] * o
-		local x1, z1 = t.x[j] + t.nx[j] * o, t.z[j] + t.nz[j] * o
-		local dx, dz = x1 - x0, z1 - z0
-		local len = math.sqrt(dx * dx + dz * dz)
-		if len < 0.1 then
-			continue
-		end
-		local ad = (k - 1) % #ADS + 1
+	local ad = 0
+	local list = runs(t, o + sg * 0.095, { o - sg * 0.03, o + sg * 0.22 }, TOL, 16)
+	boxes(t, list, o + sg * 0.08, 0.28, 0.68, 0.04, true, function(cf, size)
+		part({ Name = "Cap", Size = size, CFrame = cf, Color = cap }, into)
+	end)
+	boxes(t, list, o + sg * 0.095, 0.25, 0.64, 0.64, true, function(cf, size)
+		local count = math.max(1, math.floor(size.Z / (2 * S) + 0.5))
+		local p = part({ Name = "Barrier", Size = size, CFrame = cf, Color = wall }, into)
+		local g = Instance.new("SurfaceGui")
 		-- The lettering faces the track: the part's -X side on the left barrier, +X on the right.
-		local p = part({
-			Name = "Board",
-			Size = Vector3.new(0.06 * S, 0.62 * S, len * S),
-			CFrame = CFrame.new(W((x0 + x1) / 2, 0.31, (z0 + z1) / 2)) * CFrame.Angles(0, math.atan2(dx, dz), 0),
-			Color = hex(AD_COLORS[ad][1]),
-		}, into)
-		sign(p, ADS[ad], AD_COLORS[ad][2], AD_COLORS[ad][1], if sg > 0 then Enum.NormalId.Left else Enum.NormalId.Right)
-	end
+		g.Face = if sg > 0 then Enum.NormalId.Left else Enum.NormalId.Right
+		g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		g.PixelsPerStud = 10
+		g:SetAttribute("Strip", count)
+		for k = 0, count - 1 do
+			local c = ad % #ADS + 1
+			ad += 1
+			local l = Instance.new("TextLabel")
+			l.Position = UDim2.fromScale(k / count, 0)
+			l.Size = UDim2.fromScale(1 / count, 1)
+			l.BorderSizePixel = 0
+			l.BackgroundColor3 = hex(AD_COLORS[c][1])
+			l.TextColor3 = hex(AD_COLORS[c][2])
+			l.Text = ADS[c]
+			l.TextScaled = true
+			l.Font = Enum.Font.FredokaOne
+			l.Parent = g
+		end
+		g.Parent = p
+	end)
 end
 
 -- Spots beside the track (kartSpots.ts useSpots): clear of it by a margin, along either side,
@@ -266,37 +447,21 @@ end
 -- The tarmac and everything painted on it or lining it.
 local function surface(into: Instance, t: any, th: any)
 	local kw = 0.55
-	ribbon(into, t, -t.half, t.half, Y_ROAD, 0.3, function()
-		return hex("#868c93")
-	end, "Road")
-	local kerb = function(_i: number, s: number): Color3
-		return hex(th.kerb[math.floor(s) % 2 + 1])
+	-- The road reaches a little under the kerbs, which hide its edge.
+	ribbon(into, t, -t.half, t.half, Y_ROAD, 0.3, hex("#868c93"), "Road", nil, 0.15, 0.15)
+	kerb(into, t, t.half, t.half + kw, th.kerb)
+	kerb(into, t, -t.half - kw, -t.half, th.kerb)
+	-- The verge, where it isn't the ground's own colour already (the town's grass, the quay).
+	if th.verge ~= th.ground and t.def.theme ~= "docks" then
+		local verge = hex(th.verge)
+		ribbon(into, t, t.half + kw, t.wall + 0.3, 0.012, 0.3, verge, "Verge", nil, 0.1, 0.1)
+		ribbon(into, t, -t.wall - 0.3, -t.half - kw, 0.012, 0.3, verge, "Verge", nil, 0.1, 0.1)
 	end
-	ribbon(into, t, t.half, t.half + kw, Y_KERB, 0.3, kerb, "Kerb")
-	ribbon(into, t, -t.half - kw, -t.half, Y_KERB, 0.3, kerb, "Kerb")
-	local verge = function(): Color3
-		return hex(th.verge)
-	end
-	ribbon(into, t, t.half + kw, t.wall + 0.3, 0.012, 0.3, verge, "Verge", if t.def.theme == "town" then Enum.Material.Grass else nil)
-	ribbon(into, t, -t.wall - 0.3, -t.half - kw, 0.012, 0.3, verge, "Verge", if t.def.theme == "town" then Enum.Material.Grass else nil)
-	local white = function(): Color3
-		return hex("#f5f5f5")
-	end
+	local white = hex("#f5f5f5")
 	ribbon(into, t, t.half - 0.32, t.half - 0.2, Y_PAINT, 0.3, white, "Line")
 	ribbon(into, t, -t.half + 0.2, -t.half + 0.32, Y_PAINT, 0.3, white, "Line")
-	-- The barrier: a wall with the boards on its face, its back, and the coloured cap.
-	local barrier = function(): Color3
-		return hex(th.barrier)
-	end
-	ribbon(into, t, t.wall + 0.03, t.wall + 0.22, 0.64, 0.64, barrier, "Barrier")
-	ribbon(into, t, -t.wall - 0.22, -t.wall - 0.03, 0.64, 0.64, barrier, "Barrier")
-	local cap = function(): Color3
-		return hex(th.cap)
-	end
-	ribbon(into, t, t.wall - 0.06, t.wall + 0.22, 0.68, 0.04, cap, "Cap")
-	ribbon(into, t, -t.wall - 0.22, -t.wall + 0.06, 0.68, 0.04, cap, "Cap")
-	boards(into, t, t.wall)
-	boards(into, t, -t.wall)
+	barrier(into, t, t.wall, hex(th.barrier), hex(th.cap))
+	barrier(into, t, -t.wall, hex(th.barrier), hex(th.cap))
 end
 
 -- The chequered line, the six painted grid boxes, and the gantry with its sign and five lights.
@@ -386,20 +551,34 @@ local LINE_COLS = { hex("#39e07a"), hex("#ffc23d"), hex("#ff4d4d") }
 local function racingLine(into: Instance, t: any)
 	local rl = K.racingLine(t)
 	local off, heat = rl.off, rl.heat
+	-- Each dash is the run of pieces between two gaps, drawn as one part.
 	local s = 0
-	for i = 0, t.n - 1 do
-		local j = (i + 1) % t.n
-		local step = math.sqrt((t.x[j] - t.x[i]) ^ 2 + (t.z[j] - t.z[i]) ^ 2)
-		s += step
-		if math.floor(s / 1.6) % 2 == 1 then
-			continue
-		end
-		local h = heat[i]
+	local dash: { number }? = nil
+	local function draw(i0: number, i1: number)
+		local i, j = i0, i1 % t.n
+		local h = heat[(i0 + (i1 - i0) // 2) % t.n]
 		local c = if h < 0.5 then LINE_COLS[1]:Lerp(LINE_COLS[2], h * 2) else LINE_COLS[2]:Lerp(LINE_COLS[3], (h - 0.5) * 2)
 		local x0, z0 = t.x[i] + t.nx[i] * off[i], t.z[i] + t.nz[i] * off[i]
 		local x1, z1 = t.x[j] + t.nx[j] * off[j], t.z[j] + t.nz[j] * off[j]
 		local len = math.sqrt((x1 - x0) ^ 2 + (z1 - z0) ^ 2)
 		part({ Name = "RacingLine", Size = Vector3.new(0.32 * S, 0.3, (len + 0.02) * S), CFrame = CFrame.new(W((x0 + x1) / 2, Y_PAINT, (z0 + z1) / 2) - Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, math.atan2(x1 - x0, z1 - z0), 0), Color = c, Transparency = 0.4 }, into)
+	end
+	for i = 0, t.n - 1 do
+		local j = (i + 1) % t.n
+		s += math.sqrt((t.x[j] - t.x[i]) ^ 2 + (t.z[j] - t.z[i]) ^ 2)
+		if math.floor(s / 1.6) % 2 == 1 then
+			if dash then
+				draw(dash[1], dash[2])
+				dash = nil
+			end
+		elseif dash then
+			dash[2] = i + 1
+		else
+			dash = { i, i + 1 }
+		end
+	end
+	if dash then
+		draw(dash[1], dash[2])
 	end
 end
 
@@ -433,17 +612,31 @@ local function trackside(into: Instance, t: any, sp: any)
 			boxAt(into, x, z, h, sd * (width / 2 - 0.1), 1.6 + rows * 0.2, -rows * 0.7 + 0.3, 0.12, 3.2 + rows * 0.4, 0.12, "#455a64", { Name = "Post" })
 		end
 		boxAt(into, x, z, h, 0, 3.3 + rows * 0.4, -rows * 0.35 + 0.2, width + 0.4, 0.15, rows * 0.7 + 0.6, roof, { Name = "Roof" })
-		-- The crowd: a fan in a bright top every half a unit or so along each row.
+		-- The crowd: a fan in a bright top every half a unit or so along each row, painted on the
+		-- track side of one clear part a row (a part a fan was 300 parts a circuit).
 		local rr = rand(41 + k)
 		local tops = { "#e53935", "#1e88e5", "#fdd835", "#43a047", "#8e24aa", "#fb8c00", "#ffffff", "#00acc1" }
 		for r = 0, rows - 1 do
+			local row = boxAt(into, x, z, h, 0, 0.35 + r * 0.4 + 0.2 + 0.18, -r * 0.7, width, 0.36, 0.22, "#ffffff", { Name = "Fans", Transparency = 1 })
+			local g = Instance.new("SurfaceGui")
+			g.Face = Enum.NormalId.Back -- +Z, toward the track
+			g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+			g.PixelsPerStud = 4
+			g:SetAttribute("Strip", 0)
 			for c = 0, math.floor(width / 0.55) - 1 do
 				if (c * 7 + r * 3) % 5 == 0 then
 					continue
 				end
 				local lx = -width / 2 + 0.3 + c * 0.55 + (r % 2) * 0.2
-				boxAt(into, x, z, h, lx, 0.35 + r * 0.4 + 0.2 + 0.18, -r * 0.7, 0.3, 0.36, 0.22, tops[math.floor(rr() * #tops) + 1], { Name = "Fan" })
+				local f = Instance.new("Frame")
+				-- The face is seen from +Z, so its left is the part's -X.
+				f.Position = UDim2.fromScale(0.5 + (lx - 0.15) / width, 0)
+				f.Size = UDim2.fromScale(0.3 / width, 1)
+				f.BorderSizePixel = 0
+				f.BackgroundColor3 = hex(tops[math.floor(rr() * #tops) + 1])
+				f.Parent = g
 			end
+			g.Parent = row
 		end
 	end
 	local i = 0
@@ -481,6 +674,7 @@ local function townScenery(into: Instance, t: any, sp: any, pool: { string })
 			if b then
 				b:PivotTo(CFrame.new(W(p.x, 0, p.z)) * CFrame.Angles(0, p.ry, 0))
 				b.Parent = into
+				far(b, SHOP_KEEP, SHOP_MID)
 			end
 		end
 	end
@@ -511,6 +705,7 @@ local function townScenery(into: Instance, t: any, sp: any, pool: { string })
 			tree:ScaleTo(scale)
 			tree:PivotTo(CFrame.new(W(x, 0, z)) * CFrame.Angles(0, trees, 0))
 			tree.Parent = into
+			far(tree, TREE_KEEP)
 		end
 		trees += 1
 	end
@@ -526,9 +721,7 @@ end
 local function docksScenery(into: Instance, t: any, sp: any)
 	plates(into, 500, -0.33, 0.2, "#8fd0f5", "Water", Enum.Material.Glass)
 	-- The quay: concrete out past the barriers all the way round.
-	ribbon(into, t, -t.wall - 3.5, t.wall + 3.5, 0.0, 0.44, function()
-		return hex("#b0b6ba")
-	end, "Quay")
+	ribbon(into, t, -t.wall - 3.5, t.wall + 3.5, 0.0, 0.44, hex("#b0b6ba"), "Quay", nil, 0.25)
 	local colors = { "#c62828", "#1565c0", "#2e7d32", "#ef6c00", "#00838f", "#6d4c41" }
 	for _, side in { 1, -1 } do
 		for _, p in sp.along(4.2, 2.6, side, 2.2, 31 + side, 0.8) do
@@ -537,9 +730,8 @@ local function docksScenery(into: Instance, t: any, sp: any)
 			end
 			local n = 1 + math.floor(p.r() * 3)
 			local c = colors[math.floor(p.r() * #colors) + 1]
-			for k = 0, n - 1 do
-				boxAt(into, p.x, p.z, p.ry + math.pi / 2, 0, 0.6 + k * 1.2, 0, 1.15, 1.2, 2.8, c, { Name = "Container" })
-			end
+			-- A stack is all one colour, so one box as tall as n of them.
+			boxAt(into, p.x, p.z, p.ry + math.pi / 2, 0, n * 0.6, 0, 1.15, n * 1.2, 2.8, c, { Name = "Container" })
 			-- The ground under the stack is quay too.
 			boxAt(into, p.x, p.z, p.ry, 0, -0.22, 0, 3.2, 0.44, 3.2, "#b0b6ba", { Name = "Quay" })
 		end
@@ -654,7 +846,8 @@ local function horizon(into: Instance, theme: string)
 		end
 		local base, top = hex(g.base):Lerp(haze, g.haze), hex(g.top):Lerp(haze, g.haze)
 		local snow = hex("#f4f7fb"):Lerp(haze, g.haze * 0.8)
-		local N = 90
+		-- The web draws 90 columns; 48 look the same at this distance in the haze.
+		local N = 48
 		for i = 0, N - 1 do
 			local a = (i + 0.5) / N * math.pi * 2
 			local v = 0
@@ -689,6 +882,12 @@ function KartWorld.circuit(t: any, pool: { string }?): (Model, { BasePart })
 	if built then
 		built:Destroy()
 	end
+	for _, f in fars do
+		for _, e in f.extra do
+			e[1]:Destroy()
+		end
+	end
+	table.clear(fars)
 	local th = THEMES[t.def.theme] or THEMES.town
 	local m = Instance.new("Model")
 	m.Name = "KartCircuit"
@@ -709,6 +908,8 @@ function KartWorld.circuit(t: any, pool: { string }?): (Model, { BasePart })
 		desertScenery(m, t, sp)
 	end
 	horizon(m, t.def.theme)
+	-- As seen from the grid, until the race moves the camera.
+	KartWorld.detail(W(t.x[0], 0, t.z[0]))
 	m.Parent = workspace
 	built, builtKey, builtLamps = m, key, lamps
 	return m, lamps

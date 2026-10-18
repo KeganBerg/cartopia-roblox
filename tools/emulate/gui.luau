@@ -128,7 +128,17 @@ function Gui.partOf(d)
 		color = d.Color:ToHex(),
 		transparency = d.Transparency,
 		material = enumName(d.Material),
-		text = if label then { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() }
+		-- A strip: labels or plain frames side by side across the face (kart sponsor boards, crowds).
+		text = if surface and surface:GetAttribute("Strip") ~= nil then (function()
+				local list = {}
+				for _, c in surface:GetChildren() do
+					if c:IsA("GuiObject") then
+						table.insert(list, { x = c.Position.X.Scale, w = c.Size.X.Scale, bg = c.BackgroundColor3:ToHex(), text = if c:IsA("TextLabel") then c.Text else nil, fg = if c:IsA("TextLabel") then c.TextColor3:ToHex() else nil })
+					end
+				end
+				return { strip = list, face = enumName(surface.Face) }
+			end)()
+			elseif label then { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() }
 			elseif surface and surface:GetAttribute("Checker") then (function()
 				local back = surface:FindFirstChildOfClass("Frame")
 				local cell = back and back:FindFirstChildOfClass("Frame")

@@ -165,6 +165,7 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 
 	-- ── The world ──────────────────────────────────────────────────────────────────────────────
 	local world, lamps = KartWorld.circuit(t, townPool())
+	local nextDetail = 0
 	local folder = Instance.new("Folder")
 	folder.Name = "KartRace"
 	folder.Parent = world
@@ -1037,6 +1038,12 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 			local fov = (if tall then 70 else 58) + (if mine.boost > 0 then 7 else 0) + math.min(5, mv * 0.2)
 			fovNow = if fovNow == 0 then fov else fovNow + (fov - fovNow) * math.min(1, dt * 4)
 			cam.FieldOfView = fovNow + kick
+		end
+		-- Shops and trees in full only near the camera, a little ahead of the kart.
+		nextDetail -= dt
+		if nextDetail <= 0 then
+			nextDetail = 0.25
+			KartWorld.detail(W(pm.x + fwd.X * 18, 0, pm.z + fwd.Z * 18))
 		end
 
 		-- The flash grows in, holds and fades (kt-pop).
