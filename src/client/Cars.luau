@@ -790,7 +790,10 @@ function Cars.open(ctx: any, tab: any): Instance
 			-- A missing car: its card in For Sale when the dealer sells it.
 			Collection.draw(content, ctx, function(model: string)
 				local def = data.carDef(model)
-				if def.secret then
+				if def.season then
+					-- The season's car: the Star Pass's last tier.
+					ctx.open("season")
+				elseif def.secret then
 					pickTab("crates")
 					current = "crates"
 					render()
