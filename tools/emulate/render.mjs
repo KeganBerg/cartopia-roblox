@@ -88,8 +88,8 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
   const page = await browser.newPage({ viewport: { width, height } })
   page.on('pageerror', (e) => console.error(e))
   page.on('console', (m) => m.type() === 'error' && console.error(m.text()))
-  await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`)
-  await page.waitForFunction('window.DONE === true', null, { timeout: 180000 })
+  await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`, { timeout: 180000 })
+  await page.waitForFunction('window.DONE === true', null, { timeout: 600000 })
   await page.screenshot({ path: out, timeout: 180000 })
   await browser.close()
   server.close()
@@ -256,7 +256,7 @@ for (const p of parts) {
 addParts(scene, S.parts)
 // A near plane well out from the camera: the software renderer's depth buffer is coarse, and road
 // paint a tenth of a stud above the asphalt sank into it.
-const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.sky?.Up ? 40000 : 6000)
+const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.camera?.far ?? (S.sky?.Up ? 40000 : 6000))
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 // Haze starts past what the camera looks at, as the game's light Atmosphere does.

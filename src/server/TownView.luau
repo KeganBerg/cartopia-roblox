@@ -7,7 +7,8 @@
 -- starter town's middle is the lot's origin, and one web unit is Catalog.SCALE studs.
 --
 -- Buildings carry attributes the client reads for its job timers: Uid, Def, Level, JobEndsAt
--- (ms, or absent), Owner (user id). Clicking a building (its ClickDetector) taps it, as on the web.
+-- (ms, or absent), Owner (user id). Clicking a building (its ClickDetector) taps it, as on the web;
+-- another player clicking it is helping out on a visit (onVisit).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -101,6 +102,9 @@ end
 
 local TownView = {}
 TownView.__index = TownView
+-- On in the shared world (server/World), whose own ground runs under every town: each town then
+-- skips its meadow, which would overlap its neighbours'.
+TownView.sharedGround = false
 
 export type TownView = typeof(setmetatable(
 	{} :: {
@@ -108,6 +112,7 @@ export type TownView = typeof(setmetatable(
 		origin: Vector3,
 		userId: number,
 		onTap: (uid: string) -> (),
+		onVisit: ((player: Player, uid: string) -> ())?,
 		land: { [string]: BasePart },
 		roads: { [string]: Model },
 		lawnKey: string?,
@@ -131,7 +136,7 @@ function TownView.worldToTile(self: TownView, p: Vector3): (number, number)
 	return math.round(d.X / TILE + (GRID - 1) / 2), math.round(d.Z / TILE + (GRID - 1) / 2)
 end
 
-function TownView.new(parent: Instance, name: string, origin: Vector3, userId: number, onTap: (uid: string) -> ()): TownView
+function TownView.new(parent: Instance, name: string, origin: Vector3, userId: number, onTap: (uid: string) -> (), onVisit: ((player: Player, uid: string) -> ())?): TownView
 	local folder = Instance.new("Folder")
 	folder.Name = name
 	folder:SetAttribute("Owner", userId)
@@ -162,12 +167,17 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 			meadowPart(meadows, origin, Vector3.new((x0 + x1) / 2, 0, (z0 + z1) / 2), Vector3.new(x1 - x0, 0, z1 - z0))
 		end
 	end
+	-- The shared world (server/World) has its own ground under every town instead.
+	if TownView.sharedGround then
+		meadows:Destroy()
+	end
 	folder.Parent = parent
 	return setmetatable({
 		folder = folder,
 		origin = origin,
 		userId = userId,
 		onTap = onTap,
+		onVisit = onVisit,
 		land = {},
 		roads = {},
 		buildings = {},
@@ -903,6 +913,8 @@ function TownView._buildingModel(self: TownView, b: any, turn: number, g: any, c
 		click.MouseClick:Connect(function(player)
 			if player.UserId == self.userId then
 				self.onTap(b.uid)
+			elseif self.onVisit then
+				self.onVisit(player, b.uid)
 			end
 		end)
 		click.Parent = hit
@@ -1100,5 +1112,8 @@ function TownView.render(self: TownView, save: any)
 	self:_renderLawn(save.land or {}, list, save.buildings or {})
 	self:_renderCars(save.cars or {}, save.buildings or {}, roadSet)
 end
+
+TownView.MEADOW = MEADOW
+TownView.groundTexture = groundTexture
 
 return TownView

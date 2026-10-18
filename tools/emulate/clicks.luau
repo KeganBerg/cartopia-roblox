@@ -146,6 +146,9 @@ crateRemote.Parent = remotes
 local meshRemote = Instance.new("RemoteFunction")
 meshRemote.Name = "Meshes"
 meshRemote.Parent = remotes
+local socialRemote = Instance.new("RemoteFunction")
+socialRemote.Name = "Social"
+socialRemote.Parent = remotes
 local bankRemote = Instance.new("RemoteFunction")
 bankRemote.Name = "Bank"
 bankRemote.Parent = remotes
@@ -347,6 +350,93 @@ local crateDesk = emu.require(SSS.Server.Crates).new(towns, store, emu.require(G
 		return player:GetAttribute(k)
 	end), pay, free)
 end)
+-- Playing together: a second player in the server (Rosa, not a friend yet) with a town to visit,
+-- and Roblox friends elsewhere (Milo in another Cartopia server, Ada online, Sam offline).
+towns:open(2, nil)
+towns:run(2, "renameTown", "Rosaville")
+local rosa = Instance.new("Player")
+rosa.Name = "RosaRacer"
+rosa.UserId = 2
+pcall(function() rosa.DisplayName = "Rosa" end)
+rosa.Parent = players
+roblox.implementMethod("Players", "GetPlayerByUserId", function(_, id)
+	for _, p in players:GetChildren() do
+		if p:IsA("Player") and p.UserId == id then
+			return p
+		end
+	end
+	return nil
+end)
+roblox.implementMethod("Player", "IsFriendsWith", function(_, id)
+	return id == 3 or id == 4 or id == 5
+end)
+roblox.implementMethod("Player", "GetFriendsOnline", function()
+	return {
+		{ VisitorId = 3, UserName = "MiloMoves", DisplayName = "Milo", PlaceId = game.PlaceId, GameId = "other-server", LocationType = 4 },
+		{ VisitorId = 4, UserName = "AdaDrives", DisplayName = "Ada", PlaceId = 1234, GameId = "elsewhere", LocationType = 4 },
+	}
+end)
+roblox.implementMethod("Players", "GetFriendsAsync", function()
+	return {
+		GetCurrentPage = function()
+			return {
+				{ Id = 3, Username = "MiloMoves", DisplayName = "Milo", IsOnline = true },
+				{ Id = 4, Username = "AdaDrives", DisplayName = "Ada", IsOnline = true },
+				{ Id = 5, Username = "SamSpeed", DisplayName = "Sam", IsOnline = false },
+			}
+		end,
+	}
+end)
+roblox.implementMethod("SocialService", "CanSendGameInviteAsync", function()
+	return true
+end)
+roblox.implementMethod("SocialService", "PromptGameInvite", function() end)
+local Social = emu.require(SSS.Server.Social)
+local social = Social.new({ towns = towns, data = emu.require(G.data), today = store.today })
+local function socialDesk(op, arg)
+	local ran, result, why = pcall(function()
+		if op == "players" then
+			local save = towns:save(2)
+			return { { id = 2, name = "Rosa", user = "RosaRacer", townName = save.townName, level = save.level, trophies = save.trophies or 0, cars = #save.cars, friend = false, helped = #social:helped(1, 2) } }, nil
+		elseif op == "visit" and arg == 2 then
+			player:SetAttribute("Visiting", 2)
+			player:SetAttribute("Helped", table.concat(social:helped(1, 2), ","))
+			return social:townInfo(1, 2), nil
+		elseif op == "home" then
+			player:SetAttribute("Driving", nil)
+			player:SetAttribute("Visiting", nil)
+			player:SetAttribute("Helped", nil)
+			return true, nil
+		elseif op == "help" and type(arg) == "string" then
+			local r, w = social:help(1, 2, arg)
+			if r then
+				player:SetAttribute("Helped", table.concat(r.helped, ","))
+			end
+			return r, w
+		elseif op == "drive" then
+			player:SetAttribute("Driving", true)
+			return true, nil
+		elseif op == "claim" then
+			return 0, nil
+		elseif op == "join" then
+			return { here = false }, nil
+		end
+		return nil, "not a social action"
+	end)
+	if not ran then
+		table.insert(calls, `SERVER ERROR social {op}: {result}`)
+		return false, "error"
+	end
+	checkSend(`social {op} result`, result)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	if result == nil then
+		table.insert(calls, `social {op} refused: {why}`)
+		return false, why
+	end
+	table.insert(calls, `ok social {op}`)
+	return true, result
+end
+
 -- The server end of Cartopia.Bank (server/Purchases), with every product made.
 local bankDesk = emu.require(SSS.Server.Purchases).new(towns, store, emu.require(G.bucksPacks), function()
 	return true
@@ -360,7 +450,9 @@ do
 	bankDesk:load(1, {})
 end
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
-	if remote.Name == "Race" then
+	if remote.Name == "Social" then
+		return socialDesk(name, ...)
+	elseif remote.Name == "Race" then
 		return raceDesk(name, ...)
 	elseif remote.Name == "Meshes" then
 		-- Every mesh is already here in the previews.
@@ -595,7 +687,7 @@ local function rustyTown()
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 end
 rustyTown()
-for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue", "season", "deals" } do
+for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue", "season", "deals", "friends" } do
 	clickAll(p, function()
 		hud.openPanel(p)
 	end)
@@ -1066,6 +1158,28 @@ if SHOTS then
 	hud.ctx.close()
 	hud.openPanel("book")
 	shot("book", nil)
+	-- Social: the Friends tab, then a visit to Rosa's town with one shop helped.
+	hud.ctx.close()
+	player:SetAttribute("CanChat", true)
+	hud.openPanel("friends")
+	shot("panel-friends", nil)
+	hud.ctx.close()
+	local info = select(2, socialDesk("visit", 2))
+	hud.ctx.setVisit(info)
+	local shop = info.asking[1]
+	assert(shop, "Rosa's town has no business to help")
+	socialDesk("help", shop)
+	shot("visit", nil)
+	local home
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "🏠 Home" and d.Parent:IsA("GuiButton") then
+			home = d.Parent
+		end
+	end
+	assert(home, "no Home button on the visit banner")
+	signalFor(home, "Activated"):Fire()
+	assert(hud.ctx.visiting == nil, "going home didn't end the visit")
+	print("social: friends, visit, help, home")
 	-- The Bank, wide and on a phone: an 844 x 390 screen scales the HUD by 0.55, so it lays out at
 	-- 1535 x 709 (render at that size, then shrink the picture to 844 x 390).
 	local root = hud.gui:FindFirstChild("Root")
