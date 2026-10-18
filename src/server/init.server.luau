@@ -7,7 +7,8 @@
 --   Town   RemoteEvent     server -> client: { save, need, panel, toasts } after every change
 --   Race   RemoteFunction  client -> server: ("rivals" | "campaign" | "start" | "finish", ...)
 --                          -> ok, result or error text (see Races)
---   Crate  RemoteFunction  client -> server: (crate id, free source?, count) -> ok, the opens or why
+--   Crate  RemoteFunction  client -> server: (crate id, free source?, count) -> ok, the opens or why;
+--                          ("wheel") spins the Daily Spin -> ok, the spin { slice, open } or why
 --   Arcade RemoteFunction  client -> server: ("state" | "start" | "submit" | "board" | "prizes" |
 --                          "claim", ...) -> ok, result or why (see Arcade)
 --   Meshes RemoteFunction  client -> server: (car id) -> loads that car's mod meshes into

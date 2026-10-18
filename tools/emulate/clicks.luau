@@ -60,7 +60,7 @@ local function signalFor(inst, name)
 	signals[key] = s
 	return s
 end
-for _, pair in { { "GuiButton", "Activated" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputEnded" } } do
+for _, pair in { { "GuiButton", "Activated" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputChanged" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
 	roblox.implementProperty(pair[1], pair[2], function(inst)
 		return signalFor(inst, pair[2])
 	end)
@@ -103,6 +103,11 @@ towns:open(1, nil)
 -- A town with a car shop and a car, so the garage and upgrade screens have something in them.
 towns:run(1, "placeBuilding", "rescue", 12, 12)
 towns:run(1, "buyCar", "pip", "#c62828")
+-- Today's Daily Spin taken, so it doesn't open itself at the start (client/Popups/DailySpin); the
+-- wheel is spun on purpose further down.
+towns:_with(1, function()
+	store.useGame.setState({ lastDaily = store.today() })
+end)
 
 local player = Instance.new("Player")
 player.Name = "Player1"
@@ -557,11 +562,24 @@ local function rustyTown()
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 end
 rustyTown()
-for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue" } do
+for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue", "season", "deals" } do
 	clickAll(p, function()
 		hud.openPanel(p)
 	end)
 end
+-- The HUD again at level 30: the Star Pass and Daily Deals buttons are up.
+clickAll("hud30", function() end)
+-- The Daily Spin, with today's spin still to take each time (Spin spins it on the server).
+local function unspun()
+	towns:_with(1, function()
+		store.useGame.setState({ lastDaily = "2000-01-01" })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+end
+clickAll("daily", function()
+	unspun()
+	hud.openPanel("daily")
+end)
 clickAll("cards", function()
 	hud.openPanel("cars", "cards")
 end)
@@ -1521,3 +1539,107 @@ print(`class cups won: {(function()
 	end
 	return n
 end)()}`)
+
+-- The Daily Spin: Spin, run the wheel round until it lands, and see the prize was paid once.
+do
+	closeRace()
+	hud.ctx.close()
+	unspun()
+	local before = towns:snapshot(1).save
+	hud.openPanel("daily")
+	if SHOTS then
+		shot("wheel", nil)
+	end
+	local spinBtn = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Name == "Face" and d.Parent and d.Parent.Name == "Spin"
+	end)
+	assert(spinBtn, "no Spin button")
+	calls = {}
+	handlerErrors = {}
+	signalFor(spinBtn, "Activated"):Fire()
+	local frames = 0
+	while renderSteps.DailySpin and frames < 60 * 12 do
+		frames += 1
+		renderSteps.DailySpin(1 / 60)
+		if frames == 40 and SHOTS then
+			shot("wheel-spin", nil)
+		end
+	end
+	local rotor = find(hud.gui, function(d)
+		return d.Name == "Rotor"
+	end)
+	local prize = find(hud.gui, function(d)
+		return d.Name == "PrizeLine"
+	end)
+	local words = {}
+	if prize then
+		for _, d in prize:GetDescendants() do
+			if d:IsA("TextLabel") and d.Name ~= "Face" then
+				table.insert(words, d.Text)
+			end
+		end
+	end
+	local after = towns:snapshot(1).save
+	print(`daily spin: {frames} frames, wheel at {rotor and math.floor(rotor.Rotation) or "?"}°, prize "{table.concat(words, " ")}"; coins {before.coins} -> {after.coins}, gems {before.bucks} -> {after.bucks}, spun {after.lastDaily}`)
+	print(`daily spin calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	if SHOTS then
+		shot("wheel-won", nil)
+	end
+	local again = Remote.spin()
+	print(`daily spin again the same day: {if again then "SPUN AGAIN" else "refused"}`)
+	hud.ctx.close()
+end
+
+-- The Star Pass: 45 stars, two tiers already claimed; Collect takes the other three.
+do
+	hud.ctx.close()
+	local data = emu.require(RS.Shared.Game.data)
+	towns:_with(1, function()
+		store.useGame.setState({ season = { n = data.seasonNumber(NOW), stars = 45, claimed = { 0, 1 } } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.openPanel("season")
+	if SHOTS then
+		shot("season", nil)
+	end
+	local collect = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "Collect", 1, true) ~= nil
+	end)
+	assert(collect, "no Collect on the Star Pass")
+	local coins = towns:snapshot(1).save.coins
+	calls = {}
+	signalFor(collect, "Activated"):Fire()
+	local season = towns:snapshot(1).save.season
+	print(`star pass: claimed {table.concat(season.claimed, ",")}, coins {coins} -> {towns:snapshot(1).save.coins}; calls {table.concat(calls, ", ")}`)
+	if SHOTS then
+		shot("season-collected", nil)
+	end
+	hud.ctx.close()
+end
+
+-- Daily Deals: buy today's supplies deal.
+do
+	hud.ctx.close()
+	towns:_with(1, function()
+		store.useGame.setState({ coins = 1000000, bucks = 1000, fuel = 0, deals = { day = "2000-01-01", used = {} } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.openPanel("deals")
+	if SHOTS then
+		shot("deals", nil)
+	end
+	local buy = find(hud.gui, function(d)
+		return d:IsA("TextButton") and label(d) == "Buy"
+	end)
+	local before = towns:snapshot(1).save
+	calls = {}
+	if buy then
+		signalFor(buy, "Activated"):Fire()
+	end
+	local after = towns:snapshot(1).save
+	print(`deals: bought {if buy then "the supplies deal" else "nothing (no Buy)"}; coins {before.coins} -> {after.coins}, gems {before.bucks} -> {after.bucks}, parts {before.parts} -> {after.parts}, fuel {before.fuel} -> {after.fuel}, used {after.deals and table.concat(after.deals.used, ",") or "-"}; calls {table.concat(calls, ", ")}`)
+	if SHOTS then
+		shot("deals-bought", nil)
+	end
+	hud.ctx.close()
+end
