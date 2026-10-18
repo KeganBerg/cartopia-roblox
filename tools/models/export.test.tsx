@@ -787,6 +787,51 @@ it('exports every building and car', async () => {
   // city, and balloons. One still frame of it at noon in fair weather; the sky is baked into
   // skybox pictures separately (tools/sky/build.mjs).
   if (!only || only === 'outskirts' || only === 'horizon') await horizon()
+  // What flies over the town now and then (SkyExtras.tsx FlyBys, models in FlyByModels.tsx and
+  // Balloon.tsx), each at the size the town sees it: an airliner in each livery, the news
+  // helicopter, the banner plane with each banner, the blimp, the town's balloon in each of its
+  // colourings and the cartoon rocket. client/SkyExtras flies them. Contrails (a shader) stay behind.
+  if (!only || only === 'flyby') await flyBys()
+  async function flyBys() {
+    const { Airliner, BannerPlane, Blimp, NewsHeli, LIVERIES, BANNERS, airlinerGeo, rocketGeo, flyMat } = await import('./scene/FlyByModels')
+    const { BalloonModel } = await import('./scene/Balloon')
+    const { signTexture } = await import('./scene/signTexture')
+    const one = async (id: string, el: React.ReactElement, prep?: (root: Object3D) => void) => {
+      const r = await ReactThreeTestRenderer.create(el)
+      const root = r.scene.instance as Object3D
+      root.traverse((o) => {
+        if ((o as Mesh).isMesh && ((o as Mesh).material as { isShaderMaterial?: boolean }).isShaderMaterial) o.visible = false
+      })
+      prep?.(root)
+      models.push({ id, kind: 'piece', pieces: walk(root, geos, geoList) })
+      await r.unmount()
+    }
+    for (let i = 0; i < LIVERIES.length; i++)
+      await one(`fly:plane:${i + 1}`, <group scale={0.9}><Airliner livery={{ current: i }} /></group>, (root) =>
+        root.traverse((o) => {
+          if ((o as Mesh).isMesh && (o as Mesh).geometry === airlinerGeo(0)) (o as Mesh).geometry = airlinerGeo(i)
+        }))
+    await one('fly:heli', <group scale={1.2}><NewsHeli /></group>)
+    for (let i = 0; i < BANNERS.length; i++) await one(`fly:banner:${i + 1}`, <group scale={1.3}><BannerPlane message={{ current: i }} /></group>, (root) => {
+      // The banner's lettering is set on its first frame: set it now.
+      root.traverse((o) => {
+        const m = (o as Mesh).material as MeshStandardMaterial | undefined
+        if (m && !Array.isArray(m) && m.map && m.type === 'MeshStandardMaterial' && m !== flyMat) m.map = signTexture(BANNERS[i], '#ffffff', '#d32f2f', 5.2)
+      })
+    })
+    await one('fly:blimp', <group scale={1.4}><Blimp /></group>)
+    const COLOURS = [['#e53935', '#fdd835'], ['#1e88e5', '#ffffff'], ['#43a047', '#ff7043'], ['#8e24aa', '#ffca28']]
+    for (let i = 0; i < COLOURS.length; i++) await one(`fly:balloon:${i + 1}`, <group scale={0.27}><BalloonModel c={COLOURS[i]} /></group>)
+    await one('fly:rocket', (
+      <group>
+        <mesh geometry={rocketGeo} material={flyMat} />
+        <group position={[0, -0.78, 0]}>
+          <mesh position={[0, -0.3, 0]} rotation-x={Math.PI}><coneGeometry args={[0.22, 0.6, 10]} /><meshBasicMaterial color="#ff9800" toneMapped={false} /></mesh>
+          <mesh position={[0, -0.2, 0]} rotation-x={Math.PI}><coneGeometry args={[0.12, 0.4, 10]} /><meshBasicMaterial color="#fff59d" toneMapped={false} /></mesh>
+        </group>
+      </group>
+    ))
+  }
   async function horizon() {
     const { Horizon } = await import('./scene/Horizon')
     const { useThree } = await import('@react-three/fiber')

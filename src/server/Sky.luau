@@ -1,5 +1,5 @@
 --!strict
--- The sky's pictures (Shared.Models.SkyImages, drawn by client/Horizon) as the clients should ask
+-- The sky's pictures (Shared.Models.SkyImages, drawn by client/Horizon and client/SkyExtras) as the clients should ask
 -- for them. As with the loading screen's (server/Splash), Open Cloud may hand back a decal's id
 -- for an uploaded picture rather than its image's: each is looked up once when the server starts
 -- and shared as a Workspace attribute Sky<id> = "rbxassetid://<image>".
@@ -34,6 +34,14 @@ function Sky.start()
 		for _, id in step.faces do
 			resolve(id)
 		end
+	end
+	-- The sky's extras (client/SkyExtras): the moon's phases, the northern lights, the season's fliers.
+	for _, id in SkyImages.moon or {} do
+		resolve(id)
+	end
+	resolve(SkyImages.aurora or 0)
+	for _, id in SkyImages.fliers or {} do
+		resolve(id)
 	end
 end
 
