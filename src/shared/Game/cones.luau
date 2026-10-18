@@ -14,7 +14,7 @@ local __TS__ArrayFind = ____lualib.__TS__ArrayFind
 local __TS__ObjectAssign = ____lualib.__TS__ObjectAssign
 local ____exports = {}
 local ______js = require("./__js")
-local __hypot = ______js.__hypot
+local __hypot = ______js.hypot
 local __truthy = ______js.__truthy
 local CORNERS = 3
 local PER = 5
@@ -62,10 +62,10 @@ function ____exports.placeCones(t)
         local side = (function(v_1) return if __truthy(v_1) then v_1 else 1 end)(__TS__MathSign(t.curve[a]))
         do
             local k = 0
-            local ____first6 = true
+            local ____first14 = true
             while true do
-                if ____first6 then
-                    ____first6 = false
+                if ____first14 then
+                    ____first14 = false
                 else
                     k = k + 1
                 end

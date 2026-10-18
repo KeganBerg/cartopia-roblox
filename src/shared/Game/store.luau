@@ -202,7 +202,7 @@ function ____exports.gemsX10(save, store)
             end
             store.setItem(GEMS_X10_KEY, "1")
             local guest = not __truthy(store.getItem("cartopia-save-owner"))
-            return true, if (if __truthy(save) then guest else save) and type(save.bucks) == "number" then __obj(
+            return true, if __truthy((if __truthy(save) then guest else save) and type(save.bucks) == "number") then __obj(
                 false and (function() return __TS__ObjectAssign({}, save, {bucks = save.bucks * 10}) end),
                 __SPREAD,
                 save,
@@ -219,234 +219,235 @@ function ____exports.gemsX10(save, store)
     end
 end
 function ____exports.saveOf(s)
-    local ____s_430 = s
-    local version = ____s_430.version
-    local townName = ____s_430.townName
-    local level = ____s_430.level
-    local xp = ____s_430.xp
-    local coins = ____s_430.coins
-    local bucks = ____s_430.bucks
-    local parts = ____s_430.parts
-    local fuel = ____s_430.fuel
-    local fuelUpdatedAt = ____s_430.fuelUpdatedAt
-    local trophies = ____s_430.trophies
-    local racesWon = ____s_430.racesWon
-    local roads = ____s_430.roads
-    local buildings = ____s_430.buildings
-    local cars = ____s_430.cars
-    local stats = ____s_430.stats
-    local claimedGoals = ____s_430.claimedGoals
-    local quests = ____s_430.quests
-    local endless = ____s_430.endless
-    local lastDaily = ____s_430.lastDaily
-    local dailyStreak = ____s_430.dailyStreak
-    local helped = ____s_430.helped
-    local tutorial = ____s_430.tutorial
-    local junkyard = ____s_430.junkyard
-    local restoring = ____s_430.restoring
-    local restoring2 = ____s_430.restoring2
-    local truck = ____s_430.truck
-    local gp = ____s_430.gp
-    local campaign = ____s_430.campaign
-    local claimedSets = ____s_430.claimedSets
-    local crewChests = ____s_430.crewChests
-    local visits = ____s_430.visits
-    local crates = ____s_430.crates
-    local cratePity = ____s_430.cratePity
-    local boosts = ____s_430.boosts
-    local wagers = ____s_430.wagers
-    local purchases = ____s_430.purchases
-    local season = ____s_430.season
-    local deals = ____s_430.deals
-    local trials = ____s_430.trials
-    local rivals = ____s_430.rivals
-    local rivalRow = ____s_430.rivalRow
-    local tuner = ____s_430.tuner
-    local mastery = ____s_430.mastery
-    local road = ____s_430.road
-    local roadItems = ____s_430.roadItems
-    local freeCrates = ____s_430.freeCrates
-    local trail = ____s_430.trail
-    local cheer = ____s_430.cheer
-    local flairSeen = ____s_430.flairSeen
-    local daily = ____s_430.daily
-    local repSeen = ____s_430.repSeen
-    local worldTour = ____s_430.worldTour
-    local presets = ____s_430.presets
-    local seasonBase = ____s_430.seasonBase
-    local recap = ____s_430.recap
-    local friendship = ____s_430.friendship
-    local cups = ____s_430.cups
-    local freePaint = ____s_430.freePaint
-    local oldPaints = ____s_430.oldPaints
-    local tour = ____s_430.tour
-    local event = ____s_430.event
-    local showcase = ____s_430.showcase
-    local raceCar = ____s_430.raceCar
-    local skins = ____s_430.skins
-    local modSkins = ____s_430.modSkins
-    local hats = ____s_430.hats
-    local hatQuest = ____s_430.hatQuest
-    local callCards = ____s_430.callCards
-    local callCard = ____s_430.callCard
-    local lights = ____s_430.lights
-    local cityTheme = ____s_430.cityTheme
-    local restoParts = ____s_430.restoParts
-    local land = ____s_430.land
-    local stored = ____s_430.stored
-    local updatedAt = ____s_430.updatedAt
-    local ____obj_518 = __obj
-    local ____array_517 = __TS__SparseArrayNew(
+    local ____s_436 = s
+    local version = ____s_436.version
+    local townName = ____s_436.townName
+    local level = ____s_436.level
+    local xp = ____s_436.xp
+    local coins = ____s_436.coins
+    local bucks = ____s_436.bucks
+    local parts = ____s_436.parts
+    local fuel = ____s_436.fuel
+    local fuelUpdatedAt = ____s_436.fuelUpdatedAt
+    local trophies = ____s_436.trophies
+    local racesWon = ____s_436.racesWon
+    local roads = ____s_436.roads
+    local buildings = ____s_436.buildings
+    local cars = ____s_436.cars
+    local stats = ____s_436.stats
+    local claimedGoals = ____s_436.claimedGoals
+    local quests = ____s_436.quests
+    local endless = ____s_436.endless
+    local lastDaily = ____s_436.lastDaily
+    local dailyStreak = ____s_436.dailyStreak
+    local helped = ____s_436.helped
+    local tutorial = ____s_436.tutorial
+    local junkyard = ____s_436.junkyard
+    local restoring = ____s_436.restoring
+    local restoring2 = ____s_436.restoring2
+    local truck = ____s_436.truck
+    local gp = ____s_436.gp
+    local campaign = ____s_436.campaign
+    local claimedSets = ____s_436.claimedSets
+    local crewChests = ____s_436.crewChests
+    local visits = ____s_436.visits
+    local crates = ____s_436.crates
+    local cratePity = ____s_436.cratePity
+    local boosts = ____s_436.boosts
+    local wagers = ____s_436.wagers
+    local purchases = ____s_436.purchases
+    local season = ____s_436.season
+    local deals = ____s_436.deals
+    local trials = ____s_436.trials
+    local rivals = ____s_436.rivals
+    local rivalRow = ____s_436.rivalRow
+    local tuner = ____s_436.tuner
+    local mastery = ____s_436.mastery
+    local road = ____s_436.road
+    local roadItems = ____s_436.roadItems
+    local freeCrates = ____s_436.freeCrates
+    local trail = ____s_436.trail
+    local cheer = ____s_436.cheer
+    local flairSeen = ____s_436.flairSeen
+    local daily = ____s_436.daily
+    local repSeen = ____s_436.repSeen
+    local worldTour = ____s_436.worldTour
+    local presets = ____s_436.presets
+    local seasonBase = ____s_436.seasonBase
+    local recap = ____s_436.recap
+    local friendship = ____s_436.friendship
+    local cups = ____s_436.cups
+    local freePaint = ____s_436.freePaint
+    local oldPaints = ____s_436.oldPaints
+    local tour = ____s_436.tour
+    local event = ____s_436.event
+    local showcase = ____s_436.showcase
+    local raceCar = ____s_436.raceCar
+    local skins = ____s_436.skins
+    local modSkins = ____s_436.modSkins
+    local hats = ____s_436.hats
+    local hatQuest = ____s_436.hatQuest
+    local callCards = ____s_436.callCards
+    local callCard = ____s_436.callCard
+    local lights = ____s_436.lights
+    local cityTheme = ____s_436.cityTheme
+    local restoParts = ____s_436.restoParts
+    local land = ____s_436.land
+    local stored = ____s_436.stored
+    local updatedAt = ____s_436.updatedAt
+    local ____obj_526 = __obj
+    local ____array_525 = __TS__SparseArrayNew(
         false and (function()
-            local ____version_440 = version
-            local ____townName_441 = townName
-            local ____level_442 = level
-            local ____xp_443 = xp
-            local ____coins_444 = coins
-            local ____bucks_445 = bucks
-            local ____parts_446 = parts
-            local ____fuel_447 = fuel
-            local ____fuelUpdatedAt_448 = fuelUpdatedAt
-            local ____trophies_449 = trophies
-            local ____racesWon_450 = racesWon
-            local ____roads_451 = roads
-            local ____foldStored_result_452 = foldStored(buildings, stored)
-            local ____cars_453 = cars
-            local ____stats_454 = stats
-            local ____claimedGoals_455 = claimedGoals
-            local ____quests_456 = quests
-            local ____temp_457 = if endless then {endless = __ns___endless_1.datedEndless(endless)} else {}
-            local ____lastDaily_458 = lastDaily
-            local ____dailyStreak_459 = dailyStreak
-            local ____helped_460 = helped
-            local ____tutorial_461 = tutorial
-            local ____junkyard_462 = junkyard
-            local ____restoring_463 = restoring
-            local ____temp_464 = restoring2 or nil
-            local ____temp_465 = truck or 0
-            local ____gp_466 = gp
-            local ____campaign_467 = campaign
-            local ____claimedSets_468 = claimedSets
-            local ____crewChests_469 = crewChests
-            local ____visits_470 = visits
-            local ____crates_471 = crates
-            local ____temp_472 = cratePity or ({})
-            local ____temp_473 = boosts or __ns___boosts_1.emptyBoosts()
-            local ____temp_474 = if __truthy(wagers) then {wagers = wagers} else {}
-            local ____temp_475 = if __truthy(purchases) then {purchases = purchases} else {}
-            local ____season_476 = season
-            local ____deals_477 = deals
-            local ____trials_478 = trials
-            local ____rivals_479 = rivals
-            local ____rivalRow_480 = rivalRow
-            local ____temp_481 = tuner or ({})
-            local ____temp_482 = mastery or ({})
-            local ____temp_483 = road or 0
-            local ____temp_484 = roadItems or ({})
-            local ____temp_485 = freeCrates or ({})
-            local ____temp_486 = if __truthy(trail) then {trail = trail} else {}
-            local ____temp_487 = if __truthy(cheer) then {cheer = cheer} else {}
-            local ____temp_488 = if __truthy(flairSeen) then {flairSeen = flairSeen} else {}
-            local ____temp_489 = if daily then {daily = daily} else {}
-            local ____temp_490 = if repSeen ~= nil then {repSeen = repSeen} else {}
-            local ____temp_491 = if __truthy(worldTour) then {worldTour = worldTour} else {}
-            local ____opt_431 = presets
-            local ____temp_492 = if ____opt_431 and __TS__ArraySome(
+            local ____version_447 = version
+            local ____townName_448 = townName
+            local ____level_449 = level
+            local ____xp_450 = xp
+            local ____coins_451 = coins
+            local ____bucks_452 = bucks
+            local ____parts_453 = parts
+            local ____fuel_454 = fuel
+            local ____fuelUpdatedAt_455 = fuelUpdatedAt
+            local ____trophies_456 = trophies
+            local ____racesWon_457 = racesWon
+            local ____roads_458 = roads
+            local ____foldStored_result_459 = foldStored(buildings, stored)
+            local ____cars_460 = cars
+            local ____stats_461 = stats
+            local ____claimedGoals_462 = claimedGoals
+            local ____quests_463 = quests
+            local ____temp_464 = if endless then {endless = __ns___endless_1.datedEndless(endless)} else {}
+            local ____lastDaily_465 = lastDaily
+            local ____dailyStreak_466 = dailyStreak
+            local ____helped_467 = helped
+            local ____tutorial_468 = tutorial
+            local ____junkyard_469 = junkyard
+            local ____restoring_470 = restoring
+            local ____temp_471 = restoring2 or nil
+            local ____temp_472 = truck or 0
+            local ____gp_473 = gp
+            local ____campaign_474 = campaign
+            local ____claimedSets_475 = claimedSets
+            local ____crewChests_476 = crewChests
+            local ____visits_477 = visits
+            local ____crates_478 = crates
+            local ____temp_479 = cratePity or ({})
+            local ____temp_480 = boosts or __ns___boosts_1.emptyBoosts()
+            local ____temp_481 = if __truthy(wagers) then {wagers = wagers} else {}
+            local ____temp_482 = if __truthy(purchases) then {purchases = purchases} else {}
+            local ____season_483 = season
+            local ____deals_484 = deals
+            local ____trials_485 = trials
+            local ____rivals_486 = rivals
+            local ____rivalRow_487 = rivalRow
+            local ____temp_488 = tuner or ({})
+            local ____temp_489 = mastery or ({})
+            local ____temp_490 = road or 0
+            local ____temp_491 = roadItems or ({})
+            local ____temp_492 = freeCrates or ({})
+            local ____temp_493 = if __truthy(trail) then {trail = trail} else {}
+            local ____temp_494 = if __truthy(cheer) then {cheer = cheer} else {}
+            local ____temp_495 = if __truthy(flairSeen) then {flairSeen = flairSeen} else {}
+            local ____temp_496 = if daily then {daily = daily} else {}
+            local ____temp_497 = if repSeen ~= nil then {repSeen = repSeen} else {}
+            local ____temp_498 = if __truthy(worldTour) then {worldTour = worldTour} else {}
+            local ____opt_437 = presets
+            local ____temp_499 = if ____opt_437 and __TS__ArraySome(
                 presets,
                 function(____, x) return not not __truthy(x) end
             ) then {presets = presets} else {}
-            local ____temp_493 = if seasonBase then {seasonBase = seasonBase} else {}
-            local ____temp_494 = if recap then {recap = recap} else {}
-            local ____temp_495 = if friendship then {friendship = friendship} else {}
-            local ____temp_496 = cups or ({})
-            local ____temp_497 = if freePaint then {freePaint = freePaint} else {}
-            local ____temp_498 = not not oldPaints
-            local ____tour_499 = tour
-            local ____event_500 = event
-            local ____showcase_501 = showcase
-            local ____temp_502 = if __truthy(raceCar) then {raceCar = raceCar} else {}
-            local ____skins_503 = skins
-            local ____modSkins_504 = modSkins
-            local ____temp_505 = hats or ({})
-            local ____ns___hats_1_hatQuestOf_result_506 = __ns___hats_1.hatQuestOf({stats = stats, hatQuest = hatQuest})
-            local ____temp_507 = if __truthy(callCards and #callCards) then {callCards = callCards} else {}
-            local ____truthy_result_437
+            local ____temp_500 = if seasonBase then {seasonBase = seasonBase} else {}
+            local ____temp_501 = if recap then {recap = recap} else {}
+            local ____temp_502 = if friendship then {friendship = friendship} else {}
+            local ____temp_503 = cups or ({})
+            local ____temp_504 = if freePaint then {freePaint = freePaint} else {}
+            local ____temp_505 = not not oldPaints
+            local ____tour_506 = tour
+            local ____event_507 = event
+            local ____showcase_508 = showcase
+            local ____temp_509 = if __truthy(raceCar) then {raceCar = raceCar} else {}
+            local ____skins_510 = skins
+            local ____modSkins_511 = modSkins
+            local ____temp_512 = hats or ({})
+            local ____ns___hats_1_hatQuestOf_result_513 = __ns___hats_1.hatQuestOf({stats = stats, hatQuest = hatQuest})
+            local ____temp_514 = if __truthy(callCards and #callCards) then {callCards = callCards} else {}
+            local ____truthy_444 = __truthy
+            local ____truthy_result_443
             if __truthy(callCard) then
-                local ____opt_435 = callCards
-                ____truthy_result_437 = ____opt_435 and __TS__ArrayIncludes(callCards, callCard)
+                local ____opt_441 = callCards
+                ____truthy_result_443 = ____opt_441 and __TS__ArrayIncludes(callCards, callCard)
             else
-                ____truthy_result_437 = callCard
+                ____truthy_result_443 = callCard
             end
             return __TS__ObjectAssign(
                 {
-                    version = ____version_440,
-                    townName = ____townName_441,
-                    level = ____level_442,
-                    xp = ____xp_443,
-                    coins = ____coins_444,
-                    bucks = ____bucks_445,
-                    parts = ____parts_446,
-                    fuel = ____fuel_447,
-                    fuelUpdatedAt = ____fuelUpdatedAt_448,
-                    trophies = ____trophies_449,
-                    racesWon = ____racesWon_450,
-                    roads = ____roads_451,
-                    buildings = ____foldStored_result_452,
-                    cars = ____cars_453,
-                    stats = ____stats_454,
-                    claimedGoals = ____claimedGoals_455,
-                    quests = ____quests_456
+                    version = ____version_447,
+                    townName = ____townName_448,
+                    level = ____level_449,
+                    xp = ____xp_450,
+                    coins = ____coins_451,
+                    bucks = ____bucks_452,
+                    parts = ____parts_453,
+                    fuel = ____fuel_454,
+                    fuelUpdatedAt = ____fuelUpdatedAt_455,
+                    trophies = ____trophies_456,
+                    racesWon = ____racesWon_457,
+                    roads = ____roads_458,
+                    buildings = ____foldStored_result_459,
+                    cars = ____cars_460,
+                    stats = ____stats_461,
+                    claimedGoals = ____claimedGoals_462,
+                    quests = ____quests_463
                 },
-                ____temp_457,
+                ____temp_464,
                 {
-                    lastDaily = ____lastDaily_458,
-                    dailyStreak = ____dailyStreak_459,
-                    helped = ____helped_460,
-                    tutorial = ____tutorial_461,
-                    junkyard = ____junkyard_462,
-                    restoring = ____restoring_463,
-                    restoring2 = ____temp_464,
-                    truck = ____temp_465,
-                    gp = ____gp_466,
-                    campaign = ____campaign_467,
-                    claimedSets = ____claimedSets_468,
-                    crewChests = ____crewChests_469,
-                    visits = ____visits_470,
-                    crates = ____crates_471,
-                    cratePity = ____temp_472,
-                    boosts = ____temp_473
+                    lastDaily = ____lastDaily_465,
+                    dailyStreak = ____dailyStreak_466,
+                    helped = ____helped_467,
+                    tutorial = ____tutorial_468,
+                    junkyard = ____junkyard_469,
+                    restoring = ____restoring_470,
+                    restoring2 = ____temp_471,
+                    truck = ____temp_472,
+                    gp = ____gp_473,
+                    campaign = ____campaign_474,
+                    claimedSets = ____claimedSets_475,
+                    crewChests = ____crewChests_476,
+                    visits = ____visits_477,
+                    crates = ____crates_478,
+                    cratePity = ____temp_479,
+                    boosts = ____temp_480
                 },
-                ____temp_474,
-                ____temp_475,
+                ____temp_481,
+                ____temp_482,
                 {
-                    season = ____season_476,
-                    deals = ____deals_477,
-                    trials = ____trials_478,
-                    rivals = ____rivals_479,
-                    rivalRow = ____rivalRow_480,
-                    tuner = ____temp_481,
-                    mastery = ____temp_482,
-                    road = ____temp_483,
-                    roadItems = ____temp_484,
-                    freeCrates = ____temp_485
+                    season = ____season_483,
+                    deals = ____deals_484,
+                    trials = ____trials_485,
+                    rivals = ____rivals_486,
+                    rivalRow = ____rivalRow_487,
+                    tuner = ____temp_488,
+                    mastery = ____temp_489,
+                    road = ____temp_490,
+                    roadItems = ____temp_491,
+                    freeCrates = ____temp_492
                 },
-                ____temp_486,
-                ____temp_487,
-                ____temp_488,
-                ____temp_489,
-                ____temp_490,
-                ____temp_491,
-                ____temp_492,
                 ____temp_493,
                 ____temp_494,
                 ____temp_495,
-                {cups = ____temp_496},
+                ____temp_496,
                 ____temp_497,
-                {oldPaints = ____temp_498, tour = ____tour_499, event = ____event_500, showcase = ____showcase_501},
+                ____temp_498,
+                ____temp_499,
+                ____temp_500,
+                ____temp_501,
                 ____temp_502,
-                {skins = ____skins_503, modSkins = ____modSkins_504, hats = ____temp_505, hatQuest = ____ns___hats_1_hatQuestOf_result_506},
-                ____temp_507,
-                if ____truthy_result_437 then {callCard = callCard} else {},
+                {cups = ____temp_503},
+                ____temp_504,
+                {oldPaints = ____temp_505, tour = ____tour_506, event = ____event_507, showcase = ____showcase_508},
+                ____temp_509,
+                {skins = ____skins_510, modSkins = ____modSkins_511, hats = ____temp_512, hatQuest = ____ns___hats_1_hatQuestOf_result_513},
+                ____temp_514,
+                if ____truthy_444(____truthy_result_443) then {callCard = callCard} else {},
                 if __ns___cityLook_1.cleanLights(lights) then {lights = __ns___cityLook_1.cleanLights(lights)} else {},
                 if __ns___cityLook_1.colorTheme(cityTheme) then {cityTheme = cityTheme} else {},
                 if __truthy(restoParts and #restoParts) then {restoParts = restoParts} else {},
@@ -559,10 +560,10 @@ function ____exports.saveOf(s)
         if __truthy(worldTour) then {worldTour = worldTour} else {},
         __SPREAD
     )
-    local ____opt_508 = presets
+    local ____opt_515 = presets
     __TS__SparseArrayPush(
-        ____array_517,
-        if ____opt_508 and __TS__ArraySome(
+        ____array_525,
+        if ____opt_515 and __TS__ArraySome(
             presets,
             function(____, x) return not not __truthy(x) end
         ) then {presets = presets} else {},
@@ -598,16 +599,17 @@ function ____exports.saveOf(s)
         if __truthy(callCards and #callCards) then {callCards = callCards} else {},
         __SPREAD
     )
-    local ____truthy_result_514
+    local ____truthy_522 = __truthy
+    local ____truthy_result_521
     if __truthy(callCard) then
-        local ____opt_512 = callCards
-        ____truthy_result_514 = ____opt_512 and __TS__ArrayIncludes(callCards, callCard)
+        local ____opt_519 = callCards
+        ____truthy_result_521 = ____opt_519 and __TS__ArrayIncludes(callCards, callCard)
     else
-        ____truthy_result_514 = callCard
+        ____truthy_result_521 = callCard
     end
     __TS__SparseArrayPush(
-        ____array_517,
-        if ____truthy_result_514 then {callCard = callCard} else {},
+        ____array_525,
+        if ____truthy_522(____truthy_result_521) then {callCard = callCard} else {},
         __SPREAD,
         if __ns___cityLook_1.cleanLights(lights) then {lights = __ns___cityLook_1.cleanLights(lights)} else {},
         __SPREAD,
@@ -619,14 +621,14 @@ function ____exports.saveOf(s)
         "updatedAt",
         updatedAt
     )
-    return ____obj_518(__TS__SparseArraySpread(____array_517))
+    return ____obj_526(__TS__SparseArraySpread(____array_525))
 end
 function foldStored(buildings, stored)
-    local ____truthy_result_522
+    local ____truthy_result_530
     if __truthy(stored and #stored) then
-        local ____array_521 = __TS__SparseArrayNew(table.unpack(buildings))
+        local ____array_529 = __TS__SparseArrayNew(table.unpack(buildings))
         __TS__SparseArrayPush(
-            ____array_521,
+            ____array_529,
             table.unpack(__TS__ArrayMap(
                 stored,
                 function(____, b) return __obj(
@@ -638,11 +640,11 @@ function foldStored(buildings, stored)
                 ) end
             ))
         )
-        ____truthy_result_522 = {__TS__SparseArraySpread(____array_521)}
+        ____truthy_result_530 = {__TS__SparseArraySpread(____array_529)}
     else
-        ____truthy_result_522 = buildings
+        ____truthy_result_530 = buildings
     end
-    return ____truthy_result_522
+    return ____truthy_result_530
 end
 function ____exports.unfoldStored(save)
     local all = if __TS__ArrayIsArray(save.buildings) then save.buildings else {}
@@ -658,12 +660,12 @@ function ____exports.unfoldStored(save)
             return b
         end
     )
-    local ____array_523 = __TS__SparseArrayNew(table.unpack(save.stored or ({})))
+    local ____array_531 = __TS__SparseArrayNew(table.unpack(save.stored or ({})))
     __TS__SparseArrayPush(
-        ____array_523,
+        ____array_531,
         table.unpack(flagged)
     )
-    local stored = {__TS__SparseArraySpread(____array_523)}
+    local stored = {__TS__SparseArraySpread(____array_531)}
     return __obj(
         false and (function() return __TS__ObjectAssign({}, save, if save.buildings then {buildings = __TS__ArrayFilter(
             all,
@@ -930,9 +932,9 @@ function cleanTint(b)
     if __truthy(b.tint) then
         return b
     end
-    local ____b_534 = b
-    local _ = ____b_534.tint
-    local rest = __TS__ObjectRest(____b_534, {tint = true})
+    local ____b_543 = b
+    local _ = ____b_543.tint
+    local rest = __TS__ObjectRest(____b_543, {tint = true})
     return rest
 end
 function ____exports.navTo(s, next)
@@ -1124,7 +1126,7 @@ function ____exports.canPlaceBlock(s, g, x, z)
                 local j = 0
                 while j < g.h do
                     local o = occ:get(key(x + i, z + j))
-                    if not ____exports.owns(s.land, x + i, z + j) or (if __truthy(o) then not ids:has(o) else o) then
+                    if __truthy(not ____exports.owns(s.land, x + i, z + j) or (if __truthy(o) then not ids:has(o) else o)) then
                         return false
                     end
                     j = j + 1
@@ -2192,7 +2194,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         panel = nil,
                         selected = nil,
                         again = nil,
-                        placeRot = if if __truthy(placing) then placing == s.placing else placing then s.placeRot else nil
+                        placeRot = if __truthy(if __truthy(placing) then placing == s.placing else placing) then s.placeRot else nil
                     } end),
                     "mode",
                     mode,
@@ -2207,7 +2209,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     "again",
                     nil,
                     "placeRot",
-                    if if __truthy(placing) then placing == s.placing else placing then s.placeRot else nil
+                    if __truthy(if __truthy(placing) then placing == s.placing else placing) then s.placeRot else nil
                 ) end)
             end,
             select = function(selected) return set({selected = selected}) end,
@@ -2455,6 +2457,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     __ns____lib_sound_1.sfx.error()
                     return false
                 end
+                local ____truthy_70 = __truthy
                 local ____truthy_result_69
                 if __truthy(d.event) then
                     local ____opt_67 = __ns___data_1.activeEvent()
@@ -2462,23 +2465,23 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 else
                     ____truthy_result_69 = d.event
                 end
-                if ____truthy_result_69 then
+                if ____truthy_70(____truthy_result_69) then
                     s.toast(("The " .. d.name) .. " comes back next event")
                     return false
                 end
-                local ____d_unique_71 = d.unique
-                if ____d_unique_71 then
-                    local ____array_70 = __TS__SparseArrayNew(table.unpack(s.buildings))
+                local ____d_unique_72 = d.unique
+                if ____d_unique_72 then
+                    local ____array_71 = __TS__SparseArrayNew(table.unpack(s.buildings))
                     __TS__SparseArrayPush(
-                        ____array_70,
+                        ____array_71,
                         table.unpack(s.stored or ({}))
                     )
-                    ____d_unique_71 = __TS__ArraySome(
-                        {__TS__SparseArraySpread(____array_70)},
+                    ____d_unique_72 = __TS__ArraySome(
+                        {__TS__SparseArraySpread(____array_71)},
                         function(____, o) return o.def == def end
                     )
                 end
-                if ____d_unique_71 then
+                if ____d_unique_72 then
                     s.toast("You already have a " .. d.name)
                     return false
                 end
@@ -2500,21 +2503,21 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 __ns____lib_sound_1.sfx.click()
                 local nid = uid()
                 __ns___fx_1.fx({kind = "built", uid = nid})
-                local ____set_81 = set
-                local ____withXp_80 = withXp
-                local ____math_max_result_79 = math.max(
+                local ____set_82 = set
+                local ____withXp_81 = withXp
+                local ____math_max_result_80 = math.max(
                     1,
                     math.floor(d.price / 100 + 0.5)
                 )
-                local ____obj_78 = __obj
-                local ____array_77 = __TS__SparseArrayNew(
+                local ____obj_79 = __obj
+                local ____array_78 = __TS__SparseArrayNew(
                     false and (function()
-                        local ____temp_73 = s.coins - cost.coins
-                        local ____temp_74 = s.bucks - cost.bucks
-                        local ____spendDeal_result_75 = spendDeal(s, cost.deal)
-                        local ____array_72 = __TS__SparseArrayNew(table.unpack(s.buildings))
+                        local ____temp_74 = s.coins - cost.coins
+                        local ____temp_75 = s.bucks - cost.bucks
+                        local ____spendDeal_result_76 = spendDeal(s, cost.deal)
+                        local ____array_73 = __TS__SparseArrayNew(table.unpack(s.buildings))
                         __TS__SparseArrayPush(
-                            ____array_72,
+                            ____array_73,
                             __obj(
                                 false and (function() return __TS__ObjectAssign({
                                     uid = nid,
@@ -2538,10 +2541,10 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                             )
                         )
                         return __TS__ObjectAssign(
-                            {coins = ____temp_73, bucks = ____temp_74},
-                            ____spendDeal_result_75,
+                            {coins = ____temp_74, bucks = ____temp_75},
+                            ____spendDeal_result_76,
                             {
-                                buildings = {__TS__SparseArraySpread(____array_72)},
+                                buildings = {__TS__SparseArraySpread(____array_73)},
                                 stats = bump(s, "built"),
                                 updatedAt = Date:now()
                             }
@@ -2555,9 +2558,9 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     spendDeal(s, cost.deal),
                     "buildings"
                 )
-                local ____array_76 = __TS__SparseArrayNew(table.unpack(s.buildings))
+                local ____array_77 = __TS__SparseArrayNew(table.unpack(s.buildings))
                 __TS__SparseArrayPush(
-                    ____array_76,
+                    ____array_77,
                     __obj(
                         false and (function() return __TS__ObjectAssign({
                             uid = nid,
@@ -2581,17 +2584,17 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     )
                 )
                 __TS__SparseArrayPush(
-                    ____array_77,
-                    {__TS__SparseArraySpread(____array_76)},
+                    ____array_78,
+                    {__TS__SparseArraySpread(____array_77)},
                     "stats",
                     bump(s, "built"),
                     "updatedAt",
                     Date:now()
                 )
-                ____set_81(____withXp_80(
+                ____set_82(____withXp_81(
                     s,
-                    ____math_max_result_79,
-                    ____obj_78(__TS__SparseArraySpread(____array_77))
+                    ____math_max_result_80,
+                    ____obj_79(__TS__SparseArraySpread(____array_78))
                 ))
                 return true
             end,
@@ -2666,14 +2669,14 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if s.coins < 10 then
                     return s.showNeed("coins", 10 - s.coins, "a road tile")
                 end
-                local ____set_83 = set
-                local ____array_82 = __TS__SparseArrayNew(table.unpack(s.roads))
+                local ____set_84 = set
+                local ____array_83 = __TS__SparseArrayNew(table.unpack(s.roads))
                 __TS__SparseArrayPush(
-                    ____array_82,
+                    ____array_83,
                     key(x, z)
                 )
-                ____set_83({
-                    roads = {__TS__SparseArraySpread(____array_82)},
+                ____set_84({
+                    roads = {__TS__SparseArraySpread(____array_83)},
                     coins = s.coins - 10,
                     stats = bump(s, "roads"),
                     updatedAt = Date:now()
@@ -2718,23 +2721,23 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 local _driver = b.car
                 local kept = __TS__ObjectRest(b, {car = true})
                 __ns____lib_sound_1.sfx.click()
-                local ____set_86 = set
-                local ____TS__ArrayFilter_result_85 = __TS__ArrayFilter(
+                local ____set_87 = set
+                local ____TS__ArrayFilter_result_86 = __TS__ArrayFilter(
                     s.buildings,
                     function(____, o) return o.uid ~= what end
                 )
-                local ____array_84 = __TS__SparseArrayNew(table.unpack(s.stored or ({})))
-                __TS__SparseArrayPush(____array_84, kept)
-                ____set_86({
-                    buildings = ____TS__ArrayFilter_result_85,
-                    stored = {__TS__SparseArraySpread(____array_84)},
+                local ____array_85 = __TS__SparseArrayNew(table.unpack(s.stored or ({})))
+                __TS__SparseArrayPush(____array_85, kept)
+                ____set_87({
+                    buildings = ____TS__ArrayFilter_result_86,
+                    stored = {__TS__SparseArraySpread(____array_85)},
                     updatedAt = Date:now()
                 })
             end,
             pickStored = function(suid)
                 local s = get()
-                local ____opt_87 = s.stored
-                local b = ____opt_87 and __TS__ArrayFind(
+                local ____opt_88 = s.stored
+                local b = ____opt_88 and __TS__ArrayFind(
                     s.stored,
                     function(____, o) return o.uid == suid end
                 )
@@ -2746,8 +2749,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             end,
             placeStored = function(suid, x, z, rot)
                 local s = get()
-                local ____opt_89 = s.stored
-                local b = ____opt_89 and __TS__ArrayFind(
+                local ____opt_90 = s.stored
+                local b = ____opt_90 and __TS__ArrayFind(
                     s.stored,
                     function(____, o) return o.uid == suid end
                 )
@@ -2765,10 +2768,10 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 __ns___fx_1.fx({kind = "built", uid = suid})
                 local _old = b.rot
                 local rest = __TS__ObjectRest(b, {rot = true})
-                local ____set_92 = set
-                local ____array_91 = __TS__SparseArrayNew(table.unpack(s.buildings))
+                local ____set_93 = set
+                local ____array_92 = __TS__SparseArrayNew(table.unpack(s.buildings))
                 __TS__SparseArrayPush(
-                    ____array_91,
+                    ____array_92,
                     __obj(
                         false and (function() return __TS__ObjectAssign({}, rest, {x = x, z = z}, if rot == nil then {} else {rot = rot}) end),
                         __SPREAD,
@@ -2781,8 +2784,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         if rot == nil then {} else {rot = rot}
                     )
                 )
-                ____set_92({
-                    buildings = {__TS__SparseArraySpread(____array_91)},
+                ____set_93({
+                    buildings = {__TS__SparseArraySpread(____array_92)},
                     stored = __TS__ArrayFilter(
                         s.stored or ({}),
                         function(____, o) return o.uid ~= suid end
@@ -3036,21 +3039,21 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if not b or s.visiting or not __ns___data_1.themable(__ns___data_1.buildingDef(b.def)) then
                     return
                 end
-                local ____set_100 = set
-                local ____obj_99 = __obj
-                local ____array_98 = __TS__SparseArrayNew(
+                local ____set_101 = set
+                local ____obj_100 = __obj
+                local ____array_99 = __TS__SparseArrayNew(
                     false and (function()
-                        local ____exports_navTo_result_95 = ____exports.navTo(s, "upgrade")
-                        local ____opt_93 = __ns___merge_1.groupOf(s.buildings, buid)
-                        return __TS__ObjectAssign({}, ____exports_navTo_result_95, {upgrading = ____opt_93 and ____opt_93.anchor.uid or buid})
+                        local ____exports_navTo_result_96 = ____exports.navTo(s, "upgrade")
+                        local ____opt_94 = __ns___merge_1.groupOf(s.buildings, buid)
+                        return __TS__ObjectAssign({}, ____exports_navTo_result_96, {upgrading = ____opt_94 and ____opt_94.anchor.uid or buid})
                     end),
                     __SPREAD,
                     ____exports.navTo(s, "upgrade"),
                     "upgrading"
                 )
-                local ____opt_96 = __ns___merge_1.groupOf(s.buildings, buid)
-                __TS__SparseArrayPush(____array_98, ____opt_96 and ____opt_96.anchor.uid or buid)
-                ____set_100(____obj_99(__TS__SparseArraySpread(____array_98)))
+                local ____opt_97 = __ns___merge_1.groupOf(s.buildings, buid)
+                __TS__SparseArrayPush(____array_99, ____opt_97 and ____opt_97.anchor.uid or buid)
+                ____set_101(____obj_100(__TS__SparseArraySpread(____array_99)))
             end,
             upgradeBuilding = function(buid)
                 local s = get()
@@ -3066,16 +3069,16 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if not __ns___data_1.upgradable(d) or lvl >= __ns___data_1.maxLevel(d) then
                     return false
                 end
-                local ____Set_105 = Set
-                local ____opt_101 = __ns___merge_1.groupOf(s.buildings, buid)
-                if ____opt_101 ~= nil then
-                    local ____opt_102 = __ns___merge_1.groupOf(s.buildings, buid)
-                    ____opt_101 = __TS__ArrayMap(
-                        ____opt_102 and ____opt_102.members,
+                local ____Set_106 = Set
+                local ____opt_102 = __ns___merge_1.groupOf(s.buildings, buid)
+                if ____opt_102 ~= nil then
+                    local ____opt_103 = __ns___merge_1.groupOf(s.buildings, buid)
+                    ____opt_102 = __TS__ArrayMap(
+                        ____opt_103 and ____opt_103.members,
                         function(____, o) return o.uid end
                     )
                 end
-                local ids = __TS__New(____Set_105, ____opt_101 or ({buid}))
+                local ids = __TS__New(____Set_106, ____opt_102 or ({buid}))
                 local one = __ns___data_1.buildingUpgradeCost(d, lvl)
                 local cost = {coins = one.coins * ids.size, parts = one.parts * ids.size}
                 local what = "upgrading your " .. d.name
@@ -3129,7 +3132,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     s.cars,
                     function(____, c) return c.uid == cuid end
                 ) else nil
-                if if __truthy(cuid) then not car else cuid then
+                if __truthy(if __truthy(cuid) then not car else cuid) then
                     return
                 end
                 local buildings = __TS__ArrayMap(
@@ -3140,7 +3143,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         o,
                         "car",
                         cuid or nil
-                    ) else if if __truthy(cuid) then o.car == cuid else cuid then __obj(
+                    ) else if __truthy(if __truthy(cuid) then o.car == cuid else cuid) then __obj(
                         false and (function() return __TS__ObjectAssign({}, o, {car = nil}) end),
                         __SPREAD,
                         o,
@@ -3451,14 +3454,14 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 end
                 __ns____lib_sound_1.sfx.buy()
                 s.toast(c.name .. " added to your garage!")
-                local ____set_111 = set
-                local ____withXp_110 = withXp
-                local ____temp_109 = 20 + math.floor(c.price / 200 + 0.5)
-                local ____temp_107 = s.coins - c.price
-                local ____temp_108 = s.bucks - (c.bucks or 0)
-                local ____array_106 = __TS__SparseArrayNew(table.unpack(s.cars))
+                local ____set_112 = set
+                local ____withXp_111 = withXp
+                local ____temp_110 = 20 + math.floor(c.price / 200 + 0.5)
+                local ____temp_108 = s.coins - c.price
+                local ____temp_109 = s.bucks - (c.bucks or 0)
+                local ____array_107 = __TS__SparseArrayNew(table.unpack(s.cars))
                 __TS__SparseArrayPush(
-                    ____array_106,
+                    ____array_107,
                     {
                         uid = uid(),
                         model = model,
@@ -3466,13 +3469,13 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         upgrades = noUpgrades()
                     }
                 )
-                ____set_111(____withXp_110(
+                ____set_112(____withXp_111(
                     s,
-                    ____temp_109,
+                    ____temp_110,
                     {
-                        coins = ____temp_107,
-                        bucks = ____temp_108,
-                        cars = {__TS__SparseArraySpread(____array_106)},
+                        coins = ____temp_108,
+                        bucks = ____temp_109,
+                        cars = {__TS__SparseArraySpread(____array_107)},
                         stats = bump(s, "carsBought"),
                         updatedAt = Date:now()
                     }
@@ -3700,11 +3703,11 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             noteAway = function(ms) return set(function(s) return {boosts = __ns___boosts_1.welcomeBack(s.boosts, ms)} end) end,
             masteryRace = function(model, won, mode, upset)
                 local s = get()
-                local ____ns___mastery_1_noteRace_114 = __ns___mastery_1.noteRace
-                local ____opt_112 = s.mastery
-                local ____ns___mastery_1_noteRace_114_result_115 = ____ns___mastery_1_noteRace_114(____opt_112 and ____opt_112[model], won, mode, upset)
-                local next = ____ns___mastery_1_noteRace_114_result_115.next
-                local reached = ____ns___mastery_1_noteRace_114_result_115.reached
+                local ____ns___mastery_1_noteRace_115 = __ns___mastery_1.noteRace
+                local ____opt_113 = s.mastery
+                local ____ns___mastery_1_noteRace_115_result_116 = ____ns___mastery_1_noteRace_115(____opt_113 and ____opt_113[model], won, mode, upset)
+                local next = ____ns___mastery_1_noteRace_115_result_116.next
+                local reached = ____ns___mastery_1_noteRace_115_result_116.reached
                 local mastery = __obj(
                     false and (function() return __TS__ObjectAssign({}, s.mastery, {[model] = next}) end),
                     __SPREAD,
@@ -3744,9 +3747,9 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if news then
                     setTimeout(__ns____lib_sound_1.sfx.levelUp, 300)
                 end
-                local ____opt_118 = s.mastery
-                local ____opt_116 = ____opt_118 and ____opt_118[model]
-                local was = ____opt_116 and ____opt_116.tier or 0
+                local ____opt_119 = s.mastery
+                local ____opt_117 = ____opt_119 and ____opt_119[model]
+                local was = ____opt_117 and ____opt_117.tier or 0
                 local xp = __ns___mastery_1.masteryXp(
                     s.level,
                     __TS__ArrayMap(
@@ -3810,10 +3813,10 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if to <= from then
                     return
                 end
-                local ____ns___trophyRoad_1_roadClaim_result_120 = __ns___trophyRoad_1.roadClaim(from, to, s.roadItems or ({}))
-                local coins = ____ns___trophyRoad_1_roadClaim_result_120.coins
-                local parts = ____ns___trophyRoad_1_roadClaim_result_120.parts
-                local items = ____ns___trophyRoad_1_roadClaim_result_120.items
+                local ____ns___trophyRoad_1_roadClaim_result_121 = __ns___trophyRoad_1.roadClaim(from, to, s.roadItems or ({}))
+                local coins = ____ns___trophyRoad_1_roadClaim_result_121.coins
+                local parts = ____ns___trophyRoad_1_roadClaim_result_121.parts
+                local items = ____ns___trophyRoad_1_roadClaim_result_121.items
                 __ns____lib_sound_1.sfx.levelUp()
                 set({
                     road = to,
@@ -3836,8 +3839,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if not r then
                     return
                 end
-                local ____opt_121 = s.cups
-                local wins = ____opt_121 and ____opt_121[id] or 0
+                local ____opt_122 = s.cups
+                local wins = ____opt_122 and ____opt_122[id] or 0
                 s.finishRace(
                     won,
                     __ns___cups_1.cupPrize(r, wins == 0)
@@ -3860,15 +3863,15 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 end
                 setTimeout(__ns____lib_sound_1.sfx.levelUp, 200)
                 set(function(g)
-                    local ____cups_124 = cups
-                    local ____array_123 = __TS__SparseArrayNew(table.unpack(g.freeCrates or ({})))
+                    local ____cups_125 = cups
+                    local ____array_124 = __TS__SparseArrayNew(table.unpack(g.freeCrates or ({})))
                     __TS__SparseArrayPush(
-                        ____array_123,
+                        ____array_124,
                         __ns___cups_1.cupCrateSource(id)
                     )
                     return {
-                        cups = ____cups_124,
-                        freeCrates = {__TS__SparseArraySpread(____array_123)},
+                        cups = ____cups_125,
+                        freeCrates = {__TS__SparseArraySpread(____array_124)},
                         cupPrize = id,
                         updatedAt = Date:now()
                     }
@@ -3900,8 +3903,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             dailyResult = function(time)
                 local s = get()
                 local run = __ns___daily_1.dailyRun()
-                local ____opt_125 = s.daily
-                local was = if (____opt_125 and ____opt_125.day) == run.day then s.daily else __obj(
+                local ____opt_126 = s.daily
+                local was = if (____opt_126 and ____opt_126.day) == run.day then s.daily else __obj(
                     false and (function() return {day = run.day, best = nil, paid = false} end),
                     "day",
                     run.day,
@@ -4015,27 +4018,27 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             end,
             setCityTheme = function(id)
                 __ns____lib_sound_1.sfx.equip()
-                local ____set_129 = set
-                local ____opt_127 = __ns___cityLook_1.colorTheme(id)
-                return ____set_129({
-                    cityTheme = ____opt_127 and ____opt_127.id,
+                local ____set_130 = set
+                local ____opt_128 = __ns___cityLook_1.colorTheme(id)
+                return ____set_130({
+                    cityTheme = ____opt_128 and ____opt_128.id,
                     updatedAt = Date:now()
                 })
             end,
             setBuildingTint = function(uid, id) return set(function(s)
                 __ns____lib_sound_1.sfx.equip()
-                local ____Set_134 = Set
-                local ____opt_130 = __ns___merge_1.groupOf(s.buildings, uid)
-                if ____opt_130 ~= nil then
-                    local ____opt_131 = __ns___merge_1.groupOf(s.buildings, uid)
-                    ____opt_130 = __TS__ArrayMap(
-                        ____opt_131 and ____opt_131.members,
+                local ____Set_135 = Set
+                local ____opt_131 = __ns___merge_1.groupOf(s.buildings, uid)
+                if ____opt_131 ~= nil then
+                    local ____opt_132 = __ns___merge_1.groupOf(s.buildings, uid)
+                    ____opt_131 = __TS__ArrayMap(
+                        ____opt_132 and ____opt_132.members,
                         function(____, o) return o.uid end
                     )
                 end
-                local ids = __TS__New(____Set_134, ____opt_130 or ({uid}))
-                local ____opt_135 = __ns___cityLook_1.colorTheme(id)
-                local tint = ____opt_135 and ____opt_135.id
+                local ids = __TS__New(____Set_135, ____opt_131 or ({uid}))
+                local ____opt_136 = __ns___cityLook_1.colorTheme(id)
+                local tint = ____opt_136 and ____opt_136.id
                 return {
                     buildings = __TS__ArrayMap(
                         s.buildings,
@@ -4061,20 +4064,20 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 end
                 __ns____lib_sound_1.sfx.coin()
                 s.toast(((((("Goal complete! +" .. tostring(g.coins)) .. " coins") .. (if __truthy(g.bucks) then (", +" .. tostring(g.bucks)) .. " gems" else "")) .. ", +") .. tostring(__ns___data_1.xpGain(s.level, g.xp))) .. " XP")
-                local ____set_142 = set
-                local ____withXp_141 = withXp
-                local ____g_xp_140 = g.xp
-                local ____temp_138 = s.coins + g.coins
-                local ____temp_139 = s.bucks + (g.bucks or 0)
-                local ____array_137 = __TS__SparseArrayNew(table.unpack(s.claimedGoals))
-                __TS__SparseArrayPush(____array_137, id)
-                ____set_142(____withXp_141(
+                local ____set_143 = set
+                local ____withXp_142 = withXp
+                local ____g_xp_141 = g.xp
+                local ____temp_139 = s.coins + g.coins
+                local ____temp_140 = s.bucks + (g.bucks or 0)
+                local ____array_138 = __TS__SparseArrayNew(table.unpack(s.claimedGoals))
+                __TS__SparseArrayPush(____array_138, id)
+                ____set_143(____withXp_142(
                     s,
-                    ____g_xp_140,
+                    ____g_xp_141,
                     {
-                        coins = ____temp_138,
-                        bucks = ____temp_139,
-                        claimedGoals = {__TS__SparseArraySpread(____array_137)},
+                        coins = ____temp_139,
+                        bucks = ____temp_140,
+                        claimedGoals = {__TS__SparseArraySpread(____array_138)},
                         updatedAt = Date:now()
                     }
                 ))
@@ -4160,51 +4163,51 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 __ns____lib_sound_1.sfx.coin()
                 local stars = if period == "daily" then __ns___data_1.SEASON_STARS.dailyTask else __ns___data_1.SEASON_STARS.weeklyTask
                 s.toast(((((("Task done! +" .. __localeString(pay.coins)) .. " coins, +") .. tostring(__ns___data_1.xpGain(s.level, pay.xp))) .. " XP, +") .. tostring(stars)) .. " ⭐")
-                local ____temp_153
+                local ____temp_154
                 if period == "daily" then
-                    local ____obj_147 = __obj
-                    local ____temp_145 = false and (function()
-                        local ____array_143 = __TS__SparseArrayNew(table.unpack(done))
-                        __TS__SparseArrayPush(____array_143, id)
+                    local ____obj_148 = __obj
+                    local ____temp_146 = false and (function()
+                        local ____array_144 = __TS__SparseArrayNew(table.unpack(done))
+                        __TS__SparseArrayPush(____array_144, id)
                         return __TS__ObjectAssign(
                             {},
                             q,
-                            {dayDone = {__TS__SparseArraySpread(____array_143)}}
+                            {dayDone = {__TS__SparseArraySpread(____array_144)}}
                         )
                     end)
-                    local ____SPREAD_146 = __SPREAD
-                    local ____array_144 = __TS__SparseArrayNew(table.unpack(done))
-                    __TS__SparseArrayPush(____array_144, id)
-                    ____temp_153 = ____obj_147(
-                        ____temp_145,
-                        ____SPREAD_146,
+                    local ____SPREAD_147 = __SPREAD
+                    local ____array_145 = __TS__SparseArrayNew(table.unpack(done))
+                    __TS__SparseArrayPush(____array_145, id)
+                    ____temp_154 = ____obj_148(
+                        ____temp_146,
+                        ____SPREAD_147,
                         q,
                         "dayDone",
-                        {__TS__SparseArraySpread(____array_144)}
+                        {__TS__SparseArraySpread(____array_145)}
                     )
                 else
-                    local ____obj_152 = __obj
-                    local ____temp_150 = false and (function()
-                        local ____array_148 = __TS__SparseArrayNew(table.unpack(done))
-                        __TS__SparseArrayPush(____array_148, id)
+                    local ____obj_153 = __obj
+                    local ____temp_151 = false and (function()
+                        local ____array_149 = __TS__SparseArrayNew(table.unpack(done))
+                        __TS__SparseArrayPush(____array_149, id)
                         return __TS__ObjectAssign(
                             {},
                             q,
-                            {weekDone = {__TS__SparseArraySpread(____array_148)}}
+                            {weekDone = {__TS__SparseArraySpread(____array_149)}}
                         )
                     end)
-                    local ____SPREAD_151 = __SPREAD
-                    local ____array_149 = __TS__SparseArrayNew(table.unpack(done))
-                    __TS__SparseArrayPush(____array_149, id)
-                    ____temp_153 = ____obj_152(
-                        ____temp_150,
-                        ____SPREAD_151,
+                    local ____SPREAD_152 = __SPREAD
+                    local ____array_150 = __TS__SparseArrayNew(table.unpack(done))
+                    __TS__SparseArrayPush(____array_150, id)
+                    ____temp_154 = ____obj_153(
+                        ____temp_151,
+                        ____SPREAD_152,
                         q,
                         "weekDone",
-                        {__TS__SparseArraySpread(____array_149)}
+                        {__TS__SparseArraySpread(____array_150)}
                     )
                 end
-                local quests = ____temp_153
+                local quests = ____temp_154
                 set(withXp(
                     s,
                     pay.xp,
@@ -4263,93 +4266,93 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if not prize or not ____exports.tierReady(p, tier) then
                     return
                 end
-                local ____obj_158 = __obj
-                local ____temp_156 = false and (function()
-                    local ____array_154 = __TS__SparseArrayNew(table.unpack(p.claimed))
-                    __TS__SparseArrayPush(____array_154, tier)
+                local ____obj_159 = __obj
+                local ____temp_157 = false and (function()
+                    local ____array_155 = __TS__SparseArrayNew(table.unpack(p.claimed))
+                    __TS__SparseArrayPush(____array_155, tier)
                     return __TS__ObjectAssign(
                         {},
                         p,
-                        {claimed = {__TS__SparseArraySpread(____array_154)}}
+                        {claimed = {__TS__SparseArraySpread(____array_155)}}
                     )
                 end)
-                local ____SPREAD_157 = __SPREAD
-                local ____array_155 = __TS__SparseArrayNew(table.unpack(p.claimed))
-                __TS__SparseArrayPush(____array_155, tier)
-                local season = ____obj_158(
-                    ____temp_156,
-                    ____SPREAD_157,
+                local ____SPREAD_158 = __SPREAD
+                local ____array_156 = __TS__SparseArrayNew(table.unpack(p.claimed))
+                __TS__SparseArrayPush(____array_156, tier)
+                local season = ____obj_159(
+                    ____temp_157,
+                    ____SPREAD_158,
                     p,
                     "claimed",
-                    {__TS__SparseArraySpread(____array_155)}
+                    {__TS__SparseArraySpread(____array_156)}
                 )
                 local now = Date:now()
                 local car = if prize.car then __ns___data_1.seasonOf(p.n).car else nil
                 setTimeout(__ns____lib_sound_1.sfx.levelUp, 150)
                 local skin = __ns___data_1.seasonSkin(tier + 1)
                 local modSkin = __ns___data_1.seasonModSkin(tier + 1)
-                local ____obj_180 = __obj
-                local ____array_179 = __TS__SparseArrayNew(
+                local ____obj_181 = __obj
+                local ____array_180 = __TS__SparseArrayNew(
                     false and (function()
-                        local ____temp_163
-                        local ____skin_161 = skin
-                        if ____skin_161 then
-                            local ____opt_159 = s.skins
-                            ____skin_161 = not (____opt_159 and __TS__ArrayIncludes(s.skins, skin.id))
+                        local ____temp_164
+                        local ____skin_162 = skin
+                        if ____skin_162 then
+                            local ____opt_160 = s.skins
+                            ____skin_162 = not (____opt_160 and __TS__ArrayIncludes(s.skins, skin.id))
                         end
-                        if ____skin_161 then
-                            local ____array_162 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
-                            __TS__SparseArrayPush(____array_162, skin.id)
-                            ____temp_163 = {skins = {__TS__SparseArraySpread(____array_162)}}
+                        if ____skin_162 then
+                            local ____array_163 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
+                            __TS__SparseArrayPush(____array_163, skin.id)
+                            ____temp_164 = {skins = {__TS__SparseArraySpread(____array_163)}}
                         else
-                            ____temp_163 = {}
+                            ____temp_164 = {}
                         end
-                        local ____temp_168
-                        local ____modSkin_166 = modSkin
-                        if ____modSkin_166 then
-                            local ____opt_164 = s.modSkins
-                            ____modSkin_166 = not (____opt_164 and __TS__ArrayIncludes(s.modSkins, modSkin.id))
+                        local ____temp_169
+                        local ____modSkin_167 = modSkin
+                        if ____modSkin_167 then
+                            local ____opt_165 = s.modSkins
+                            ____modSkin_167 = not (____opt_165 and __TS__ArrayIncludes(s.modSkins, modSkin.id))
                         end
-                        if ____modSkin_166 then
-                            local ____array_167 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
-                            __TS__SparseArrayPush(____array_167, modSkin.id)
-                            ____temp_168 = {modSkins = {__TS__SparseArraySpread(____array_167)}}
+                        if ____modSkin_167 then
+                            local ____array_168 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
+                            __TS__SparseArrayPush(____array_168, modSkin.id)
+                            ____temp_169 = {modSkins = {__TS__SparseArraySpread(____array_168)}}
                         else
-                            ____temp_168 = {}
+                            ____temp_169 = {}
                         end
-                        return __TS__ObjectAssign({}, ____temp_163, ____temp_168)
+                        return __TS__ObjectAssign({}, ____temp_164, ____temp_169)
                     end),
                     __SPREAD
                 )
-                local ____temp_173
-                local ____skin_171 = skin
-                if ____skin_171 then
-                    local ____opt_169 = s.skins
-                    ____skin_171 = not (____opt_169 and __TS__ArrayIncludes(s.skins, skin.id))
+                local ____temp_174
+                local ____skin_172 = skin
+                if ____skin_172 then
+                    local ____opt_170 = s.skins
+                    ____skin_172 = not (____opt_170 and __TS__ArrayIncludes(s.skins, skin.id))
                 end
-                if ____skin_171 then
-                    local ____array_172 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
-                    __TS__SparseArrayPush(____array_172, skin.id)
-                    ____temp_173 = {skins = {__TS__SparseArraySpread(____array_172)}}
+                if ____skin_172 then
+                    local ____array_173 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
+                    __TS__SparseArrayPush(____array_173, skin.id)
+                    ____temp_174 = {skins = {__TS__SparseArraySpread(____array_173)}}
                 else
-                    ____temp_173 = {}
+                    ____temp_174 = {}
                 end
-                __TS__SparseArrayPush(____array_179, ____temp_173, __SPREAD)
-                local ____temp_178
-                local ____modSkin_176 = modSkin
-                if ____modSkin_176 then
-                    local ____opt_174 = s.modSkins
-                    ____modSkin_176 = not (____opt_174 and __TS__ArrayIncludes(s.modSkins, modSkin.id))
+                __TS__SparseArrayPush(____array_180, ____temp_174, __SPREAD)
+                local ____temp_179
+                local ____modSkin_177 = modSkin
+                if ____modSkin_177 then
+                    local ____opt_175 = s.modSkins
+                    ____modSkin_177 = not (____opt_175 and __TS__ArrayIncludes(s.modSkins, modSkin.id))
                 end
-                if ____modSkin_176 then
-                    local ____array_177 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
-                    __TS__SparseArrayPush(____array_177, modSkin.id)
-                    ____temp_178 = {modSkins = {__TS__SparseArraySpread(____array_177)}}
+                if ____modSkin_177 then
+                    local ____array_178 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
+                    __TS__SparseArrayPush(____array_178, modSkin.id)
+                    ____temp_179 = {modSkins = {__TS__SparseArraySpread(____array_178)}}
                 else
-                    ____temp_178 = {}
+                    ____temp_179 = {}
                 end
-                __TS__SparseArrayPush(____array_179, ____temp_178)
-                local skins = ____obj_180(__TS__SparseArraySpread(____array_179))
+                __TS__SparseArrayPush(____array_180, ____temp_179)
+                local skins = ____obj_181(__TS__SparseArraySpread(____array_180))
                 if skin then
                     setTimeout(
                         function() return get().toast(("🎨 New skin: " .. skin.name) .. "! Try it in the Garage.") end,
@@ -4365,13 +4368,13 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if __truthy(car) then
                     local d = __ns___data_1.carDef(car)
                     s.toast(("🏁 Season prize! The " .. d.name) .. " is yours.")
-                    local ____set_187 = set
-                    local ____obj_186 = __obj
-                    local ____temp_184 = false and (function()
-                        local ____season_182 = season
-                        local ____array_181 = __TS__SparseArrayNew(table.unpack(s.cars))
+                    local ____set_188 = set
+                    local ____obj_187 = __obj
+                    local ____temp_185 = false and (function()
+                        local ____season_183 = season
+                        local ____array_182 = __TS__SparseArrayNew(table.unpack(s.cars))
                         __TS__SparseArrayPush(
-                            ____array_181,
+                            ____array_182,
                             {
                                 uid = uid(),
                                 model = car,
@@ -4380,19 +4383,19 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                             }
                         )
                         return __TS__ObjectAssign(
-                            {season = ____season_182},
+                            {season = ____season_183},
                             skins,
                             {
-                                cars = {__TS__SparseArraySpread(____array_181)},
+                                cars = {__TS__SparseArraySpread(____array_182)},
                                 stats = bump(s, "carsBought"),
                                 updatedAt = now
                             }
                         )
                     end)
-                    local ____SPREAD_185 = __SPREAD
-                    local ____array_183 = __TS__SparseArrayNew(table.unpack(s.cars))
+                    local ____SPREAD_186 = __SPREAD
+                    local ____array_184 = __TS__SparseArrayNew(table.unpack(s.cars))
                     __TS__SparseArrayPush(
-                        ____array_183,
+                        ____array_184,
                         {
                             uid = uid(),
                             model = car,
@@ -4400,14 +4403,14 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                             upgrades = noUpgrades()
                         }
                     )
-                    return ____set_187(____obj_186(
-                        ____temp_184,
+                    return ____set_188(____obj_187(
+                        ____temp_185,
                         "season",
                         season,
-                        ____SPREAD_185,
+                        ____SPREAD_186,
                         skins,
                         "cars",
-                        {__TS__SparseArraySpread(____array_183)},
+                        {__TS__SparseArraySpread(____array_184)},
                         "stats",
                         bump(s, "carsBought"),
                         "updatedAt",
@@ -4440,13 +4443,13 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             end,
             claimSet = function(id)
                 local s = get()
-                local ____array_188 = __TS__SparseArrayNew(table.unpack(__ns___data_1.CAR_SETS))
+                local ____array_189 = __TS__SparseArrayNew(table.unpack(__ns___data_1.CAR_SETS))
                 __TS__SparseArrayPush(
-                    ____array_188,
+                    ____array_189,
                     table.unpack(__ns___data_2.RUSTY_SETS)
                 )
                 local set_ = __TS__ArrayFind(
-                    {__TS__SparseArraySpread(____array_188)},
+                    {__TS__SparseArraySpread(____array_189)},
                     function(____, o) return o.id == id end
                 )
                 if not set_ or __TS__ArrayIncludes(s.claimedSets, id) or not __ns___data_1.setComplete(set_, s.cars) then
@@ -4454,22 +4457,22 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 end
                 setTimeout(__ns____lib_sound_1.sfx.levelUp, 200)
                 s.toast(((((((((set_.icon .. " ") .. set_.name) .. " complete! +") .. __localeString(set_.coins)) .. " coins, +") .. tostring(set_.bucks)) .. " gems, +") .. tostring(set_.trophies)) .. " 🏆")
-                local ____set_195 = set
-                local ____withXp_194 = withXp
-                local ____set__xp_193 = set_.xp
-                local ____temp_190 = s.coins + set_.coins
-                local ____temp_191 = s.bucks + set_.bucks
-                local ____temp_192 = s.trophies + set_.trophies
-                local ____array_189 = __TS__SparseArrayNew(table.unpack(s.claimedSets))
-                __TS__SparseArrayPush(____array_189, id)
-                ____set_195(____withXp_194(
+                local ____set_196 = set
+                local ____withXp_195 = withXp
+                local ____set__xp_194 = set_.xp
+                local ____temp_191 = s.coins + set_.coins
+                local ____temp_192 = s.bucks + set_.bucks
+                local ____temp_193 = s.trophies + set_.trophies
+                local ____array_190 = __TS__SparseArrayNew(table.unpack(s.claimedSets))
+                __TS__SparseArrayPush(____array_190, id)
+                ____set_196(____withXp_195(
                     s,
-                    ____set__xp_193,
+                    ____set__xp_194,
                     {
-                        coins = ____temp_190,
-                        bucks = ____temp_191,
-                        trophies = ____temp_192,
-                        claimedSets = {__TS__SparseArraySpread(____array_189)},
+                        coins = ____temp_191,
+                        bucks = ____temp_192,
+                        trophies = ____temp_193,
+                        claimedSets = {__TS__SparseArraySpread(____array_190)},
                         stats = __obj(
                             false and (function() return __TS__ObjectAssign({}, s.stats, {coinsEarned = (s.stats.coinsEarned or 0) + set_.coins}) end),
                             __SPREAD,
@@ -4522,9 +4525,9 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     function(____, c) return c.uid == car.uid end
                 )
                 if car and newCar then
-                    local ____array_196 = __TS__SparseArrayNew(table.unpack(cars))
+                    local ____array_197 = __TS__SparseArrayNew(table.unpack(cars))
                     __TS__SparseArrayPush(
-                        ____array_196,
+                        ____array_197,
                         {
                             uid = car.uid,
                             model = car.model,
@@ -4532,28 +4535,28 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                             upgrades = noUpgrades()
                         }
                     )
-                    cars = {__TS__SparseArraySpread(____array_196)}
+                    cars = {__TS__SparseArraySpread(____array_197)}
                 end
                 local piece = if d.kind == "piece" then __ns___resto_1.pieceId(d.model, d.piece) else nil
                 if d.kind == "mod" then
                     cars = __TS__ArrayMap(
                         cars,
                         function(____, c)
-                            local ____temp_204
+                            local ____temp_205
                             if c.uid == d.car then
-                                local ____obj_203 = __obj
-                                local ____array_202 = __TS__SparseArrayNew(
+                                local ____obj_204 = __obj
+                                local ____array_203 = __TS__SparseArrayNew(
                                     false and (function()
-                                        local ____c_199 = c
-                                        local ____Set_198 = Set
-                                        local ____array_197 = __TS__SparseArrayNew(table.unpack(__ns___data_1.ownedMods(c)))
-                                        __TS__SparseArrayPush(____array_197, d.mod)
+                                        local ____c_200 = c
+                                        local ____Set_199 = Set
+                                        local ____array_198 = __TS__SparseArrayNew(table.unpack(__ns___data_1.ownedMods(c)))
+                                        __TS__SparseArrayPush(____array_198, d.mod)
                                         return __TS__ObjectAssign(
                                             {},
-                                            ____c_199,
+                                            ____c_200,
                                             {ownedMods = {__TS__Spread(__TS__New(
-                                                ____Set_198,
-                                                {__TS__SparseArraySpread(____array_197)}
+                                                ____Set_199,
+                                                {__TS__SparseArraySpread(____array_198)}
                                             ))}}
                                         )
                                     end),
@@ -4561,113 +4564,113 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                                     c,
                                     "ownedMods"
                                 )
-                                local ____Set_201 = Set
-                                local ____array_200 = __TS__SparseArrayNew(table.unpack(__ns___data_1.ownedMods(c)))
-                                __TS__SparseArrayPush(____array_200, d.mod)
+                                local ____Set_202 = Set
+                                local ____array_201 = __TS__SparseArrayNew(table.unpack(__ns___data_1.ownedMods(c)))
+                                __TS__SparseArrayPush(____array_201, d.mod)
                                 __TS__SparseArrayPush(
-                                    ____array_202,
+                                    ____array_203,
                                     {__TS__Spread(__TS__New(
-                                        ____Set_201,
-                                        {__TS__SparseArraySpread(____array_200)}
+                                        ____Set_202,
+                                        {__TS__SparseArraySpread(____array_201)}
                                     ))}
                                 )
-                                ____temp_204 = ____obj_203(__TS__SparseArraySpread(____array_202))
+                                ____temp_205 = ____obj_204(__TS__SparseArraySpread(____array_203))
                             else
-                                ____temp_204 = c
+                                ____temp_205 = c
                             end
-                            return ____temp_204
+                            return ____temp_205
                         end
                     )
                 end
-                local ____set_257 = set
-                local ____obj_256 = __obj
-                local ____array_255 = __TS__SparseArrayNew(
+                local ____set_258 = set
+                local ____obj_257 = __obj
+                local ____array_256 = __TS__SparseArrayNew(
                     false and (function()
-                        local ____math_max_result_228 = math.max(0, s.coins - o.cost.coins + won)
-                        local ____math_max_result_229 = math.max(0, s.bucks - o.cost.bucks)
-                        local ____cars_230 = cars
-                        local ____temp_206
+                        local ____math_max_result_229 = math.max(0, s.coins - o.cost.coins + won)
+                        local ____math_max_result_230 = math.max(0, s.bucks - o.cost.bucks)
+                        local ____cars_231 = cars
+                        local ____temp_207
                         if d.kind == "skin" and not d.part and not __TS__ArrayIncludes(s.skins or ({}), d.skin) then
-                            local ____array_205 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
-                            __TS__SparseArrayPush(____array_205, d.skin)
-                            ____temp_206 = {skins = {__TS__SparseArraySpread(____array_205)}}
+                            local ____array_206 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
+                            __TS__SparseArrayPush(____array_206, d.skin)
+                            ____temp_207 = {skins = {__TS__SparseArraySpread(____array_206)}}
                         else
-                            ____temp_206 = {}
+                            ____temp_207 = {}
                         end
-                        local ____temp_208
+                        local ____temp_209
                         if d.kind == "skin" and d.part and not __TS__ArrayIncludes(s.modSkins or ({}), d.skin) then
-                            local ____array_207 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
-                            __TS__SparseArrayPush(____array_207, d.skin)
-                            ____temp_208 = {modSkins = {__TS__SparseArraySpread(____array_207)}}
+                            local ____array_208 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
+                            __TS__SparseArrayPush(____array_208, d.skin)
+                            ____temp_209 = {modSkins = {__TS__SparseArraySpread(____array_208)}}
                         else
-                            ____temp_208 = {}
+                            ____temp_209 = {}
                         end
-                        local ____temp_210
-                        if if __truthy(piece) then not __TS__ArrayIncludes(s.restoParts or ({}), piece) else piece then
-                            local ____array_209 = __TS__SparseArrayNew(table.unpack(s.restoParts or ({})))
-                            __TS__SparseArrayPush(____array_209, piece)
-                            ____temp_210 = {restoParts = {__TS__SparseArraySpread(____array_209)}}
+                        local ____truthy_result_211
+                        if __truthy(if __truthy(piece) then not __TS__ArrayIncludes(s.restoParts or ({}), piece) else piece) then
+                            local ____array_210 = __TS__SparseArrayNew(table.unpack(s.restoParts or ({})))
+                            __TS__SparseArrayPush(____array_210, piece)
+                            ____truthy_result_211 = {restoParts = {__TS__SparseArraySpread(____array_210)}}
                         else
-                            ____temp_210 = {}
+                            ____truthy_result_211 = {}
                         end
-                        local ____temp_212
+                        local ____temp_213
                         if d.kind == "hat" and __ns___hats_1.hatDef(d.hat) and not __TS__ArrayIncludes(s.hats or ({}), d.hat) then
-                            local ____array_211 = __TS__SparseArrayNew(table.unpack(s.hats or ({})))
-                            __TS__SparseArrayPush(____array_211, d.hat)
-                            ____temp_212 = {hats = {__TS__SparseArraySpread(____array_211)}}
+                            local ____array_212 = __TS__SparseArrayNew(table.unpack(s.hats or ({})))
+                            __TS__SparseArrayPush(____array_212, d.hat)
+                            ____temp_213 = {hats = {__TS__SparseArraySpread(____array_212)}}
                         else
-                            ____temp_212 = {}
+                            ____temp_213 = {}
                         end
-                        local ____temp_214
+                        local ____temp_215
                         if d.kind == "callcard" and __ns___callCards_1.callCardDef(d.card) and not __TS__ArrayIncludes(s.callCards or ({}), d.card) then
-                            local ____array_213 = __TS__SparseArrayNew(table.unpack(s.callCards or ({})))
-                            __TS__SparseArrayPush(____array_213, d.card)
-                            ____temp_214 = {callCards = {__TS__SparseArraySpread(____array_213)}}
+                            local ____array_214 = __TS__SparseArrayNew(table.unpack(s.callCards or ({})))
+                            __TS__SparseArrayPush(____array_214, d.card)
+                            ____temp_215 = {callCards = {__TS__SparseArraySpread(____array_214)}}
                         else
-                            ____temp_214 = {}
+                            ____temp_215 = {}
                         end
-                        local ____temp_231 = o.seq or s.crates or 0
-                        local ____def_pity_227
+                        local ____temp_232 = o.seq or s.crates or 0
+                        local ____def_pity_228
                         if def and def.pity then
-                            local ____obj_226 = __obj
-                            local ____array_225 = __TS__SparseArrayNew(
+                            local ____obj_227 = __obj
+                            local ____array_226 = __TS__SparseArrayNew(
                                 false and (function()
-                                    local ____s_cratePity_220 = s.cratePity
-                                    local ____o_crate_221 = o.crate
-                                    local ____ns___crates_1_pityHit_result_219
+                                    local ____s_cratePity_221 = s.cratePity
+                                    local ____o_crate_222 = o.crate
+                                    local ____ns___crates_1_pityHit_result_220
                                     if __ns___crates_1.pityHit(def, d) then
-                                        ____ns___crates_1_pityHit_result_219 = 0
+                                        ____ns___crates_1_pityHit_result_220 = 0
                                     else
-                                        local ____opt_217 = s.cratePity
-                                        ____ns___crates_1_pityHit_result_219 = (____opt_217 and ____opt_217[o.crate] or 0) + 1
+                                        local ____opt_218 = s.cratePity
+                                        ____ns___crates_1_pityHit_result_220 = (____opt_218 and ____opt_218[o.crate] or 0) + 1
                                     end
-                                    return __TS__ObjectAssign({}, ____s_cratePity_220, {[____o_crate_221] = ____ns___crates_1_pityHit_result_219})
+                                    return __TS__ObjectAssign({}, ____s_cratePity_221, {[____o_crate_222] = ____ns___crates_1_pityHit_result_220})
                                 end),
                                 __SPREAD,
                                 s.cratePity,
                                 o.crate
                             )
-                            local ____ns___crates_1_pityHit_result_224
+                            local ____ns___crates_1_pityHit_result_225
                             if __ns___crates_1.pityHit(def, d) then
-                                ____ns___crates_1_pityHit_result_224 = 0
+                                ____ns___crates_1_pityHit_result_225 = 0
                             else
-                                local ____opt_222 = s.cratePity
-                                ____ns___crates_1_pityHit_result_224 = (____opt_222 and ____opt_222[o.crate] or 0) + 1
+                                local ____opt_223 = s.cratePity
+                                ____ns___crates_1_pityHit_result_225 = (____opt_223 and ____opt_223[o.crate] or 0) + 1
                             end
-                            __TS__SparseArrayPush(____array_225, ____ns___crates_1_pityHit_result_224)
-                            ____def_pity_227 = {cratePity = ____obj_226(__TS__SparseArraySpread(____array_225))}
+                            __TS__SparseArrayPush(____array_226, ____ns___crates_1_pityHit_result_225)
+                            ____def_pity_228 = {cratePity = ____obj_227(__TS__SparseArraySpread(____array_226))}
                         else
-                            ____def_pity_227 = {}
+                            ____def_pity_228 = {}
                         end
                         return __TS__ObjectAssign(
-                            {coins = ____math_max_result_228, bucks = ____math_max_result_229, cars = ____cars_230},
-                            ____temp_206,
-                            ____temp_208,
-                            ____temp_210,
-                            ____temp_212,
-                            ____temp_214,
-                            {crates = ____temp_231},
-                            ____def_pity_227,
+                            {coins = ____math_max_result_229, bucks = ____math_max_result_230, cars = ____cars_231},
+                            ____temp_207,
+                            ____temp_209,
+                            ____truthy_result_211,
+                            ____temp_213,
+                            ____temp_215,
+                            {crates = ____temp_232},
+                            ____def_pity_228,
                             {
                                 stats = __obj(
                                     false and (function() return __TS__ObjectAssign(
@@ -4698,92 +4701,92 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     cars,
                     __SPREAD
                 )
-                local ____temp_233
+                local ____temp_234
                 if d.kind == "skin" and not d.part and not __TS__ArrayIncludes(s.skins or ({}), d.skin) then
-                    local ____array_232 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
-                    __TS__SparseArrayPush(____array_232, d.skin)
-                    ____temp_233 = {skins = {__TS__SparseArraySpread(____array_232)}}
+                    local ____array_233 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
+                    __TS__SparseArrayPush(____array_233, d.skin)
+                    ____temp_234 = {skins = {__TS__SparseArraySpread(____array_233)}}
                 else
-                    ____temp_233 = {}
+                    ____temp_234 = {}
                 end
-                __TS__SparseArrayPush(____array_255, ____temp_233, __SPREAD)
-                local ____temp_235
+                __TS__SparseArrayPush(____array_256, ____temp_234, __SPREAD)
+                local ____temp_236
                 if d.kind == "skin" and d.part and not __TS__ArrayIncludes(s.modSkins or ({}), d.skin) then
-                    local ____array_234 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
-                    __TS__SparseArrayPush(____array_234, d.skin)
-                    ____temp_235 = {modSkins = {__TS__SparseArraySpread(____array_234)}}
+                    local ____array_235 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
+                    __TS__SparseArrayPush(____array_235, d.skin)
+                    ____temp_236 = {modSkins = {__TS__SparseArraySpread(____array_235)}}
                 else
-                    ____temp_235 = {}
+                    ____temp_236 = {}
                 end
-                __TS__SparseArrayPush(____array_255, ____temp_235, __SPREAD)
-                local ____temp_237
-                if if __truthy(piece) then not __TS__ArrayIncludes(s.restoParts or ({}), piece) else piece then
-                    local ____array_236 = __TS__SparseArrayNew(table.unpack(s.restoParts or ({})))
-                    __TS__SparseArrayPush(____array_236, piece)
-                    ____temp_237 = {restoParts = {__TS__SparseArraySpread(____array_236)}}
+                __TS__SparseArrayPush(____array_256, ____temp_236, __SPREAD)
+                local ____truthy_result_238
+                if __truthy(if __truthy(piece) then not __TS__ArrayIncludes(s.restoParts or ({}), piece) else piece) then
+                    local ____array_237 = __TS__SparseArrayNew(table.unpack(s.restoParts or ({})))
+                    __TS__SparseArrayPush(____array_237, piece)
+                    ____truthy_result_238 = {restoParts = {__TS__SparseArraySpread(____array_237)}}
                 else
-                    ____temp_237 = {}
+                    ____truthy_result_238 = {}
                 end
-                __TS__SparseArrayPush(____array_255, ____temp_237, __SPREAD)
-                local ____temp_239
+                __TS__SparseArrayPush(____array_256, ____truthy_result_238, __SPREAD)
+                local ____temp_240
                 if d.kind == "hat" and __ns___hats_1.hatDef(d.hat) and not __TS__ArrayIncludes(s.hats or ({}), d.hat) then
-                    local ____array_238 = __TS__SparseArrayNew(table.unpack(s.hats or ({})))
-                    __TS__SparseArrayPush(____array_238, d.hat)
-                    ____temp_239 = {hats = {__TS__SparseArraySpread(____array_238)}}
+                    local ____array_239 = __TS__SparseArrayNew(table.unpack(s.hats or ({})))
+                    __TS__SparseArrayPush(____array_239, d.hat)
+                    ____temp_240 = {hats = {__TS__SparseArraySpread(____array_239)}}
                 else
-                    ____temp_239 = {}
+                    ____temp_240 = {}
                 end
-                __TS__SparseArrayPush(____array_255, ____temp_239, __SPREAD)
-                local ____temp_241
+                __TS__SparseArrayPush(____array_256, ____temp_240, __SPREAD)
+                local ____temp_242
                 if d.kind == "callcard" and __ns___callCards_1.callCardDef(d.card) and not __TS__ArrayIncludes(s.callCards or ({}), d.card) then
-                    local ____array_240 = __TS__SparseArrayNew(table.unpack(s.callCards or ({})))
-                    __TS__SparseArrayPush(____array_240, d.card)
-                    ____temp_241 = {callCards = {__TS__SparseArraySpread(____array_240)}}
+                    local ____array_241 = __TS__SparseArrayNew(table.unpack(s.callCards or ({})))
+                    __TS__SparseArrayPush(____array_241, d.card)
+                    ____temp_242 = {callCards = {__TS__SparseArraySpread(____array_241)}}
                 else
-                    ____temp_241 = {}
+                    ____temp_242 = {}
                 end
                 __TS__SparseArrayPush(
-                    ____array_255,
-                    ____temp_241,
+                    ____array_256,
+                    ____temp_242,
                     "crates",
                     o.seq or s.crates or 0,
                     __SPREAD
                 )
-                local ____def_pity_254
+                local ____def_pity_255
                 if def and def.pity then
-                    local ____obj_253 = __obj
-                    local ____array_252 = __TS__SparseArrayNew(
+                    local ____obj_254 = __obj
+                    local ____array_253 = __TS__SparseArrayNew(
                         false and (function()
-                            local ____s_cratePity_247 = s.cratePity
-                            local ____o_crate_248 = o.crate
-                            local ____ns___crates_1_pityHit_result_246
+                            local ____s_cratePity_248 = s.cratePity
+                            local ____o_crate_249 = o.crate
+                            local ____ns___crates_1_pityHit_result_247
                             if __ns___crates_1.pityHit(def, d) then
-                                ____ns___crates_1_pityHit_result_246 = 0
+                                ____ns___crates_1_pityHit_result_247 = 0
                             else
-                                local ____opt_244 = s.cratePity
-                                ____ns___crates_1_pityHit_result_246 = (____opt_244 and ____opt_244[o.crate] or 0) + 1
+                                local ____opt_245 = s.cratePity
+                                ____ns___crates_1_pityHit_result_247 = (____opt_245 and ____opt_245[o.crate] or 0) + 1
                             end
-                            return __TS__ObjectAssign({}, ____s_cratePity_247, {[____o_crate_248] = ____ns___crates_1_pityHit_result_246})
+                            return __TS__ObjectAssign({}, ____s_cratePity_248, {[____o_crate_249] = ____ns___crates_1_pityHit_result_247})
                         end),
                         __SPREAD,
                         s.cratePity,
                         o.crate
                     )
-                    local ____ns___crates_1_pityHit_result_251
+                    local ____ns___crates_1_pityHit_result_252
                     if __ns___crates_1.pityHit(def, d) then
-                        ____ns___crates_1_pityHit_result_251 = 0
+                        ____ns___crates_1_pityHit_result_252 = 0
                     else
-                        local ____opt_249 = s.cratePity
-                        ____ns___crates_1_pityHit_result_251 = (____opt_249 and ____opt_249[o.crate] or 0) + 1
+                        local ____opt_250 = s.cratePity
+                        ____ns___crates_1_pityHit_result_252 = (____opt_250 and ____opt_250[o.crate] or 0) + 1
                     end
-                    __TS__SparseArrayPush(____array_252, ____ns___crates_1_pityHit_result_251)
-                    ____def_pity_254 = {cratePity = ____obj_253(__TS__SparseArraySpread(____array_252))}
+                    __TS__SparseArrayPush(____array_253, ____ns___crates_1_pityHit_result_252)
+                    ____def_pity_255 = {cratePity = ____obj_254(__TS__SparseArraySpread(____array_253))}
                 else
-                    ____def_pity_254 = {}
+                    ____def_pity_255 = {}
                 end
                 __TS__SparseArrayPush(
-                    ____array_255,
-                    ____def_pity_254,
+                    ____array_256,
+                    ____def_pity_255,
                     "stats",
                     __obj(
                         false and (function() return __TS__ObjectAssign(
@@ -4805,13 +4808,13 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     "updatedAt",
                     Date:now()
                 )
-                ____set_257(____obj_256(__TS__SparseArraySpread(____array_255)))
+                ____set_258(____obj_257(__TS__SparseArraySpread(____array_256)))
             end,
             applyWagers = function(entries)
                 local s = get()
-                local ____ns___wager_1_claim_result_258 = __ns___wager_1.claim(s.wagers or 0, entries)
-                local n = ____ns___wager_1_claim_result_258.n
-                local coins = ____ns___wager_1_claim_result_258.coins
+                local ____ns___wager_1_claim_result_259 = __ns___wager_1.claim(s.wagers or 0, entries)
+                local n = ____ns___wager_1_claim_result_259.n
+                local coins = ____ns___wager_1_claim_result_259.coins
                 if n == (s.wagers or 0) then
                     return 0
                 end
@@ -4864,27 +4867,27 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         upgrades = {engine = 0, turbo = 0, tires = 0, weight = 0}
                     } end
                 )
-                local ____set_268 = set
-                local ____obj_267 = __obj
-                local ____array_266 = __TS__SparseArrayNew(
+                local ____set_269 = set
+                local ____obj_268 = __obj
+                local ____array_267 = __TS__SparseArrayNew(
                     false and (function()
-                        local ____temp_261 = s.bucks + sum("bucks")
-                        local ____temp_262 = s.coins + sum("coins")
-                        local ____temp_263 = s.parts + sum("parts")
-                        local ____truthy_result_260
+                        local ____temp_262 = s.bucks + sum("bucks")
+                        local ____temp_263 = s.coins + sum("coins")
+                        local ____temp_264 = s.parts + sum("parts")
+                        local ____truthy_result_261
                         if __truthy(#cars) then
-                            local ____array_259 = __TS__SparseArrayNew(table.unpack(s.cars))
+                            local ____array_260 = __TS__SparseArrayNew(table.unpack(s.cars))
                             __TS__SparseArrayPush(
-                                ____array_259,
+                                ____array_260,
                                 table.unpack(cars)
                             )
-                            ____truthy_result_260 = {cars = {__TS__SparseArraySpread(____array_259)}}
+                            ____truthy_result_261 = {cars = {__TS__SparseArraySpread(____array_260)}}
                         else
-                            ____truthy_result_260 = {}
+                            ____truthy_result_261 = {}
                         end
                         return __TS__ObjectAssign(
-                            {bucks = ____temp_261, coins = ____temp_262, parts = ____temp_263},
-                            ____truthy_result_260,
+                            {bucks = ____temp_262, coins = ____temp_263, parts = ____temp_264},
+                            ____truthy_result_261,
                             {
                                 purchases = fresh[#fresh].seq,
                                 updatedAt = Date:now()
@@ -4899,54 +4902,54 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     s.parts + sum("parts"),
                     __SPREAD
                 )
-                local ____truthy_result_265
+                local ____truthy_result_266
                 if __truthy(#cars) then
-                    local ____array_264 = __TS__SparseArrayNew(table.unpack(s.cars))
+                    local ____array_265 = __TS__SparseArrayNew(table.unpack(s.cars))
                     __TS__SparseArrayPush(
-                        ____array_264,
+                        ____array_265,
                         table.unpack(cars)
                     )
-                    ____truthy_result_265 = {cars = {__TS__SparseArraySpread(____array_264)}}
+                    ____truthy_result_266 = {cars = {__TS__SparseArraySpread(____array_265)}}
                 else
-                    ____truthy_result_265 = {}
+                    ____truthy_result_266 = {}
                 end
                 __TS__SparseArrayPush(
-                    ____array_266,
-                    ____truthy_result_265,
+                    ____array_267,
+                    ____truthy_result_266,
                     "purchases",
                     fresh[#fresh].seq,
                     "updatedAt",
                     Date:now()
                 )
-                ____set_268(____obj_267(__TS__SparseArraySpread(____array_266)))
+                ____set_269(____obj_268(__TS__SparseArraySpread(____array_267)))
                 return sum("bucks")
             end,
             visitorPrize = function(p)
                 local s = get()
-                local ____set_277 = set
-                local ____withXp_276 = withXp
-                local ____p_xp_275 = p.xp
-                local ____temp_271 = s.coins + p.coins
-                local ____temp_272 = s.parts + p.parts
-                local ____temp_273 = s.bucks + p.bucks
-                local ____math_max_result_274 = math.max(s.visits or 0, p.seq or 0)
-                local ____p_car_270
+                local ____set_278 = set
+                local ____withXp_277 = withXp
+                local ____p_xp_276 = p.xp
+                local ____temp_272 = s.coins + p.coins
+                local ____temp_273 = s.parts + p.parts
+                local ____temp_274 = s.bucks + p.bucks
+                local ____math_max_result_275 = math.max(s.visits or 0, p.seq or 0)
+                local ____p_car_271
                 if p.car then
-                    local ____array_269 = __TS__SparseArrayNew(table.unpack(s.junkyard))
-                    __TS__SparseArrayPush(____array_269, p.car)
-                    ____p_car_270 = {__TS__SparseArraySpread(____array_269)}
+                    local ____array_270 = __TS__SparseArrayNew(table.unpack(s.junkyard))
+                    __TS__SparseArrayPush(____array_270, p.car)
+                    ____p_car_271 = {__TS__SparseArraySpread(____array_270)}
                 else
-                    ____p_car_270 = s.junkyard
+                    ____p_car_271 = s.junkyard
                 end
-                ____set_277(____withXp_276(
+                ____set_278(____withXp_277(
                     s,
-                    ____p_xp_275,
+                    ____p_xp_276,
                     {
-                        coins = ____temp_271,
-                        parts = ____temp_272,
-                        bucks = ____temp_273,
-                        visits = ____math_max_result_274,
-                        junkyard = ____p_car_270,
+                        coins = ____temp_272,
+                        parts = ____temp_273,
+                        bucks = ____temp_274,
+                        visits = ____math_max_result_275,
+                        junkyard = ____p_car_271,
                         stats = __obj(
                             false and (function() return __TS__ObjectAssign({}, s.stats, {coinsEarned = (s.stats.coinsEarned or 0) + p.coins}) end),
                             __SPREAD,
@@ -5379,16 +5382,16 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     s.toast((fin.name .. " unlocks at level ") .. tostring(fin.unlockLevel))
                     return false
                 end
-                if (if __truthy(fin.mastery) then __ns___mastery_1.carClassTier(s.mastery, car.model) < fin.mastery else fin.mastery) and fin.id ~= car.finish then
+                if __truthy((if __truthy(fin.mastery) then __ns___mastery_1.carClassTier(s.mastery, car.model) < fin.mastery else fin.mastery) and fin.id ~= car.finish) then
                     __ns____lib_sound_1.sfx.error()
                     s.toast(fin.blurb)
                     return false
                 end
-                local ____exports_paintPrice_result_282 = ____exports.paintPrice(s, car, job)
-                local coins = ____exports_paintPrice_result_282.coins
-                local bucks = ____exports_paintPrice_result_282.bucks
-                local deal = ____exports_paintPrice_result_282.deal
-                local free = ____exports_paintPrice_result_282.free
+                local ____exports_paintPrice_result_283 = ____exports.paintPrice(s, car, job)
+                local coins = ____exports_paintPrice_result_283.coins
+                local bucks = ____exports_paintPrice_result_283.bucks
+                local deal = ____exports_paintPrice_result_283.deal
+                local free = ____exports_paintPrice_result_283.free
                 local recolour = job.color ~= car.color or job.finish ~= (car.finish or "gloss")
                 if not recolour and job.stripe == (car.stripe or nil) then
                     return false
@@ -5476,21 +5479,22 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     if not v then
                         continue
                     end
-                    if bike and pn.car or (if __truthy(v.color) then not pn.color or not (__TS__ArraySome(
+                    if __truthy(bike and pn.car or (if __truthy(v.color) then not pn.color or not (__TS__ArraySome(
                         __ns___data_1.PAINTS,
                         function(____, p) return p.color == v.color end
-                    ) or __ns___data_2.hasCustomPaint(s) and __ns___data_2.isHexColor(v.color)) else v.color) or (if __truthy(v.pattern) then not pn.pattern else v.pattern) then
+                    ) or __ns___data_2.hasCustomPaint(s) and __ns___data_2.isHexColor(v.color)) else v.color) or (if __truthy(v.pattern) then not pn.pattern else v.pattern)) then
                         return false
                     end
-                    local ____truthy_result_292
+                    local ____truthy_294 = __truthy
+                    local ____truthy_result_293
                     if __truthy(v.color) then
-                        local ____v_color_291 = v.color
-                        local ____opt_287 = was and was[pn.id]
-                        ____truthy_result_292 = ____v_color_291 ~= (____opt_287 and ____opt_287.color)
+                        local ____v_color_292 = v.color
+                        local ____opt_288 = was and was[pn.id]
+                        ____truthy_result_293 = ____v_color_292 ~= (____opt_288 and ____opt_288.color)
                     else
-                        ____truthy_result_292 = v.color
+                        ____truthy_result_293 = v.color
                     end
-                    if ____truthy_result_292 and not __ns___paintRivals_1.paintOpen(s, v.color) then
+                    if ____truthy_294(____truthy_result_293 and not __ns___paintRivals_1.paintOpen(s, v.color)) then
                         local r = __ns___paintRivals_1.rivalForPaint(v.color)
                         __ns____lib_sound_1.sfx.error()
                         s.toast(if r then ("Beat " .. r.name) .. " to unlock that colour" else (function(v_6) return if __truthy(v_6) then v_6 else "That colour is locked" end)(__ns___paintRivals_1.earnHint(v.color)))
@@ -5500,64 +5504,66 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         __ns___data_2.PATTERNS,
                         function(____, p) return p.id == v.pattern end
                     ) else nil
-                    if if __truthy(v.pattern) then not pat else v.pattern then
+                    if __truthy(if __truthy(v.pattern) then not pat else v.pattern) then
                         return false
                     end
-                    local ____temp_302 = (function(v_7)
-                        local ____truthy_result_297
+                    local ____truthy_305 = __truthy
+                    local ____temp_304 = (function(v_7)
+                        local ____truthy_result_299
                         if __truthy(v_7) then
-                            local ____opt_295 = s.tuner
-                            ____truthy_result_297 = not ((____opt_295 and ____opt_295[pat.trial] or 0) > 0)
+                            local ____opt_297 = s.tuner
+                            ____truthy_result_299 = not ((____opt_297 and ____opt_297[pat.trial] or 0) > 0)
                         else
-                            ____truthy_result_297 = v_7
+                            ____truthy_result_299 = v_7
                         end
-                        return ____truthy_result_297
+                        return ____truthy_result_299
                     end)(pat and pat.trial)
-                    if ____temp_302 then
-                        local ____opt_298 = was and was[pn.id]
-                        ____temp_302 = (____opt_298 and ____opt_298.pattern) ~= pat.id
+                    if ____temp_304 then
+                        local ____opt_300 = was and was[pn.id]
+                        ____temp_304 = (____opt_300 and ____opt_300.pattern) ~= pat.id
                     end
-                    if ____temp_302 then
+                    if ____truthy_305(____temp_304) then
                         __ns____lib_sound_1.sfx.error()
-                        local ____s_toast_305 = s.toast
-                        local ____opt_303 = __ns___tuner_1.tunerTrial(pat.trial)
-                        ____s_toast_305((("Win " .. (____opt_303 and ____opt_303.name or "a Tuner Trial")) .. " to unlock ") .. pat.name)
+                        local ____s_toast_308 = s.toast
+                        local ____opt_306 = __ns___tuner_1.tunerTrial(pat.trial)
+                        ____s_toast_308((("Win " .. (____opt_306 and ____opt_306.name or "a Tuner Trial")) .. " to unlock ") .. pat.name)
                         return false
                     end
-                    local ____temp_312 = (function(v_8) return if __truthy(v_8) then __ns___mastery_1.masteryTier(s.mastery, car.model) < pat.mastery else v_8 end)(pat and pat.mastery)
-                    if ____temp_312 then
-                        local ____opt_308 = was and was[pn.id]
-                        ____temp_312 = (____opt_308 and ____opt_308.pattern) ~= pat.id
+                    local ____truthy_316 = __truthy
+                    local ____temp_315 = (function(v_8) return if __truthy(v_8) then __ns___mastery_1.masteryTier(s.mastery, car.model) < pat.mastery else v_8 end)(pat and pat.mastery)
+                    if ____temp_315 then
+                        local ____opt_311 = was and was[pn.id]
+                        ____temp_315 = (____opt_311 and ____opt_311.pattern) ~= pat.id
                     end
-                    if ____temp_312 then
+                    if ____truthy_316(____temp_315) then
                         __ns____lib_sound_1.sfx.error()
                         s.toast(("Reach " .. pat.name) .. " mastery in this car to unlock it")
                         return false
                     end
-                    local ____temp_319 = pat and pat.road and not __ns___trophyRoad_1.roadOpen(s.roadItems, pat.id)
-                    if ____temp_319 then
-                        local ____opt_315 = was and was[pn.id]
-                        ____temp_319 = (____opt_315 and ____opt_315.pattern) ~= pat.id
+                    local ____temp_323 = pat and pat.road and not __ns___trophyRoad_1.roadOpen(s.roadItems, pat.id)
+                    if ____temp_323 then
+                        local ____opt_319 = was and was[pn.id]
+                        ____temp_323 = (____opt_319 and ____opt_319.pattern) ~= pat.id
                     end
-                    if ____temp_319 then
+                    if ____temp_323 then
                         __ns____lib_sound_1.sfx.error()
                         s.toast(pat.name .. ": Trophy Road mystery prize")
                         return false
                     end
-                    local ____temp_324 = pat and ____exports.gateLevel(s) < pat.unlockLevel
-                    if ____temp_324 then
-                        local ____opt_320 = was and was[pn.id]
-                        ____temp_324 = (____opt_320 and ____opt_320.pattern) ~= pat.id
+                    local ____temp_328 = pat and ____exports.gateLevel(s) < pat.unlockLevel
+                    if ____temp_328 then
+                        local ____opt_324 = was and was[pn.id]
+                        ____temp_328 = (____opt_324 and ____opt_324.pattern) ~= pat.id
                     end
-                    if ____temp_324 then
+                    if ____temp_328 then
                         __ns____lib_sound_1.sfx.error()
                         s.toast((pat.name .. " unlocks at level ") .. tostring(pat.unlockLevel))
                         return false
                     end
                 end
-                local ____ns___data_2_panelJobCost_result_325 = __ns___data_2.panelJobCost(was, next)
-                local coins = ____ns___data_2_panelJobCost_result_325.coins
-                local bucks = ____ns___data_2_panelJobCost_result_325.bucks
+                local ____ns___data_2_panelJobCost_result_329 = __ns___data_2.panelJobCost(was, next)
+                local coins = ____ns___data_2_panelJobCost_result_329.coins
+                local bucks = ____ns___data_2_panelJobCost_result_329.bucks
                 if s.coins < coins then
                     s.showNeed("coins", coins - s.coins, "custom paint")
                     return false
@@ -5622,8 +5628,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             )) end,
             befriend = function(id, act, name)
                 local s = get()
-                local ____opt_326 = s.friendship
-                local was = ____opt_326 and ____opt_326[id] or 0
+                local ____opt_330 = s.friendship
+                local was = ____opt_330 and ____opt_330[id] or 0
                 local now = was + __ns___friendship_1.FRIEND_POINTS[act]
                 set({
                     friendship = __obj(
@@ -5696,8 +5702,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 local presets = __TS__ArrayFrom(
                     {length = __ns___trim_1.PRESET_SLOTS},
                     function(____, _, i)
-                        local ____opt_328 = s.presets
-                        return ____opt_328 and ____opt_328[i + 1] or nil
+                        local ____opt_332 = s.presets
+                        return ____opt_332 and ____opt_332[i + 1] or nil
                     end
                 )
                 presets[slot + 1] = __obj(
@@ -5728,8 +5734,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             end,
             clearPreset = function(slot)
                 local s = get()
-                local ____opt_330 = s.presets
-                if not (____opt_330 and ____opt_330[slot + 1]) then
+                local ____opt_334 = s.presets
+                if not (____opt_334 and ____opt_334[slot + 1]) then
                     return
                 end
                 set({
@@ -5746,8 +5752,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     s.cars,
                     function(____, c) return c.uid == cuid end
                 )
-                local ____opt_332 = s.presets
-                local pr = ____opt_332 and ____opt_332[slot + 1]
+                local ____opt_336 = s.presets
+                local pr = ____opt_336 and ____opt_336[slot + 1]
                 if not car or not pr then
                     return false
                 end
@@ -5825,7 +5831,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     function(____, c) return c.uid == cuid end
                 )
                 local d = __ns___data_1.skinDef(id)
-                if not car or (if __truthy(id) then not d else id) or (car.skin or nil) == id then
+                if __truthy(not car or (if __truthy(id) then not d else id) or (car.skin or nil) == id) then
                     return false
                 end
                 local patch = {}
@@ -5841,12 +5847,12 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         s.showNeed("bucks", price - s.bucks, ("the " .. d.name) .. " skin")
                         return false
                     end
-                    local ____temp_335 = s.bucks - price
-                    local ____array_334 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
-                    __TS__SparseArrayPush(____array_334, d.id)
+                    local ____temp_339 = s.bucks - price
+                    local ____array_338 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
+                    __TS__SparseArrayPush(____array_338, d.id)
                     patch = {
-                        bucks = ____temp_335,
-                        skins = {__TS__SparseArraySpread(____array_334)}
+                        bucks = ____temp_339,
+                        skins = {__TS__SparseArraySpread(____array_338)}
                     }
                     __ns____lib_sound_1.sfx.buy()
                 end
@@ -5895,11 +5901,11 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 ) then
                     return false
                 end
-                local ____set_337 = set
-                local ____array_336 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
-                __TS__SparseArrayPush(____array_336, id)
-                ____set_337({
-                    skins = {__TS__SparseArraySpread(____array_336)},
+                local ____set_341 = set
+                local ____array_340 = __TS__SparseArrayNew(table.unpack(s.skins or ({})))
+                __TS__SparseArrayPush(____array_340, id)
+                ____set_341({
+                    skins = {__TS__SparseArraySpread(____array_340)},
                     updatedAt = Date:now()
                 })
                 return true
@@ -5911,18 +5917,19 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     function(____, c) return c.uid == cuid end
                 )
                 local d = __ns___data_1.modSkinDef(id)
-                local ____temp_340 = not car or (if __truthy(id) then not d else id) or not __TS__ArrayIncludes(__ns___data_1.SKINNED_SLOTS, slot)
-                if not ____temp_340 then
-                    local ____opt_338 = car.modSkin
-                    ____temp_340 = (____opt_338 and ____opt_338[slot] or nil) == id
+                local ____truthy_345 = __truthy
+                local ____temp_344 = not car or (if __truthy(id) then not d else id) or not __TS__ArrayIncludes(__ns___data_1.SKINNED_SLOTS, slot)
+                if not ____temp_344 then
+                    local ____opt_342 = car.modSkin
+                    ____temp_344 = (____opt_342 and ____opt_342[slot] or nil) == id
                 end
-                if ____temp_340 then
+                if ____truthy_345(____temp_344) then
                     return false
                 end
-                if if __truthy(id) then not __truthy(__ns___data_1.fittedMods(
+                if __truthy(if __truthy(id) then not __truthy(__ns___data_1.fittedMods(
                     car.mods,
                     __ns___data_1.carDef(car.model).body
-                )[slot]) else id then
+                )[slot]) else id) then
                     return false
                 end
                 local patch = {}
@@ -5938,12 +5945,12 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         s.showNeed("bucks", price - s.bucks, ("the " .. d.name) .. " mod skin")
                         return false
                     end
-                    local ____temp_342 = s.bucks - price
-                    local ____array_341 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
-                    __TS__SparseArrayPush(____array_341, d.id)
+                    local ____temp_347 = s.bucks - price
+                    local ____array_346 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
+                    __TS__SparseArrayPush(____array_346, d.id)
                     patch = {
-                        bucks = ____temp_342,
-                        modSkins = {__TS__SparseArraySpread(____array_341)}
+                        bucks = ____temp_347,
+                        modSkins = {__TS__SparseArraySpread(____array_346)}
                     }
                     __ns____lib_sound_1.sfx.buy()
                 end
@@ -6001,15 +6008,16 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     function(____, c) return c.uid == cuid end
                 )
                 local d = __ns___data_1.trackSkinDef(id)
-                local ____temp_345 = not car or __ns___data_1.carDef(car.model).body ~= "tank" or (if __truthy(id) then not d or not __TS__ArrayIncludes(
+                local ____truthy_351 = __truthy
+                local ____temp_350 = not car or __ns___data_1.carDef(car.model).body ~= "tank" or (if __truthy(id) then not d or not __TS__ArrayIncludes(
                     __ns___data_1.ownedTrackSkins(s.level),
                     d.id
                 ) else id)
-                if not ____temp_345 then
-                    local ____opt_343 = car.modSkin
-                    ____temp_345 = (____opt_343 and ____opt_343.tracks or nil) == id
+                if not ____temp_350 then
+                    local ____opt_348 = car.modSkin
+                    ____temp_350 = (____opt_348 and ____opt_348.tracks or nil) == id
                 end
-                if ____temp_345 then
+                if ____truthy_351(____temp_350) then
                     return false
                 end
                 local next = __obj(
@@ -6046,11 +6054,11 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 ) then
                     return false
                 end
-                local ____set_347 = set
-                local ____array_346 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
-                __TS__SparseArrayPush(____array_346, id)
-                ____set_347({
-                    modSkins = {__TS__SparseArraySpread(____array_346)},
+                local ____set_353 = set
+                local ____array_352 = __TS__SparseArrayNew(table.unpack(s.modSkins or ({})))
+                __TS__SparseArrayPush(____array_352, id)
+                ____set_353({
+                    modSkins = {__TS__SparseArraySpread(____array_352)},
                     updatedAt = Date:now()
                 })
                 return true
@@ -6098,10 +6106,10 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     return false
                 end
                 local d = __ns___callCards_1.callCardDef(next)
-                if if __truthy(next) then not d or not __TS__ArrayIncludes(
+                if __truthy(if __truthy(next) then not d or not __TS__ArrayIncludes(
                     __ns___callCards_1.ownedCallCards(s),
                     next
-                ) else next then
+                ) else next) then
                     __ns____lib_sound_1.sfx.error()
                     if d then
                         s.toast("🔒 " .. d.name)
@@ -6134,8 +6142,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 local others = __TS__ArrayFilter(
                     car.mods or ({}),
                     function(____, id)
-                        local ____opt_350 = __ns___data_1.modDef(id)
-                        return (____opt_350 and ____opt_350.slot) ~= m.slot
+                        local ____opt_356 = __ns___data_1.modDef(id)
+                        return (____opt_356 and ____opt_356.slot) ~= m.slot
                     end
                 )
                 if remove then
@@ -6172,19 +6180,19 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         cars = __TS__ArrayMap(
                             s.cars,
                             function(____, c)
-                                local ____temp_357
+                                local ____temp_363
                                 if c.uid == cuid then
-                                    local ____obj_356 = __obj
-                                    local ____array_355 = __TS__SparseArrayNew(
+                                    local ____obj_362 = __obj
+                                    local ____array_361 = __TS__SparseArrayNew(
                                         false and (function()
-                                            local ____c_353 = c
-                                            local ____array_352 = __TS__SparseArrayNew(table.unpack(others))
-                                            __TS__SparseArrayPush(____array_352, modId)
+                                            local ____c_359 = c
+                                            local ____array_358 = __TS__SparseArrayNew(table.unpack(others))
+                                            __TS__SparseArrayPush(____array_358, modId)
                                             return __TS__ObjectAssign(
                                                 {},
-                                                ____c_353,
+                                                ____c_359,
                                                 {
-                                                    mods = {__TS__SparseArraySpread(____array_352)},
+                                                    mods = {__TS__SparseArraySpread(____array_358)},
                                                     ownedMods = owned
                                                 }
                                             )
@@ -6193,19 +6201,19 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                                         c,
                                         "mods"
                                     )
-                                    local ____array_354 = __TS__SparseArrayNew(table.unpack(others))
-                                    __TS__SparseArrayPush(____array_354, modId)
+                                    local ____array_360 = __TS__SparseArrayNew(table.unpack(others))
+                                    __TS__SparseArrayPush(____array_360, modId)
                                     __TS__SparseArrayPush(
-                                        ____array_355,
-                                        {__TS__SparseArraySpread(____array_354)},
+                                        ____array_361,
+                                        {__TS__SparseArraySpread(____array_360)},
                                         "ownedMods",
                                         owned
                                     )
-                                    ____temp_357 = ____obj_356(__TS__SparseArraySpread(____array_355))
+                                    ____temp_363 = ____obj_362(__TS__SparseArraySpread(____array_361))
                                 else
-                                    ____temp_357 = c
+                                    ____temp_363 = c
                                 end
-                                return ____temp_357
+                                return ____temp_363
                             end
                         ),
                         updatedAt = Date:now()
@@ -6242,23 +6250,23 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                                 cars = __TS__ArrayMap(
                                     s.cars,
                                     function(____, c)
-                                        local ____temp_366
+                                        local ____temp_372
                                         if c.uid == cuid then
-                                            local ____obj_365 = __obj
-                                            local ____array_364 = __TS__SparseArrayNew(
+                                            local ____obj_371 = __obj
+                                            local ____array_370 = __TS__SparseArrayNew(
                                                 false and (function()
-                                                    local ____c_360 = c
-                                                    local ____array_358 = __TS__SparseArrayNew(table.unpack(others))
-                                                    __TS__SparseArrayPush(____array_358, modId)
-                                                    local ____temp_361 = {__TS__SparseArraySpread(____array_358)}
-                                                    local ____array_359 = __TS__SparseArrayNew(table.unpack(owned))
-                                                    __TS__SparseArrayPush(____array_359, modId)
+                                                    local ____c_366 = c
+                                                    local ____array_364 = __TS__SparseArrayNew(table.unpack(others))
+                                                    __TS__SparseArrayPush(____array_364, modId)
+                                                    local ____temp_367 = {__TS__SparseArraySpread(____array_364)}
+                                                    local ____array_365 = __TS__SparseArrayNew(table.unpack(owned))
+                                                    __TS__SparseArrayPush(____array_365, modId)
                                                     return __TS__ObjectAssign(
                                                         {},
-                                                        ____c_360,
+                                                        ____c_366,
                                                         {
-                                                            mods = ____temp_361,
-                                                            ownedMods = {__TS__SparseArraySpread(____array_359)}
+                                                            mods = ____temp_367,
+                                                            ownedMods = {__TS__SparseArraySpread(____array_365)}
                                                         }
                                                     )
                                                 end),
@@ -6266,24 +6274,24 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                                                 c,
                                                 "mods"
                                             )
-                                            local ____array_362 = __TS__SparseArrayNew(table.unpack(others))
-                                            __TS__SparseArrayPush(____array_362, modId)
+                                            local ____array_368 = __TS__SparseArrayNew(table.unpack(others))
+                                            __TS__SparseArrayPush(____array_368, modId)
                                             __TS__SparseArrayPush(
-                                                ____array_364,
-                                                {__TS__SparseArraySpread(____array_362)},
+                                                ____array_370,
+                                                {__TS__SparseArraySpread(____array_368)},
                                                 "ownedMods"
                                             )
-                                            local ____array_363 = __TS__SparseArrayNew(table.unpack(owned))
-                                            __TS__SparseArrayPush(____array_363, modId)
+                                            local ____array_369 = __TS__SparseArrayNew(table.unpack(owned))
+                                            __TS__SparseArrayPush(____array_369, modId)
                                             __TS__SparseArrayPush(
-                                                ____array_364,
-                                                {__TS__SparseArraySpread(____array_363)}
+                                                ____array_370,
+                                                {__TS__SparseArraySpread(____array_369)}
                                             )
-                                            ____temp_366 = ____obj_365(__TS__SparseArraySpread(____array_364))
+                                            ____temp_372 = ____obj_371(__TS__SparseArraySpread(____array_370))
                                         else
-                                            ____temp_366 = c
+                                            ____temp_372 = c
                                         end
-                                        return ____temp_366
+                                        return ____temp_372
                                     end
                                 ),
                                 stats = bump(s, "modsBought"),
@@ -6302,23 +6310,23 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         __TS__ArrayMap(
                             s.cars,
                             function(____, c)
-                                local ____temp_375
+                                local ____temp_381
                                 if c.uid == cuid then
-                                    local ____obj_374 = __obj
-                                    local ____array_373 = __TS__SparseArrayNew(
+                                    local ____obj_380 = __obj
+                                    local ____array_379 = __TS__SparseArrayNew(
                                         false and (function()
-                                            local ____c_369 = c
-                                            local ____array_367 = __TS__SparseArrayNew(table.unpack(others))
-                                            __TS__SparseArrayPush(____array_367, modId)
-                                            local ____temp_370 = {__TS__SparseArraySpread(____array_367)}
-                                            local ____array_368 = __TS__SparseArrayNew(table.unpack(owned))
-                                            __TS__SparseArrayPush(____array_368, modId)
+                                            local ____c_375 = c
+                                            local ____array_373 = __TS__SparseArrayNew(table.unpack(others))
+                                            __TS__SparseArrayPush(____array_373, modId)
+                                            local ____temp_376 = {__TS__SparseArraySpread(____array_373)}
+                                            local ____array_374 = __TS__SparseArrayNew(table.unpack(owned))
+                                            __TS__SparseArrayPush(____array_374, modId)
                                             return __TS__ObjectAssign(
                                                 {},
-                                                ____c_369,
+                                                ____c_375,
                                                 {
-                                                    mods = ____temp_370,
-                                                    ownedMods = {__TS__SparseArraySpread(____array_368)}
+                                                    mods = ____temp_376,
+                                                    ownedMods = {__TS__SparseArraySpread(____array_374)}
                                                 }
                                             )
                                         end),
@@ -6326,24 +6334,24 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                                         c,
                                         "mods"
                                     )
-                                    local ____array_371 = __TS__SparseArrayNew(table.unpack(others))
-                                    __TS__SparseArrayPush(____array_371, modId)
+                                    local ____array_377 = __TS__SparseArrayNew(table.unpack(others))
+                                    __TS__SparseArrayPush(____array_377, modId)
                                     __TS__SparseArrayPush(
-                                        ____array_373,
-                                        {__TS__SparseArraySpread(____array_371)},
+                                        ____array_379,
+                                        {__TS__SparseArraySpread(____array_377)},
                                         "ownedMods"
                                     )
-                                    local ____array_372 = __TS__SparseArrayNew(table.unpack(owned))
-                                    __TS__SparseArrayPush(____array_372, modId)
+                                    local ____array_378 = __TS__SparseArrayNew(table.unpack(owned))
+                                    __TS__SparseArrayPush(____array_378, modId)
                                     __TS__SparseArrayPush(
-                                        ____array_373,
-                                        {__TS__SparseArraySpread(____array_372)}
+                                        ____array_379,
+                                        {__TS__SparseArraySpread(____array_378)}
                                     )
-                                    ____temp_375 = ____obj_374(__TS__SparseArraySpread(____array_373))
+                                    ____temp_381 = ____obj_380(__TS__SparseArraySpread(____array_379))
                                 else
-                                    ____temp_375 = c
+                                    ____temp_381 = c
                                 end
-                                return ____temp_375
+                                return ____temp_381
                             end
                         ),
                         "stats",
@@ -6356,18 +6364,18 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 return true
             end,
             loadSave = function(save)
-                local ____set_383 = set
-                local ____obj_382 = __obj
-                local ____array_381 = __TS__SparseArrayNew(
+                local ____set_389 = set
+                local ____obj_388 = __obj
+                local ____array_387 = __TS__SparseArrayNew(
                     false and (function()
-                        local ____starterDefaults_result_377 = starterDefaults()
-                        local ____exports_unfoldStored_result_378 = ____exports.unfoldStored(save)
-                        local ____ns___hats_1_hatQuestOf_result_379 = __ns___hats_1.hatQuestOf(save)
-                        local ____save_oldPaints_376 = save.oldPaints
-                        if ____save_oldPaints_376 == nil then
-                            ____save_oldPaints_376 = true
+                        local ____starterDefaults_result_383 = starterDefaults()
+                        local ____exports_unfoldStored_result_384 = ____exports.unfoldStored(save)
+                        local ____ns___hats_1_hatQuestOf_result_385 = __ns___hats_1.hatQuestOf(save)
+                        local ____save_oldPaints_382 = save.oldPaints
+                        if ____save_oldPaints_382 == nil then
+                            ____save_oldPaints_382 = true
                         end
-                        return __TS__ObjectAssign({}, ____starterDefaults_result_377, ____exports_unfoldStored_result_378, {hatQuest = ____ns___hats_1_hatQuestOf_result_379, oldPaints = ____save_oldPaints_376})
+                        return __TS__ObjectAssign({}, ____starterDefaults_result_383, ____exports_unfoldStored_result_384, {hatQuest = ____ns___hats_1_hatQuestOf_result_385, oldPaints = ____save_oldPaints_382})
                     end),
                     __SPREAD,
                     starterDefaults(),
@@ -6377,12 +6385,12 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     __ns___hats_1.hatQuestOf(save),
                     "oldPaints"
                 )
-                local ____save_oldPaints_380 = save.oldPaints
-                if ____save_oldPaints_380 == nil then
-                    ____save_oldPaints_380 = true
+                local ____save_oldPaints_386 = save.oldPaints
+                if ____save_oldPaints_386 == nil then
+                    ____save_oldPaints_386 = true
                 end
-                __TS__SparseArrayPush(____array_381, ____save_oldPaints_380)
-                return ____set_383(____obj_382(__TS__SparseArraySpread(____array_381)))
+                __TS__SparseArrayPush(____array_387, ____save_oldPaints_386)
+                return ____set_389(____obj_388(__TS__SparseArraySpread(____array_387)))
             end,
             gpResult = function(seriesId, won, place, of)
                 if place == nil then
@@ -6454,17 +6462,17 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 local color = def.colors[math.floor(__random() * #def.colors) + 1]
                 setTimeout(__ns____lib_sound_1.sfx.levelUp, 200)
                 set(function(g)
-                    local ____obj_result_385 = __obj(
+                    local ____obj_result_391 = __obj(
                         false and (function() return __TS__ObjectAssign({}, g.gp, {[seriesId] = {round = 0, clears = cur.clears + 1}}) end),
                         __SPREAD,
                         g.gp,
                         seriesId,
                         {round = 0, clears = cur.clears + 1}
                     )
-                    local ____temp_386 = {series = seriesId, model = model, color = color}
-                    local ____array_384 = __TS__SparseArrayNew(table.unpack(g.cars))
+                    local ____temp_392 = {series = seriesId, model = model, color = color}
+                    local ____array_390 = __TS__SparseArrayNew(table.unpack(g.cars))
                     __TS__SparseArrayPush(
-                        ____array_384,
+                        ____array_390,
                         {
                             uid = uid(),
                             model = model,
@@ -6473,9 +6481,9 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         }
                     )
                     return {
-                        gp = ____obj_result_385,
-                        gpPrize = ____temp_386,
-                        cars = {__TS__SparseArraySpread(____array_384)},
+                        gp = ____obj_result_391,
+                        gpPrize = ____temp_392,
+                        cars = {__TS__SparseArraySpread(____array_390)},
                         trophies = g.trophies + 5,
                         stats = __obj(
                             false and (function() return __TS__ObjectAssign({}, g.stats, {carsBought = (g.stats.carsBought or 0) + 1, gpWins = (g.stats.gpWins or 0) + 1}) end),
@@ -6684,15 +6692,15 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if not won then
                     return nil
                 end
-                local ____ns___rivals_1_RIVAL_VISITS_389 = __ns___rivals_1.RIVAL_VISITS
-                local ____opt_387 = s.rivals[id]
-                local beaten = math.min(____ns___rivals_1_RIVAL_VISITS_389, (____opt_387 and ____opt_387.beaten or 0) + 1)
-                local ____temp_392 = beaten >= __ns___rivals_1.RIVAL_VISITS
-                if ____temp_392 then
-                    local ____opt_390 = s.rivals[id]
-                    ____temp_392 = (____opt_390 and ____opt_390.beaten or 0) < __ns___rivals_1.RIVAL_VISITS
+                local ____ns___rivals_1_RIVAL_VISITS_395 = __ns___rivals_1.RIVAL_VISITS
+                local ____opt_393 = s.rivals[id]
+                local beaten = math.min(____ns___rivals_1_RIVAL_VISITS_395, (____opt_393 and ____opt_393.beaten or 0) + 1)
+                local ____temp_398 = beaten >= __ns___rivals_1.RIVAL_VISITS
+                if ____temp_398 then
+                    local ____opt_396 = s.rivals[id]
+                    ____temp_398 = (____opt_396 and ____opt_396.beaten or 0) < __ns___rivals_1.RIVAL_VISITS
                 end
-                local quit = ____temp_392
+                local quit = ____temp_398
                 local rivals = __obj(
                     false and (function() return __TS__ObjectAssign(
                         {},
@@ -6802,8 +6810,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 if not t then
                     return
                 end
-                local ____opt_393 = s.tuner
-                local wins = ____opt_393 and ____opt_393[id] or 0
+                local ____opt_399 = s.tuner
+                local wins = ____opt_399 and ____opt_399[id] or 0
                 s.finishRace(
                     won,
                     __ns___tuner_1.tunerPrize(t, wins == 0)
@@ -7005,27 +7013,27 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 )
                 __ns____lib_sound_1.sfx.buy()
                 s.toast("New land! Bulldoze the trees and rocks to build")
-                local ____set_400 = set
-                local ____withXp_399 = withXp
-                local ____temp_397 = s.coins - cost
-                local ____array_395 = __TS__SparseArrayNew(table.unpack(s.land))
+                local ____set_406 = set
+                local ____withXp_405 = withXp
+                local ____temp_403 = s.coins - cost
+                local ____array_401 = __TS__SparseArrayNew(table.unpack(s.land))
                 __TS__SparseArrayPush(
-                    ____array_395,
+                    ____array_401,
                     (tostring(px) .. ",") .. tostring(pz)
                 )
-                local ____temp_398 = {__TS__SparseArraySpread(____array_395)}
-                local ____array_396 = __TS__SparseArrayNew(table.unpack(s.buildings))
+                local ____temp_404 = {__TS__SparseArraySpread(____array_401)}
+                local ____array_402 = __TS__SparseArrayNew(table.unpack(s.buildings))
                 __TS__SparseArrayPush(
-                    ____array_396,
+                    ____array_402,
                     table.unpack(obstacles)
                 )
-                ____set_400(____withXp_399(
+                ____set_406(____withXp_405(
                     s,
                     50,
                     {
-                        coins = ____temp_397,
-                        land = ____temp_398,
-                        buildings = {__TS__SparseArraySpread(____array_396)},
+                        coins = ____temp_403,
+                        land = ____temp_404,
+                        buildings = {__TS__SparseArraySpread(____array_402)},
                         updatedAt = Date:now()
                     }
                 ))
@@ -7208,9 +7216,9 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     return
                 end
                 rolling = true
-                local ____self_409 = rescueRoller(spotId)
-                ____self_409["then"](
-                    ____self_409,
+                local ____self_415 = rescueRoller(spotId)
+                ____self_415["then"](
+                    ____self_415,
                     go,
                     function() return get().toast("Rusty's radio can't reach the yard. Check your connection and try again.") end
                 ):finally(function()
@@ -7301,8 +7309,8 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
             end,
             abandonSearch = function()
                 local s = get()
-                local ____opt_412 = s.search
-                if ____opt_412 and ____opt_412.flat then
+                local ____opt_418 = s.search
+                if ____opt_418 and ____opt_418.flat then
                     s.toast("The tow truck limped home empty-handed.")
                 end
                 __ns____lib_sound_1.sfx.menuClose()
@@ -7502,14 +7510,14 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 local c = __ns___data_1.carDef(r.model)
                 __ns____lib_sound_1.sfx.buy()
                 s.toast(c.name .. " restored and added to your garage!")
-                local ____set_420 = set
-                local ____withXp_419 = withXp
-                local ____temp_418 = 25 + math.floor(c.price / 200 + 0.5)
-                local ____obj_417 = __obj
-                local ____temp_416 = false and (function()
-                    local ____array_414 = __TS__SparseArrayNew(table.unpack(s.cars))
+                local ____set_426 = set
+                local ____withXp_425 = withXp
+                local ____temp_424 = 25 + math.floor(c.price / 200 + 0.5)
+                local ____obj_423 = __obj
+                local ____temp_422 = false and (function()
+                    local ____array_420 = __TS__SparseArrayNew(table.unpack(s.cars))
                     __TS__SparseArrayPush(
-                        ____array_414,
+                        ____array_420,
                         {
                             uid = r.uid,
                             model = r.model,
@@ -7520,7 +7528,7 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     )
                     return {
                         [key] = nil,
-                        cars = {__TS__SparseArraySpread(____array_414)},
+                        cars = {__TS__SparseArraySpread(____array_420)},
                         stats = __obj(
                             false and (function() return __TS__ObjectAssign({}, s.stats, {rescued = (s.stats.rescued or 0) + 1, carsBought = (s.stats.carsBought or 0) + 1}) end),
                             __SPREAD,
@@ -7533,9 +7541,9 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         updatedAt = Date:now()
                     }
                 end)
-                local ____array_415 = __TS__SparseArrayNew(table.unpack(s.cars))
+                local ____array_421 = __TS__SparseArrayNew(table.unpack(s.cars))
                 __TS__SparseArrayPush(
-                    ____array_415,
+                    ____array_421,
                     {
                         uid = r.uid,
                         model = r.model,
@@ -7544,15 +7552,15 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                         plate = (function(v_9) return if __truthy(v_9) then v_9 else nil end)(____exports.cleanPlate(plate))
                     }
                 )
-                ____set_420(____withXp_419(
+                ____set_426(____withXp_425(
                     s,
-                    ____temp_418,
-                    ____obj_417(
-                        ____temp_416,
+                    ____temp_424,
+                    ____obj_423(
+                        ____temp_422,
                         key,
                         nil,
                         "cars",
-                        {__TS__SparseArraySpread(____array_415)},
+                        {__TS__SparseArraySpread(____array_421)},
                         "stats",
                         __obj(
                             false and (function() return __TS__ObjectAssign({}, s.stats, {rescued = (s.stats.rescued or 0) + 1, carsBought = (s.stats.carsBought or 0) + 1}) end),
@@ -7617,25 +7625,25 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
         name = "cartopia-save",
         partialize = function(s) return ____exports.saveOf(s) end,
         merge = function(persisted, current)
-            local ____truthy_result_429
+            local ____truthy_result_435
             if __truthy(persisted) then
-                local ____obj_428 = __obj
-                local ____array_427 = __TS__SparseArrayNew(
+                local ____obj_434 = __obj
+                local ____array_433 = __TS__SparseArrayNew(
                     false and (function()
-                        local ____current_422 = current
-                        local ____starterDefaults_result_423 = starterDefaults()
-                        local ____exports_unfoldStored_result_424 = ____exports.unfoldStored(____exports.gemsX10(persisted))
-                        local ____ns___hats_1_hatQuestOf_result_425 = __ns___hats_1.hatQuestOf(persisted)
-                        local ____persisted_oldPaints_421 = persisted.oldPaints
-                        if ____persisted_oldPaints_421 == nil then
-                            ____persisted_oldPaints_421 = true
+                        local ____current_428 = current
+                        local ____starterDefaults_result_429 = starterDefaults()
+                        local ____exports_unfoldStored_result_430 = ____exports.unfoldStored(____exports.gemsX10(persisted))
+                        local ____ns___hats_1_hatQuestOf_result_431 = __ns___hats_1.hatQuestOf(persisted)
+                        local ____persisted_oldPaints_427 = persisted.oldPaints
+                        if ____persisted_oldPaints_427 == nil then
+                            ____persisted_oldPaints_427 = true
                         end
                         return __TS__ObjectAssign(
                             {},
-                            ____current_422,
-                            ____starterDefaults_result_423,
-                            ____exports_unfoldStored_result_424,
-                            {hatQuest = ____ns___hats_1_hatQuestOf_result_425, oldPaints = ____persisted_oldPaints_421}
+                            ____current_428,
+                            ____starterDefaults_result_429,
+                            ____exports_unfoldStored_result_430,
+                            {hatQuest = ____ns___hats_1_hatQuestOf_result_431, oldPaints = ____persisted_oldPaints_427}
                         )
                     end),
                     __SPREAD,
@@ -7648,17 +7656,17 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                     __ns___hats_1.hatQuestOf(persisted),
                     "oldPaints"
                 )
-                local ____persisted_oldPaints_426 = persisted.oldPaints
-                if ____persisted_oldPaints_426 == nil then
-                    ____persisted_oldPaints_426 = true
+                local ____persisted_oldPaints_432 = persisted.oldPaints
+                if ____persisted_oldPaints_432 == nil then
+                    ____persisted_oldPaints_432 = true
                 end
-                __TS__SparseArrayPush(____array_427, ____persisted_oldPaints_426)
-                ____truthy_result_429 = ____obj_428(__TS__SparseArraySpread(____array_427))
+                __TS__SparseArrayPush(____array_433, ____persisted_oldPaints_432)
+                ____truthy_result_435 = ____obj_434(__TS__SparseArraySpread(____array_433))
             else
                 ____exports.gemsX10(nil)
-                ____truthy_result_429 = current
+                ____truthy_result_435 = current
             end
-            return ____truthy_result_429
+            return ____truthy_result_435
         end
     }
 ))
@@ -7684,14 +7692,15 @@ function ____exports.openCrate(id, free, count)
         if not def then
             return ____awaiter_resolve(nil, nil)
         end
-        local ____truthy_result_526
+        local ____truthy_535 = __truthy
+        local ____truthy_result_534
         if __truthy(free) then
-            local ____opt_524 = s.freeCrates
-            ____truthy_result_526 = not (____opt_524 and __TS__ArrayIncludes(s.freeCrates, free))
+            local ____opt_532 = s.freeCrates
+            ____truthy_result_534 = not (____opt_532 and __TS__ArrayIncludes(s.freeCrates, free))
         else
-            ____truthy_result_526 = free
+            ____truthy_result_534 = free
         end
-        if ____truthy_result_526 then
+        if ____truthy_535(____truthy_result_534) then
             return ____awaiter_resolve(nil, nil)
         end
         if __truthy(free) then
@@ -7727,7 +7736,7 @@ function ____exports.openCrate(id, free, count)
             function(____, e)
                 return __TS__AsyncAwaiter(function()
                     local msg = if __TS__InstanceOf(e, Error) then e.message else ""
-                    if if __truthy(free) then __TS__StringIncludes(msg, "already opened") else free then
+                    if __truthy(if __truthy(free) then __TS__StringIncludes(msg, "already opened") else free) then
                         used()
                     end
                     ____exports.useGame.getState().toast(if msg == "soon" then if count > 1 then "Open ×10 is coming very soon!" else "Crates open for signed-in towns very soon!" else if __TS__StringIncludes(msg, "one crate") then "One crate at a time!" else "Couldn't open the crate. Try again.")
@@ -7751,9 +7760,9 @@ function ____exports.openCrate(id, free, count)
                 local i = 0
                 while i < count do
                     local g = ____exports.useGame.getState()
-                    local ____id_531 = id
-                    local ____ns___crates_1_rollCrate_530 = __ns___crates_1.rollCrate
-                    local ____array_529 = __TS__SparseArrayNew(
+                    local ____id_540 = id
+                    local ____ns___crates_1_rollCrate_539 = __ns___crates_1.rollCrate
+                    local ____array_538 = __TS__SparseArrayNew(
                         def,
                         g.level,
                         g.cars,
@@ -7766,12 +7775,12 @@ function ____exports.openCrate(id, free, count)
                             callCards = __ns___callCards_1.ownedCallCards(g)
                         }
                     )
-                    local ____opt_527 = g.cratePity
-                    __TS__SparseArrayPush(____array_529, ____opt_527 and ____opt_527[id] or 0)
+                    local ____opt_536 = g.cratePity
+                    __TS__SparseArrayPush(____array_538, ____opt_536 and ____opt_536[id] or 0)
                     local o = {
-                        crate = ____id_531,
+                        crate = ____id_540,
                         cost = one,
-                        drop = ____ns___crates_1_rollCrate_530(__TS__SparseArraySpread(____array_529))
+                        drop = ____ns___crates_1_rollCrate_539(__TS__SparseArraySpread(____array_538))
                     }
                     g.applyCrate(o)
                     opens[#opens + 1] = o
@@ -7779,10 +7788,10 @@ function ____exports.openCrate(id, free, count)
                 end
             end
         end
-        if if __truthy(free) then __TS__ArraySome(
+        if __truthy(if __truthy(free) then __TS__ArraySome(
             opens,
             function(____, o) return o.crate == id and not __truthy(o.cost.coins) and not __truthy(o.cost.bucks) end
-        ) else free then
+        ) else free) then
             used()
         end
         return ____awaiter_resolve(nil, opens)
@@ -7852,14 +7861,14 @@ ____exports.useGame.subscribe(function(s, prev)
     if not __truthy(#won) then
         return
     end
-    local ____exports_useGame_setState_533 = ____exports.useGame.setState
-    local ____array_532 = __TS__SparseArrayNew(table.unpack(__ns___hats_1.ownedHats(s)))
+    local ____exports_useGame_setState_542 = ____exports.useGame.setState
+    local ____array_541 = __TS__SparseArrayNew(table.unpack(__ns___hats_1.ownedHats(s)))
     __TS__SparseArrayPush(
-        ____array_532,
+        ____array_541,
         table.unpack(won)
     )
-    ____exports_useGame_setState_533({
-        hats = {__TS__SparseArraySpread(____array_532)},
+    ____exports_useGame_setState_542({
+        hats = {__TS__SparseArraySpread(____array_541)},
         updatedAt = Date:now()
     })
     for ____, id in ipairs(won) do

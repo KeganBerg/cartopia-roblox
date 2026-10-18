@@ -715,8 +715,22 @@ it('exports every building and car', async () => {
   const { PLOT_MIN, PLOT_MAX } = await import('./game/data')
   const plots: string[] = []
   for (let x = PLOT_MIN; x <= PLOT_MAX; x++) for (let z = PLOT_MIN; z <= PLOT_MAX; z++) plots.push(`${x},${z}`)
+  // The lake's fisherman, his rowboat and the gulls (LakeLife.tsx) are only put in place by their
+  // useFrame, so the forest is drawn a few frames in; until then they sat at the town's middle.
+  const { useThree: useOutskirtsThree } = await import('@react-three/fiber')
+  const outskirtsState: { now?: { internal: { subscribers: { ref: { current: (s: unknown, dt: number) => void } }[] } } } = {}
+  const GrabOutskirts = () => {
+    outskirtsState.now = useOutskirtsThree() as never
+    return null
+  }
   const outskirts = async (id: string, land: string[], forest: boolean) => {
-    const r = await ReactThreeTestRenderer.create(<Outskirts land={land} exits="" small={false} />)
+    const r = await ReactThreeTestRenderer.create(
+      <>
+        <Outskirts land={land} exits="" small={false} />
+        <GrabOutskirts />
+      </>,
+    )
+    if (forest) for (let i = 0; i < 30; i++) for (const sub of outskirtsState.now!.internal.subscribers) sub.ref.current(outskirtsState.now, 1 / 60)
     const top = (r.scene.instance as Object3D).children[0]
     const groups = top.children.filter((c) => (c as { isGroup?: boolean }).isGroup)
     if (forest) models.push({ id, kind: 'scenery', pieces: walk(groups[groups.length - 1], geos, geoList) })
@@ -821,12 +835,19 @@ it('exports every building and car', async () => {
     }
     batching.off = false
   }
+  // Each car's size in town traffic (townCarSize.ts): drawn smaller so it fits its lane.
+  const { townSize, bodyScale } = await import('./scene/townCarSize')
+  const townSizes: Record<string, [number, number, number]> = {}
+  for (const c of CARS) {
+    const s = townSize(c.body)
+    townSizes[c.id] = [r4(s.len), r4(s.wid), r4(bodyScale(c.body))]
+  }
   // The shapes go in a file of their own, one per line: all of them in one string is more than
   // JavaScript can hold (build.mjs loadModels reads them back).
   const fd = openSync(`${OUT}.geos`, 'w')
   for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
   closeSync(fd)
-  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

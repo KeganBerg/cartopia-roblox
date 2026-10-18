@@ -535,7 +535,7 @@ function ____exports.rollCrate(c, level, cars, rand, owned, dry)
             function(____, h) return not __TS__ArrayIncludes(owned.hats or ({}), h.id) end
         )
         local coinW = ____exports.crateOdds(c, level).coins
-        if if __truthy(#hats) then rand() * coinW < ____exports.HAT_ODDS[c.id] else #hats then
+        if __truthy(if __truthy(#hats) then rand() * coinW < ____exports.HAT_ODDS[c.id] else #hats) then
             return {
                 kind = "hat",
                 hat = hats[math.floor(rand() * #hats) + 1].id
@@ -545,7 +545,7 @@ function ____exports.rollCrate(c, level, cars, rand, owned, dry)
             __ns___callCards_1.crateCallCards(c.id),
             function(____, x) return not __TS__ArrayIncludes(owned.callCards or ({}), x.id) end
         )
-        if if __truthy(#cards) then rand() * coinW < ____exports.CALL_ODDS[c.id] else #cards then
+        if __truthy(if __truthy(#cards) then rand() * coinW < ____exports.CALL_ODDS[c.id] else #cards) then
             return {
                 kind = "callcard",
                 card = pickWeighted(

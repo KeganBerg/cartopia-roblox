@@ -352,6 +352,7 @@ function Ui.panel(gui: Instance, title: string, opts: { [string]: any }): (TextB
 	}, { radius = 24, stroke = 4, drop = 8, dark = 0.35, color = Ui.SHEET, class = "TextButton" })
 	-- The sheet takes taps so they don't fall through to the overlay and close it.
 	sheet.Selectable = false
+	sheet:SetAttribute("SinkTaps", true)
 	Ui.new("UISizeConstraint", { MaxSize = Vector2.new(w, h), Parent = shadow })
 	-- Keep the sheet clear of Roblox's own buttons in the top bar.
 	local function clearTopbar()

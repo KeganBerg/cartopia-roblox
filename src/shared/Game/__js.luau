@@ -227,14 +227,6 @@ function DateTimeFormat.prototype.resolvedOptions(self)
     return {timeZone = self.zone}
 end
 ____exports.JsIntl = {DateTimeFormat = DateTimeFormat}
-function ____exports.__hypot(...)
-    local xs = {...}
-    local sum = 0
-    for ____, x in ipairs(xs) do
-        sum = sum + x * x
-    end
-    return math.sqrt(sum)
-end
 local function fround(v)
     return string.unpack(
         "<f",
@@ -289,6 +281,14 @@ function ____exports.imul(a, b)
         ),
         0
     )
+end
+function ____exports.hypot(...)
+    local xs = {...}
+    local sum = 0
+    for ____, x in ipairs(xs) do
+        sum = sum + x * x
+    end
+    return math.sqrt(sum)
 end
 function ____exports.localeString(n)
     local neg = n < 0

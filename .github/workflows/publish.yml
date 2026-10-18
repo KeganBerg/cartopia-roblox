@@ -71,6 +71,9 @@ jobs:
           # Uploads only shapes not in tools/models/assets.json yet, then bakes their ids into Meshes.luau.
           # A key without Assets permission leaves a warning and the game draws boxes in their place.
           node tools/models/upload.mjs
+          # The image inside each uploaded picture, where the key can run Luau in the place
+          # (otherwise the game's server looks them up itself, see server/Pictures).
+          PLACE="${{ vars.ROBLOX_PLACE_ID || '82604390904451' }}" node tools/models/resolve-images.mjs
           node tools/models/build.mjs --json build/models.json
           node tools/splash/build.mjs web
 
@@ -85,6 +88,7 @@ jobs:
         run: |
           git add src/shared/Game src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau tests/Golden.luau tests/StoreGolden.luau
           if [ -f tools/models/assets.json ]; then git add tools/models/assets.json; fi
+          if [ -f tools/models/images.json ]; then git add tools/models/images.json; fi
           if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi
           # A scheduled check publishes only when something is new: a web game change, or a commit
           # that never made it live (the "published" tag marks the last commit that did).

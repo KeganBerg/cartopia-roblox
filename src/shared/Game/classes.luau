@@ -74,7 +74,7 @@ ____exports.classOf = function(model) return ____exports.classOfBody(__ns___data
 function ____exports.classesOf(model)
     local main = ____exports.classOf(model)
     local second = SECOND_CLASS[model]
-    return if if __truthy(second) then second ~= main.id else second then {
+    return if __truthy(if __truthy(second) then second ~= main.id else second) then {
         main,
         ____exports.carClass(second)
     } else {main}

@@ -24,7 +24,7 @@ local __TS__ArrayFind = ____lualib.__TS__ArrayFind
 local ____exports = {}
 local onPad
 local ______js = require("./__js")
-local __hypot = ______js.__hypot
+local __hypot = ______js.hypot
 local __zeros = ______js.__zeros
 local __obj = ______js.__obj
 local __SPREAD = ______js.__SPREAD
@@ -752,7 +752,7 @@ function KartRace.prototype.step(self, dt, inputs, running)
                 return
             end
             local inp = if not running then ____exports.idleInput() else if k.done ~= nil then self:autoInput(k, order, true) else if k.ai then self:autoInput(k, order, false) else inputs[i + 1] or ____exports.idleInput()
-            if (function(v_2) return if __truthy(v_2) then not __truthy(inp.brake) else v_2 end)(running and inp.assist) and k.drift == 0 and k.done == nil and not k.ai then
+            if __truthy((function(v_2) return if __truthy(v_2) then not __truthy(inp.brake) else v_2 end)(running and inp.assist) and k.drift == 0 and k.done == nil and not k.ai) then
                 local w = inp.assist * math.max(
                     0,
                     1 - math.abs(inp.steer) * 2
@@ -859,7 +859,7 @@ function KartRace.prototype.autoInput(self, k, order, cruise)
         drift = false,
         item = false
     }
-    if (function(v_3) return if __truthy(v_3) then k.emp <= 0 else v_3 end)(not cruise and k.item) then
+    if __truthy((function(v_3) return if __truthy(v_3) then k.emp <= 0 else v_3 end)(not cruise and k.item)) then
         local rank = __TS__ArrayIndexOf(order, k)
         local chaser = __TS__ArraySome(
             self.karts,
@@ -1183,7 +1183,7 @@ function KartRace.prototype.drive(self, k, inp, dt, order)
             end
         end
     )
-    if (function(v_4) return if __truthy(v_4) then k.spin <= 0 else v_4 end)(inp.item and not k.itemHeld and k.item) and k.emp <= 0 then
+    if __truthy((function(v_4) return if __truthy(v_4) then k.spin <= 0 else v_4 end)(inp.item and not k.itemHeld and k.item) and k.emp <= 0) then
         self:useItem(k, order)
     end
     k.itemHeld = inp.item
@@ -1651,10 +1651,10 @@ function KartRace.prototype.collideKarts(self)
         local a = 0
         while a < #ks do
             local b = a + 1
-            local ____first5 = true
+            local ____first13 = true
             while true do
-                if ____first5 then
-                    ____first5 = false
+                if ____first13 then
+                    ____first13 = false
                 else
                     b = b + 1
                 end
@@ -1681,10 +1681,10 @@ function KartRace.prototype.collideKarts(self)
                     continue
                 end
                 if p.rocket > 0 or q.rocket > 0 then
-                    if (function(v_7) return if __truthy(v_7) then q.spin <= 0 else v_7 end)(p.rocket > 0 and q.rocket <= 0 and mq) then
+                    if __truthy((function(v_7) return if __truthy(v_7) then q.spin <= 0 else v_7 end)(p.rocket > 0 and q.rocket <= 0 and mq)) then
                         self:hit(q)
                     end
-                    if (function(v_8) return if __truthy(v_8) then p.spin <= 0 else v_8 end)(q.rocket > 0 and p.rocket <= 0 and mp) then
+                    if __truthy((function(v_8) return if __truthy(v_8) then p.spin <= 0 else v_8 end)(q.rocket > 0 and p.rocket <= 0 and mp)) then
                         self:hit(p)
                     end
                 end
