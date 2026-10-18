@@ -113,7 +113,8 @@ document.body.prepend(renderer.domElement)
 const scene = new T.Scene()
 scene.background = new T.Color('#8ec5f0')
 scene.fog = new T.Fog('#bcd9f2', 600, 1600)
-scene.add(new T.HemisphereLight(0xdfefff, 0x5a6a40, 1.5))
+const hemi = new T.HemisphereLight(0xdfefff, 0x5a6a40, 1.5)
+scene.add(hemi)
 const sun = new T.DirectionalLight(0xfff4e0, 2.4)
 sun.position.set(300, 500, 200); sun.castShadow = true
 sun.shadow.mapSize.set(4096, 4096)
@@ -197,7 +198,8 @@ for (const p of parts) {
   mesh.matrix.multiply(new T.Matrix4().makeScale(...scale))
   mesh.castShadow = p.transparency < 0.5 && Math.max(...p.size) < 500
   mesh.receiveShadow = true
-  scene.add(mesh)
+  // A fully see-through part only carries words on its SurfaceGui (drawn below).
+  if (p.transparency < 1) scene.add(mesh)
   // Custom paint patterns: each face's tile laid flat over the triangles facing that way, as
   // Roblox's Texture projects onto a part's face.
   for (const t of [...(p.patterns || [])].sort((a, b) => (a.z ?? 1) - (b.z ?? 1))) {
@@ -239,14 +241,15 @@ for (const p of parts) {
   }
   if (p.text) {
     const cv = document.createElement('canvas'); cv.width = 512; cv.height = Math.max(64, Math.round(512 * p.size[1] / Math.max(p.size[0], 0.01)))
-    const x2 = cv.getContext('2d'); x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height); x2.fillStyle = '#' + p.text.fg
+    const x2 = cv.getContext('2d'); if (!p.text.clear) { x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height) } x2.fillStyle = '#' + p.text.fg
     // Chequers (the finish line): two rows of squares, as Builder draws them.
     if (p.text.checker) for (let i = 0; i < p.text.checker; i++) for (let j = 0; j < 2; j++) if ((i + j) % 2) x2.fillRect(i * cv.width / p.text.checker, j * cv.height / 2, cv.width / p.text.checker + 1, cv.height / 2 + 1)
     let fs = cv.height * 0.7; x2.font = '900 ' + fs + 'px Arial Black, sans-serif'; x2.textAlign = 'center'; x2.textBaseline = 'middle'
     while (x2.measureText(p.text.text).width > cv.width * 0.88 && fs > 10) { fs -= 2; x2.font = '900 ' + fs + 'px Arial Black, sans-serif' }
+    if (p.text.stroke) { x2.lineJoin = 'round'; x2.lineWidth = fs * 0.18; x2.strokeStyle = '#' + p.text.stroke; x2.strokeText(p.text.text, cv.width / 2, cv.height / 2 + 2) }
     if (!p.text.checker) x2.fillText(p.text.text, cv.width / 2, cv.height / 2 + 2)
     const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace
-    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex }))
+    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex, transparent: !!p.text.clear }))
     face.matrixAutoUpdate = false
     face.matrix.copy(m4).multiply(new T.Matrix4().makeTranslation(0, 0, p.size[2] / 2 + 0.02)).multiply(new T.Matrix4().makeScale(p.size[0], p.size[1], 1))
     scene.add(face)
@@ -254,6 +257,21 @@ for (const p of parts) {
 }
 }
 addParts(scene, S.parts)
+// A room (the Daily Spin's tyre shop): no sun or sky light, only its ambient and its own lamps.
+if (S.room) {
+  scene.background = new T.Color('#' + (S.fog?.color ?? '120c1c'))
+  hemi.color.set('#' + S.room.ambient); hemi.groundColor.set('#' + S.room.ambient); hemi.intensity = 1.2
+  sun.visible = false
+}
+for (const l of S.lights || []) {
+  const color = '#' + l.color
+  const light = l.kind === 'SpotLight'
+    ? new T.SpotLight(color, l.brightness * 260, l.range * 1.6, (l.angle / 2) * Math.PI / 180, 0.5, 1.2)
+    : new T.PointLight(color, l.brightness * 180, l.range * 1.6, 1.2)
+  light.position.set(...l.at)
+  if (l.kind === 'SpotLight') { light.target.position.set(l.at[0] + l.dir[0] * 50, l.at[1] + l.dir[1] * 50, l.at[2] + l.dir[2] * 50); scene.add(light.target) }
+  scene.add(light)
+}
 // A near plane well out from the camera: the software renderer's depth buffer is coarse, and road
 // paint a tenth of a stud above the asphalt sank into it.
 const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.camera?.far ?? (S.sky?.Up ? 40000 : 6000))

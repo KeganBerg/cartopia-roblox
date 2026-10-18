@@ -587,31 +587,35 @@ local function scanDead(label)
 		end
 	end
 end
-local function clickAll(label, open)
+local function clickAll(label, open, screen)
+	-- `screen`: where the menu draws when it isn't the HUD (a full-screen scene's own gui).
+	local function root()
+		return screen and screen() or hud.gui
+	end
 	open()
-	local n = #buttons(hud.gui)
+	local n = #buttons(root())
 	scanDead(label)
 	for i = 1, n do
 		hud.ctx.close()
 		open()
-		local b = buttons(hud.gui)[i]
+		local b = buttons(root())[i]
 		if not b then
 			continue
 		end
 		total += 1
-		local where = path(b, hud.gui)
+		local where = path(b, root())
 		calls = {}
 		handlerErrors = {}
 		local wired = hears(b)
 		local shape = {}
-		for _, d in hud.gui:GetDescendants() do
+		for _, d in root():GetDescendants() do
 			if d:IsA("GuiObject") and d.Visible then
 				shape[d] = true
 			end
 		end
-		local beforeN = #hud.gui:GetDescendants()
+		local beforeN = #root():GetDescendants()
 		local beforeText = {}
-		for _, d in hud.gui:GetDescendants() do
+		for _, d in root():GetDescendants() do
 			if d:IsA("TextLabel") then
 				table.insert(beforeText, d.Text)
 			end
@@ -632,12 +636,12 @@ local function clickAll(label, open)
 		end
 		if VERBOSE and ok and wired then
 			local afterText = {}
-			for _, d in hud.gui:GetDescendants() do
+			for _, d in root():GetDescendants() do
 				if d:IsA("TextLabel") then
 					table.insert(afterText, d.Text)
 				end
 			end
-			local changed = #hud.gui:GetDescendants() ~= beforeN or table.concat(afterText, "|") ~= table.concat(beforeText, "|")
+			local changed = #root():GetDescendants() ~= beforeN or table.concat(afterText, "|") ~= table.concat(beforeText, "|")
 			print(`[{label}] {if changed or #calls > 0 then "does something" else "NO VISIBLE EFFECT"}: {where} {table.concat(calls, ", ")}`)
 		end
 		scanDead(label)
@@ -701,10 +705,29 @@ local function unspun()
 	end)
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 end
+-- Lune's Destroy is its own and can't fire Destroying, so the Daily Spin's tyre shop (taken down
+-- when its panel goes) is closed by hand, as Roblox would.
+local wheelGone = nil
+local function wheelOpened()
+	local p = hud.root:FindFirstChild("Panel")
+	wheelGone = p and signalFor(p, "Destroying")
+end
+local function closeWheel()
+	hud.ctx.close()
+	if wheelGone then
+		wheelGone:Fire()
+		wheelGone = nil
+	end
+end
 clickAll("daily", function()
+	closeWheel()
 	unspun()
 	hud.openPanel("daily")
+	wheelOpened()
+end, function()
+	return player.PlayerGui:FindFirstChild("DailySpin") or hud.gui
 end)
+closeWheel()
 clickAll("cards", function()
 	hud.openPanel("cars", "cards")
 end)
@@ -823,7 +846,8 @@ local function shot(name, world, w, h)
 	local parts = {}
 	if world then
 		for _, d in world:GetDescendants() do
-			if d:IsA("BasePart") and d.Transparency < 1 then
+			-- An invisible part still shows the words on its SurfaceGui (the Daily Spin's amounts).
+			if d:IsA("BasePart") and (d.Transparency < 1 or d:FindFirstChildOfClass("SurfaceGui")) then
 				table.insert(parts, Gui.partOf(d))
 			end
 		end
@@ -833,7 +857,26 @@ local function shot(name, world, w, h)
 	local fog = if lighting.FogEnd < 10000 and not lighting:FindFirstChildOfClass("Atmosphere")
 		then { color = lighting.FogColor:ToHex(), start = lighting.FogStart, ["end"] = lighting.FogEnd }
 		else nil
-	fs.writeFile(`build/shot-{name}.json`, serde.encode("json", { parts = parts, fog = fog }))
+	-- A room's own lamps (the Daily Spin's tyre shop shuts the sun out).
+	local lights = {}
+	if world then
+		for _, d in world:GetDescendants() do
+			if (d:IsA("PointLight") or d:IsA("SpotLight")) and d.Parent and d.Parent:IsA("BasePart") then
+				local cf = (d.Parent :: any).CFrame
+				table.insert(lights, {
+					kind = d.ClassName,
+					at = { cf.Position.X, cf.Position.Y, cf.Position.Z },
+					dir = { cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z },
+					color = d.Color:ToHex(),
+					brightness = d.Brightness,
+					range = d.Range,
+					angle = if d:IsA("SpotLight") then d.Angle else nil,
+				})
+			end
+		end
+	end
+	local room = if lighting.Brightness == 0 then { ambient = lighting.OutdoorAmbient:ToHex() } else nil
+	fs.writeFile(`build/shot-{name}.json`, serde.encode("json", { parts = parts, fog = fog, lights = lights, room = room }))
 	local toasts = hud.gui:FindFirstChild("Toasts", true)
 	if toasts then
 		for _, t in toasts:GetChildren() do
@@ -842,7 +885,7 @@ local function shot(name, world, w, h)
 			end
 		end
 	end
-	local raceGui = player.PlayerGui:FindFirstChild("Race")
+	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("DailySpin")
 	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, w or 1280, h or 800), bubbles = {} }))
 	local cam = game.Workspace.CurrentCamera
 	local cf = cam.CFrame
@@ -2124,10 +2167,16 @@ do
 	unspun()
 	local before = towns:snapshot(1).save
 	hud.openPanel("daily")
+	wheelOpened()
+	local spinGui = player.PlayerGui:FindFirstChild("DailySpin")
+	assert(spinGui, "the Daily Spin didn't take the screen")
+	assert(not hud.gui.Enabled, "the HUD stayed up over the Daily Spin")
+	local shopWorld = game.Workspace:FindFirstChild("DailySpinShop")
+	assert(shopWorld, "no tyre shop built")
 	if SHOTS then
-		shot("wheel", nil)
+		shot("wheel", shopWorld)
 	end
-	local spinBtn = find(hud.gui, function(d)
+	local spinBtn = find(spinGui, function(d)
 		return d:IsA("TextButton") and d.Name == "Face" and d.Parent and d.Parent.Name == "Spin"
 	end)
 	assert(spinBtn, "no Spin button")
@@ -2139,13 +2188,10 @@ do
 		frames += 1
 		renderSteps.DailySpin(1 / 60)
 		if frames == 40 and SHOTS then
-			shot("wheel-spin", nil)
+			shot("wheel-spin", shopWorld)
 		end
 	end
-	local rotor = find(hud.gui, function(d)
-		return d.Name == "Rotor"
-	end)
-	local prize = find(hud.gui, function(d)
+	local prize = find(spinGui, function(d)
 		return d.Name == "PrizeLine"
 	end)
 	local words = {}
@@ -2157,14 +2203,35 @@ do
 		end
 	end
 	local after = towns:snapshot(1).save
-	print(`daily spin: {frames} frames, wheel at {rotor and math.floor(rotor.Rotation) or "?"}°, prize "{table.concat(words, " ")}"; coins {before.coins} -> {after.coins}, gems {before.bucks} -> {after.bucks}, spun {after.lastDaily}`)
+	print(`daily spin: {frames} frames, wheel at {math.floor(shopWorld:GetAttribute("Angle") or -1)}°, prize "{table.concat(words, " ")}"; coins {before.coins} -> {after.coins}, gems {before.bucks} -> {after.bucks}, spun {after.lastDaily}`)
 	print(`daily spin calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
 	if SHOTS then
-		shot("wheel-won", nil)
+		-- A moment after it lands, with the confetti in the air.
+		for _ = 1, 30 do
+			renderSteps.DailySpinScene(1 / 60)
+		end
+		shot("wheel-won", shopWorld)
 	end
 	local again = Remote.spin()
 	print(`daily spin again the same day: {if again then "SPUN AGAIN" else "refused"}`)
-	hud.ctx.close()
+	handlerErrors = {}
+	closeWheel()
+	if #handlerErrors > 0 then
+		print(`daily spin close: {table.concat(handlerErrors, "; ")}`)
+	end
+	assert(not game.Workspace:FindFirstChild("DailySpinShop") and not player.PlayerGui:FindFirstChild("DailySpin"), "the tyre shop stayed after closing")
+	assert(hud.gui.Enabled, "the HUD didn't come back after the Daily Spin")
+	if SHOTS then
+		-- On a phone: the dock under the wheel, as the web's.
+		local cam = game.Workspace.CurrentCamera
+		cam.ViewportSize = roblox.Vector2.new(844, 390)
+		unspun()
+		hud.openPanel("daily")
+		wheelOpened()
+		shot("wheel-phone", game.Workspace:FindFirstChild("DailySpinShop"), 844, 390)
+		closeWheel()
+		cam.ViewportSize = roblox.Vector2.new(1280, 800)
+	end
 end
 
 -- The Star Pass: 45 stars, two tiers already claimed; Collect takes the other three.

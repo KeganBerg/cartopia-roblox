@@ -14,8 +14,10 @@ local Horizon = require(script.Parent.Horizon)
 
 local DayNight = {}
 
--- Set by the race screen while a race runs: its venue's fog colour and distances (studs).
-DayNight.raceFog = nil :: { color: Color3, near: number, far: number }?
+-- Set by the race screen while a race runs: its venue's fog colour and distances (studs). A room
+-- (the Daily Spin's tyre shop) also shuts out the sun: only its own lamps and `ambient` light it.
+export type Fog = { color: Color3, near: number, far: number, room: { ambient: Color3 }? }
+DayNight.raceFog = nil :: Fog?
 local airKept: Atmosphere? = nil
 
 type Key = {
@@ -160,9 +162,23 @@ local function apply(now: number)
 				airKept.Parent = nil
 			end
 		end
-		Lighting.FogColor = race.color:Lerp(Color3.fromHex("#1d2740"), night)
+		Lighting.FogColor = if race.room then race.color else race.color:Lerp(Color3.fromHex("#1d2740"), night)
 		Lighting.FogStart = race.near
 		Lighting.FogEnd = race.far
+		local room = race.room
+		if room then
+			Lighting.Brightness = 0
+			Lighting.Ambient = room.ambient
+			Lighting.OutdoorAmbient = room.ambient
+			Lighting.EnvironmentDiffuseScale = 0
+			Lighting.EnvironmentSpecularScale = 0.3
+			Lighting.ExposureCompensation = math.log(1.15, 2)
+			-- WheelScene's grade: brighter neon glow, a little more colour.
+			bloom.Intensity = 0.9
+			bloom.Threshold = 0.85
+			grade.Saturation = 0.15
+			grade.Contrast = 0.1
+		end
 		return
 	elseif airKept then
 		airKept.Parent = Lighting
@@ -193,7 +209,7 @@ end
 DayNight.apply = apply
 
 -- Starts or ends a race's fog, at once rather than at the next tick.
-function DayNight.setRaceFog(fog: { color: Color3, near: number, far: number }?)
+function DayNight.setRaceFog(fog: Fog?)
 	DayNight.raceFog = fog
 	apply(DateTime.now().UnixTimestampMillis)
 end
