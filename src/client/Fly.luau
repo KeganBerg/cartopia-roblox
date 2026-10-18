@@ -60,6 +60,9 @@ function Fly.from(ctx: any, source: GuiObject, amounts: { [string]: any })
 				end
 				TweenService:Create(bit, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = pop }):Play()
 				task.wait(0.4)
+				if not bit.Parent then
+					return
+				end
 				local whoosh = TweenService:Create(bit, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = UDim2.fromOffset(to.X, to.Y) })
 				whoosh:Play()
 				whoosh.Completed:Wait()
