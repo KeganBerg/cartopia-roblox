@@ -641,7 +641,7 @@ export function convert(data) {
   const stance = {}
   for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
     for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, townSizes: data.townSizes ?? {}, textures: [...(data.textures ?? []), ...skinTextures()] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, townSizes: data.townSizes ?? {}, turbines: (data.turbines ?? []).map(([x, y, z, yaw, tint]) => [x * SCALE, y * SCALE, z * SCALE, yaw, tint]), textures: [...(data.textures ?? []), ...skinTextures()] }
 }
 
 // The car skins baked by skins.mjs (kept in tools/models/skins/), as textures to upload: each
@@ -784,7 +784,15 @@ Catalog.LOOKS = {
   const sc = header('The countryside round the town (Outskirts.tsx): the forest ring with its farm and lake, and each plot\'s wild meadow ("wilds:x,z").') + `local Scenery = {}
 
 Scenery.MODELS = {
-` + modelList('scenery') + '}\n\nreturn Scenery\n'
+` + modelList('scenery') + `}
+
+-- The far land's wind turbines (Horizon.tsx WindFarm), whose rotors client/Horizon spins: the
+-- middle of each rotor in studs from the middle of the town, its heading, and its tint (0-1).
+Scenery.TURBINES = {
+${(result.turbines ?? []).map((t) => `\t{ ${t.map(num).join(', ')} },\n`).join('')}}
+
+return Scenery
+`
   writeFileSync(join(OUT_DIR, 'Scenery.luau'), sc)
   // The drag strip at each race venue, in studs from the start line's middle: "race:<venue>", and
   // "race:<venue>:far", the horizon, drawn round the camera (it rides along with it).
