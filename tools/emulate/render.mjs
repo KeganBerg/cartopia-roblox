@@ -16,6 +16,8 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '../..')
 
 export async function render({ web, scene, out, gui, width = 1280, height = 800, camera }) {
+  // Lune writes an empty list as {}.
+  if (!Array.isArray(scene.parts)) scene = { ...scene, parts: [] }
   const dir = join(resolve(web), '.rbx-preview')
   mkdirSync(dir, { recursive: true })
   const req = createRequire(join(resolve(web), 'package.json'))

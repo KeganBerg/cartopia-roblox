@@ -38,6 +38,12 @@ pcall(roblox.implementMethod, "UserInputService", "GetMouseLocation", function()
 	return roblox.Vector2.new(640, 400)
 end)
 
+-- Text is measured with the same estimate the screen dumps use (tools/emulate/gui.luau).
+pcall(roblox.implementMethod, "TextService", "GetTextSize", function(_, text, size, font)
+	local family = if font == roblox.Enum.Font.FredokaOne then "FredokaOne" else "Nunito"
+	return roblox.Vector2.new(require("./gui").textWidth(text, size, family), size)
+end)
+
 -- Property change signals never fire here either.
 pcall(roblox.implementMethod, "Instance", "GetPropertyChangedSignal", function()
 	return signal()
@@ -254,6 +260,19 @@ function Emu.load(placeFile: string)
 			e[k] = roblox[k]
 		end
 		e.CFrame = FixedCFrame
+		-- Nothing is laid out here, so screens read a zero size, as before Roblox's first frame.
+		e.Instance = setmetatable({
+			new = function(class, parent)
+				local inst = roblox.Instance.new(class)
+				if inst:IsA("GuiObject") then
+					inst.AbsoluteSize = roblox.Vector2.new(0, 0)
+				end
+				if parent then
+					inst.Parent = parent
+				end
+				return inst
+			end,
+		}, { __index = roblox.Instance })
 		return e
 	end
 	return {

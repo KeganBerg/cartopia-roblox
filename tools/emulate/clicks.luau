@@ -485,6 +485,11 @@ local function shot(name, world)
 	fs.writeFile(`build/shot-{name}-cam.json`, serde.encode("json", { from = { cf.Position.X, cf.Position.Y, cf.Position.Z }, at = { at.X, at.Y, at.Z }, fov = cam.FieldOfView }))
 end
 if SHOTS then
+	for _, p in { "shop", "goals", "menu", "cars" } do
+		hud.ctx.close()
+		hud.openPanel(p)
+		shot(`panel-{p}`, nil)
+	end
 	for _, t in { "hub", "quick", "campaign" } do
 		hud.ctx.close()
 		hud.openPanel("race", t)
@@ -565,7 +570,7 @@ if SHOTS then
 	local function tabTo(id)
 		local holder = hud.gui:FindFirstChild("Rescue", true)
 		local tabs = holder and holder:FindFirstChild("Tabs", true)
-		local t = tabs and tabs:FindFirstChild(id)
+		local t = tabs and tabs:FindFirstChild(id, true)
 		local face = t and t:FindFirstChild("Face")
 		if face then
 			signalFor(face, "Activated"):Fire()

@@ -71,6 +71,8 @@ local function textWidth(text, size, family)
 	return w
 end
 
+Gui.textWidth = textWidth
+
 local function guiKids(inst)
 	local out = {}
 	for _, c in inst:GetChildren() do
