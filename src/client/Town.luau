@@ -19,6 +19,21 @@ function Town.folder(): Folder?
 	return nil
 end
 
+-- The town on screen: the one the player is visiting (their "Visiting" attribute, set by the
+-- server), else their own.
+function Town.shown(): Folder?
+	local host = Players.LocalPlayer:GetAttribute("Visiting")
+	local towns = workspace:FindFirstChild("Towns")
+	if type(host) == "number" and towns then
+		for _, f in towns:GetChildren() do
+			if f:GetAttribute("Owner") == host then
+				return f :: Folder
+			end
+		end
+	end
+	return Town.folder()
+end
+
 -- Tile (x, z) to a world position on the ground at its centre (x, z may be fractional).
 function Town.tileToWorld(x: number, z: number): Vector3?
 	local f = Town.folder()

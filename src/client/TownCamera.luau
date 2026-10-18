@@ -49,9 +49,9 @@ local function update()
 	cam.Focus = CFrame.new(view)
 end
 
--- Keeps the view over the player's land.
+-- Keeps the view over the player's land (or the land of the town they're visiting).
 local function clamp()
-	local f = Town.folder()
+	local f = Town.shown()
 	if not f then
 		return
 	end
@@ -83,6 +83,13 @@ function TownCamera.start()
 		end
 	end)
 	fitZoom()
+	-- A visit (or going home) moves the view to that town's middle.
+	player:GetAttributeChangedSignal("Visiting"):Connect(function()
+		placed = false
+		if walking then
+			TownCamera.setWalking(false)
+		end
+	end)
 	-- A new avatar (after a fall off the map, say) keeps the camera on it while walking.
 	player.CharacterAdded:Connect(function()
 		if walking then
@@ -163,7 +170,7 @@ function TownCamera.start()
 			return
 		end
 		if not placed then
-			local f = Town.folder()
+			local f = Town.shown()
 			if f then
 				view = f:GetAttribute("Origin") :: any
 				placed = true

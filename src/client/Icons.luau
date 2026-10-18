@@ -131,6 +131,24 @@ DRAW.flag = function(c)
 	end
 end
 
+-- Two people, the bigger in front (the web's friends icon).
+DRAW.friends = function(c)
+	circle(c, 17, 8.5, 2.8)
+	part(c, 14.6, 13.5, 8, 6, 3)
+	circle(c, 8.5, 7.5, 3.5)
+	part(c, 1.5, 13.5, 14, 7, 3.5)
+	part(c, 1.5, 17, 14, 3.5, 1)
+end
+
+-- A speech bubble with three dots.
+DRAW.chat = function(c)
+	part(c, 2, 3, 20, 15, 2.5)
+	bar(c, 7, 16, 5.5, 21.3, 2.6)
+	for _, x in { 7.5, 12, 16.5 } do
+		circle(c, x, 10.7, 1.5, c.cut)
+	end
+end
+
 DRAW.goals = function(c)
 	part(c, 4, 4, 16, 18, 1.5)
 	part(c, 8, 2, 8, 3.5, 1)

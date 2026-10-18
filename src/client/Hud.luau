@@ -2,8 +2,9 @@
 -- The heads-up display, laid out like the web game's Hud and BottomBar (ui/Hud.tsx, Menus.tsx):
 -- the speedometer level gauge (it's also the Menu button) and the coin, gem and parts pills top
 -- left; the town name, MY CARS and the goal tracker top middle; fuel, trophies and sound top
--- right; SHOP, CARS and EDIT bottom left, RACE bottom right, with Goals and Collect All docked
--- above it. Also shows toasts and the menus (one at a time), including the ones the server opens.
+-- right; SHOP, CARS, SOCIAL, CHAT and EDIT bottom left, RACE bottom right, with Goals and Collect
+-- All docked above it. While visiting someone's town the bottom bar steps aside for the visit
+-- banner (Popups/Visit), as on the web. Also shows toasts and the menus (one at a time), including the ones the server opens.
 --
 -- Built once. The refresh only changes text, sizes and colours that changed; it never makes
 -- instances.
@@ -12,6 +13,7 @@ local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local StarterGui = game:GetService("StarterGui")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -149,6 +151,8 @@ function Hud.start()
 
 	local openPanel: (string, any?) -> ()
 	local ctx = {
+		-- The town being visited (Popups/Visit sets it): { townName, ... }, or nil at home.
+		visiting = nil :: any,
 		gui = root,
 		close = close,
 		toast = toast,
@@ -308,8 +312,8 @@ function Hud.start()
 		;(soundGroup :: SoundGroup).Volume = if muted then 0 else 1
 	end)
 
-	-- ── Bottom: SHOP, CARS, EDIT and RACE; Goals and Collect All docked on the right ─────────
-	local bar = Ui.new("Frame", { Name = "BottomBar", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.fromOffset(3 * 66 + 2 * 8, 80), BackgroundTransparency = 1, Parent = root }, {
+	-- ── Bottom: SHOP, CARS, SOCIAL, CHAT, EDIT and RACE; Goals and Collect All on the right ───
+	local bar = Ui.new("Frame", { Name = "BottomBar", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.fromOffset(5 * 66 + 4 * 8, 80), BackgroundTransparency = 1, Parent = root }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	local function iconButton(order: number, colors: string, icon: string, label: string, onClick: () -> ())
@@ -319,6 +323,7 @@ function Hud.start()
 		local mid = Color3.fromHex(c[1]):Lerp(Color3.fromHex(c[2]), 0.5)
 		Icons.draw(icon, face, 31, Ui.WHITE, mid, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		Ui.text({ Text = label, TextSize = 14, Position = UDim2.fromOffset(-10, 64), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = holder })
+		return holder
 	end
 	iconButton(1, "shop", "shop", "SHOP", function()
 		openPanel("shop")
@@ -326,7 +331,18 @@ function Hud.start()
 	iconButton(2, "showroom", "car", "CARS", function()
 		openPanel("cars")
 	end)
-	iconButton(3, "edit", "cone", "EDIT", function()
+	-- Friends, visiting towns and joining friends (Panels/Friends).
+	iconButton(3, "friends", "friends", "SOCIAL", function()
+		openPanel("friends")
+	end)
+	-- Roblox's own chat (TextChatService), only for players Roblox lets chat.
+	local chatButton = iconButton(4, "chat", "chat", "CHAT", function()
+		close()
+		pcall(function()
+			StarterGui:SetCore("ChatActive", not StarterGui:GetCore("ChatActive"))
+		end)
+	end)
+	iconButton(5, "edit", "cone", "EDIT", function()
 		close()
 		TownCamera.setWalking(false)
 		Placement.edit(root, ctx)
@@ -476,7 +492,9 @@ function Hud.start()
 		Ui.setText(coins, Ui.compact(s.coins))
 		Ui.setText(gems, Ui.compact(s.bucks))
 		Ui.setText(parts, Ui.compact(s.parts))
-		Ui.setText(townName, s.townName)
+		local visiting = ctx.visiting
+		Ui.setText(townName, if visiting then visiting.townName else s.townName)
+		carsShadow.Visible = not visiting
 		Ui.setText(carsText, `MY CARS: {#s.cars}`)
 		local g = trackedGoal(s)
 		goalShadow.Visible = g ~= nil and not Placement.active()
@@ -537,9 +555,10 @@ function Hud.start()
 			Ui.setText(readyText, tostring(ready))
 		end
 		local editing = Placement.active()
-		bar.Visible = not editing
-		race.Visible = not editing
-		dock.Visible = not editing
+		bar.Visible = not editing and not visiting
+		race.Visible = not editing and not visiting
+		dock.Visible = not editing and not visiting
+		chatButton.Visible = Players.LocalPlayer:GetAttribute("CanChat") == true
 	end
 
 	Remote.changed:Connect(function(snap)
