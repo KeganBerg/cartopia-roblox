@@ -25,6 +25,7 @@ local Models = Shared:WaitForChild("Models")
 local clock = require(Game:WaitForChild("clock")) :: any
 local weather = require(Game:WaitForChild("weather")) :: any
 local extras = require(Game:WaitForChild("skyExtras")) :: any
+local season = require(Game:WaitForChild("scene_season")) :: any
 local Js = require(Game:WaitForChild("__js")) :: any
 local Lualib = require(Game:WaitForChild("lualib_bundle")) :: any
 local SkyImages = require(Models:WaitForChild("SkyImages")) :: any
@@ -471,10 +472,10 @@ local SPAN, TOP = 56, 22
 -- A leaf shape is about 1.2 across; snow is a few pixels from the town view.
 local SHAPE = { leaf = 1.2, petal = 1, flake = 1 }
 
-local season: { emitters: { ParticleEmitter }, fx: any, walking: boolean? }? = nil
+local fliers: { emitters: { ParticleEmitter }, fx: any, walking: boolean? }? = nil
 
 function SkyExtras.seasonStart(origin: Vector3)
-	local fx = (FX :: any)[Catalog.SEASON]
+	local fx = (FX :: any)[season.SEASON]
 	local pic = fx and image(SkyImages.fliers and SkyImages.fliers[fx.kind])
 	if not fx or not pic then
 		return
@@ -510,12 +511,12 @@ function SkyExtras.seasonStart(origin: Vector3)
 		e.Parent = area
 		table.insert(emitters, e)
 	end
-	season = { emitters = emitters, fx = fx }
+	fliers = { emitters = emitters, fx = fx }
 end
 
 local breezeAt = -math.huge
 local function seasonFliers(t: number, n: number, w: any, walking: boolean)
-	local s = season
+	local s = fliers
 	if not s then
 		return
 	end
