@@ -191,8 +191,9 @@ end
 -- What the player's client needs after a change: the save, the popup the action opened (panel,
 -- with the building being upgraded) or the "you need more" note (need), and the toasts it showed.
 -- Popups, notes and toasts are taken off the town once sent: the server never runs the timers or
--- close buttons that clear them on the web, and each should show once.
-function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string } }
+-- close buttons that clear them on the web, and each should show once. search: Rusty's search in
+-- progress, which isn't part of the save (leaving mid-search forfeits it, as on the web).
+function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string }, search: any }
 	local state = assert(self.states[userId], "town not open")
 	local toasts = {}
 	for _, t in state.toasts or {} do
@@ -208,7 +209,7 @@ function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, pa
 		next.panelBack = {}
 		self.states[userId] = next
 	end
-	return { save = self.saveOf(self.states[userId]), need = need, panel = panel, upgrading = upgrading, toasts = toasts }
+	return { save = self.saveOf(self.states[userId]), need = need, panel = panel, upgrading = upgrading, toasts = toasts, search = state.search }
 end
 
 -- The save to write to the DataStore.

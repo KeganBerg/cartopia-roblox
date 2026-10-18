@@ -420,7 +420,30 @@ local function clickAll(label, open)
 end
 
 clickAll("hud", function() end)
-for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates" } do
+-- Rusty's Rescue, with a car on the lot and one in the bay, so every part of it has buttons.
+local function rustyTown()
+	towns:_with(1, function(s)
+		local b = table.clone(s.buildings)
+		local has = false
+		for _, x in b do
+			has = has or x.def == "rescue"
+		end
+		if not has then
+			table.insert(b, { id = "rusty1", def = "rescue", x = 40, z = 40, rot = 0, level = 1 })
+		end
+		store.useGame.setState({
+			buildings = b,
+			coins = 1000000,
+			parts = 200,
+			level = 30,
+			junkyard = { { uid = "j1", model = "woodie", rarity = "scarce" }, { uid = "j2", model = "pip", rarity = "common" }, { uid = "j3", model = "miata", rarity = "rare" } },
+			restoring = { uid = "r1", model = "bug", rarity = "common", minutes = 5, endsAt = NOW + 120000 },
+		})
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+end
+rustyTown()
+for _, p in { "shop", "cars", "garage", "showroom", "goals", "menu", "inventory", "race", "book", "crates", "rescue" } do
 	clickAll(p, function()
 		hud.openPanel(p)
 	end)
@@ -498,6 +521,56 @@ if SHOTS then
 			break
 		end
 	end
+
+	-- Rusty's: both tabs, a search part done, the haul towed home, and a finished car's plate.
+	towns:run(1, "abandonSearch")
+	rustyTown()
+	hud.ctx.close()
+	hud.openPanel("rescue")
+	local function press(name)
+		local b = hud.gui:FindFirstChild(name, true)
+		if b then
+			signalFor(b, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		return b ~= nil
+	end
+	local function tabTo(id)
+		local holder = hud.gui:FindFirstChild("Rescue", true)
+		local tabs = holder and holder:FindFirstChild("Tabs", true)
+		local t = tabs and tabs:FindFirstChild(id)
+		local face = t and t:FindFirstChild("Face")
+		if face then
+			signalFor(face, "Activated"):Fire()
+		end
+	end
+	tabTo("storage")
+	shot("rescue-lot", nil)
+	tabTo("find")
+	shot("rescue-find", nil)
+	press("suburbs")
+	for i = 1, 3 do
+		local q = towns:snapshot(1).search
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		if q and not q.flat then
+			press(`Tarp{i}`)
+		end
+	end
+	shot("rescue-search", nil)
+	if towns:snapshot(1).search and towns:snapshot(1).search.flat then
+		press("FixTruck")
+	end
+	press("TowHome")
+	shot("rescue-haul", nil)
+	towns:_with(1, function(s)
+		store.useGame.setState({ restoring = { uid = "r1", model = "bug", rarity = "common", minutes = 5, endsAt = 0 } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("rescue")
+	tabTo("storage")
+	press("Collect")
+	shot("rescue-plate", nil)
 end
 
 -- A whole Quick Race, driven through the race screen's own buttons like a player would.

@@ -432,7 +432,7 @@ function Menu.need(ctx: any, need: any?): Instance?
 		if hasJob and not (what and what:sub(1, 9) == "upgrading") then
 			table.insert(sources, { icon = "⬆️", title = "Upgrade your businesses", detail = "Upgraded businesses pay more coins per job and finish sooner. Find them under Upgrades in the Shop.", action = { label = "Upgrades", run = function() ctx.open("shop", "upgrades") end } })
 		end
-		table.insert(sources, { icon = "🔍", title = "Search at Rusty's", detail = "Searches can turn up coin stashes along with cars.", action = if owned("rescue") > 0 then { label = "Rusty's", run = soon("Rusty's yard") } else build("rescue") })
+		table.insert(sources, { icon = "🔍", title = "Search at Rusty's", detail = "Searches can turn up coin stashes along with cars.", action = if owned("rescue") > 0 then { label = "Rusty's", run = function() ctx.open("rescue") end } else build("rescue") })
 		table.insert(sources, { icon = "🏆", title = "Win drag races", detail = `Each race costs {data.RACE_FUEL} fuel and pays a few hundred coins.`, action = { label = "Race", run = function() ctx.open("race") end } })
 		table.insert(sources, { icon = "📋", title = "Finish goals", detail = "Goals pay coins, XP and sometimes gems.", action = { label = "Goals", run = function() ctx.open("goals") end } })
 		table.insert(sources, { icon = "👫", title = "Help other towns", detail = "Visit a town and tap its shops to help.", action = { label = "Social", run = soon("Visiting towns") } })
@@ -442,7 +442,7 @@ function Menu.need(ctx: any, need: any?): Instance?
 			return { icon = icon, title = title, detail = detail, action = if owned(id) > 0 then { label = "Show me", run = showParts(id) } else build(id) }
 		end
 		sources = {
-			{ icon = "🔧", title = "Rusty's Rescue searches", detail = if owned("rescue") > 0 then "Searches turn up parts, and you can scrap cars in storage for 3 to 12 parts." else "Build Rusty's to search for cars and parts.", action = if owned("rescue") > 0 then { label = "Rusty's", run = soon("Rusty's yard") } else build("rescue") },
+			{ icon = "🔧", title = "Rusty's Rescue searches", detail = if owned("rescue") > 0 then "Searches turn up parts, and you can scrap cars in storage for 3 to 12 parts." else "Build Rusty's to search for cars and parts.", action = if owned("rescue") > 0 then { label = "Rusty's", run = function() ctx.open("rescue") end } else build("rescue") },
 			partsRow("🛞", "Tire Shop · 6 parts per job (level 2)", "tires", `You have {owned("tires")}. Build more for more parts.`),
 			partsRow("🛢", "Lube & Go · 8 parts per job (level 4)", "lube", `You have {owned("lube")}.`),
 			partsRow("📦", "Parts Depot · 15 parts per job (level 5)", "parts", `You have {owned("parts")}.`),

@@ -23,6 +23,7 @@ local Icons = require(script.Parent.Icons)
 local Shop = require(script.Parent.Shop)
 local Cars = require(script.Parent.Cars)
 local Goals = require(script.Parent.Goals)
+local Rescue = require(script.Parent.Rescue)
 local Menu = require(script.Parent.Menu)
 local Upgrade = require(script.Parent.Upgrade)
 local Placement = require(script.Parent.Placement)
@@ -361,6 +362,8 @@ function Hud.start()
 			open = Upgrade.open(ctx, arg)
 		elseif panel == "goals" then
 			open = Goals.open(ctx)
+		elseif panel == "rescue" then
+			open = Rescue.open(ctx)
 		elseif panel == "account" or panel == "menu" then
 			open = Menu.open(ctx)
 		elseif panel == "race" then
