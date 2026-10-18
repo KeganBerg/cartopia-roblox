@@ -160,7 +160,7 @@ local PIN = (function()
         return nil
     end
     local v = __TS__New(URLSearchParams, location.search).get("weather")
-    return if if __truthy(v) then __TS__ArrayIncludes(____exports.WEATHER_KINDS, v) else v then v else nil
+    return if __truthy(if __truthy(v) then __TS__ArrayIncludes(____exports.WEATHER_KINDS, v) else v) then v else nil
 end)()
 local function hash(n)
     local h = __imul(
@@ -553,7 +553,7 @@ function ____exports.raceWeather(at, seed, force)
             __random()
         )
     end
-    if if __truthy(force) then not __truthy(PIN) else force then
+    if __truthy(if __truthy(force) then not __truthy(PIN) else force) then
         kind = force
     elseif venue == "snow" then
         kind = AS_SNOW[kind] or kind

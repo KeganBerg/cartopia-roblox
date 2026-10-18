@@ -551,7 +551,7 @@ export function convert(data) {
   const stance = {}
   for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
     for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, textures: [...(data.textures ?? []), ...skinTextures()] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, townSizes: data.townSizes ?? {}, textures: [...(data.textures ?? []), ...skinTextures()] }
 }
 
 // The car skins baked by skins.mjs (kept in tools/models/skins/), as textures to upload: each
@@ -679,6 +679,8 @@ Catalog.LOOKS = {
   for (const [car, byKind] of Object.entries(result.trim ?? {})) cat += `\t[${str(car)}] = { ${lists(byKind)} },\n`
   cat += '}\n\n-- How far each stance mod moves a car\'s body up (or down), in studs.\nCatalog.STANCE = {\n'
   for (const [car, byMod] of Object.entries(result.stance ?? {})) cat += `\t[${str(car)}] = { ${Object.entries(byMod).map(([k, v]) => `${k} = ${num(v)}`).join(', ')} },\n`
+  cat += '}\n\n-- Each car in town traffic (townCarSize.ts): { length, width } in web units, and the scale it\'s\n-- drawn at.\nCatalog.TOWN_SIZE = {\n'
+  for (const [car, v] of Object.entries(result.townSizes ?? {})) cat += `\t[${str(car)}] = { ${v.map(num).join(', ')} },\n`
   cat += '}\n\nCatalog.MODELS = {\n' + modelList('town') + '}\n\nreturn Catalog\n'
   writeFileSync(join(OUT_DIR, 'Catalog.luau'), cat)
   // The countryside, apart so the town's own models stay quick to load. Parts are in studs from

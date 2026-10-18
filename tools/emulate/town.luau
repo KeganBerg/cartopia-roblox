@@ -51,13 +51,47 @@ if process.env.NO_MESHES == nil then
 	pcall(emu.require(RS.Shared.Models.Builder).useLibrary, 1)
 end
 Countryside.draw(Vector3.new(0, 0, 0), folder)(save)
+-- LIFE=<seconds>: the town's traffic and townspeople (client TownLife), run that long.
+local life = tonumber(process.env.LIFE or "")
+if life then
+	local TownLife = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.TownLife)
+	local update, step = TownLife.attach(view.folder)
+	update(save)
+	for _ = 1, math.floor(life * 30) do
+		step(1 / 30)
+	end
+	local walking, cars = 0, 0
+	for _, f in game.Workspace.Townspeople:GetChildren() do
+		local any = f:FindFirstChildWhichIsA("BasePart")
+		if any and any.CFrame.Position.Y > -100 then
+			walking += 1
+		end
+	end
+	TownLife._traffic.agents:forEach(function(_, a, uid)
+		cars += 1
+		print(`  {uid} at {math.floor(a.x * 10)}, {math.floor(a.z * 10)} studs, speed {math.floor(a.v * 100) / 100}, shown {a.show}`)
+	end)
+	for _, m in view.folder.Cars:GetChildren() do
+		print(`  model {m.Name} pivot {m:GetPivot().Position} scale {m:GetScale()}`)
+	end
+	print(`after {life}s: {cars} cars driving, {walking} of {#game.Workspace.Townspeople:GetChildren()} townspeople out`)
+end
 
 local Gui = require("./gui")
 local parts = {}
--- The place file's own parts too (Workspace.Ground), which once sat over the whole town.
+-- The place file's own parts too (Workspace.Ground), which once sat over the whole town, and what
+-- TownLife adds (townspeople, traffic lights).
 for _, d in game.Workspace:GetChildren() do
 	if d:IsA("BasePart") and d.Transparency < 1 then
 		table.insert(parts, Gui.partOf(d))
+	end
+end
+for _, name in { "Townspeople", "TrafficSignals" } do
+	local f = game.Workspace:FindFirstChild(name)
+	for _, d in if f then f:GetDescendants() else {} do
+		if d:IsA("BasePart") and d.Transparency < 1 and d.CFrame.Position.Y > -100 then
+			table.insert(parts, Gui.partOf(d))
+		end
 	end
 end
 for _, d in folder:GetDescendants() do

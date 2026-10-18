@@ -326,6 +326,41 @@ function Hud.start()
 		walkIcon.Text = if on then "🏙️" else "🚶"
 		walkLabel.Text = if on then "TOWN" else "WALK"
 	end)
+	-- On phones Roblox's jump button sits in the bottom right corner, under Race and the buttons
+	-- above it: keep it just left of Race instead.
+	local function placeJump(button: GuiObject)
+		local s = scale.Scale
+		local want = UDim2.new(1, -math.floor((10 + 87 + 14) * s), 1, -math.floor(10 * s))
+		if button.AnchorPoint ~= Vector2.new(1, 1) or button.Position ~= want then
+			button.AnchorPoint = Vector2.new(1, 1)
+			button.Position = want
+		end
+	end
+	local function watchJump(touch: Instance)
+		task.spawn(function()
+			local frame = touch:WaitForChild("TouchControlFrame", 30)
+			local button = frame and frame:WaitForChild("JumpButton", 30)
+			if button and button:IsA("GuiObject") then
+				placeJump(button)
+				button:GetPropertyChangedSignal("Position"):Connect(function()
+					placeJump(button)
+				end)
+				scale:GetPropertyChangedSignal("Scale"):Connect(function()
+					placeJump(button)
+				end)
+			end
+		end)
+	end
+	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+	local touch = playerGui:FindFirstChild("TouchGui")
+	if touch then
+		watchJump(touch)
+	end
+	playerGui.ChildAdded:Connect(function(c)
+		if c.Name == "TouchGui" then
+			watchJump(c)
+		end
+	end)
 
 	local dock = Ui.new("Frame", { Name = "Dock", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -104), Size = UDim2.fromOffset(60, 136), BackgroundTransparency = 1, Parent = root })
 	local _, goalsFace = Ui.button({ Name = "Goals", Position = UDim2.fromOffset(2.5, 2.5 + 3), Size = UDim2.fromOffset(55, 55), Parent = dock }, "white", function()

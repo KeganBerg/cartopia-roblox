@@ -29,7 +29,7 @@ ____exports.lampPost = function(l)
     return ____opt_2 and ____opt_2.id or "auto"
 end
 function ____exports.cleanLights(l)
-    local o = if if __truthy(l) then type(l) == "table" else l then l else {}
+    local o = if __truthy(if __truthy(l) then type(l) == "table" else l) then l else {}
     local tone = ____exports.lightTone(o).id
     local post = ____exports.lampPost(o)
     return if tone == ____exports.DEFAULT_LIGHTS.tone and post == ____exports.DEFAULT_LIGHTS.post then nil else {tone = tone, post = post}

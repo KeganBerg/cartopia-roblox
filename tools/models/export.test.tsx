@@ -821,12 +821,19 @@ it('exports every building and car', async () => {
     }
     batching.off = false
   }
+  // Each car's size in town traffic (townCarSize.ts): drawn smaller so it fits its lane.
+  const { townSize, bodyScale } = await import('./scene/townCarSize')
+  const townSizes: Record<string, [number, number, number]> = {}
+  for (const c of CARS) {
+    const s = townSize(c.body)
+    townSizes[c.id] = [r4(s.len), r4(s.wid), r4(bodyScale(c.body))]
+  }
   // The shapes go in a file of their own, one per line: all of them in one string is more than
   // JavaScript can hold (build.mjs loadModels reads them back).
   const fd = openSync(`${OUT}.geos`, 'w')
   for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
   closeSync(fd)
-  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

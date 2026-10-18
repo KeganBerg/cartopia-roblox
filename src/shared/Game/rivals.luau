@@ -144,7 +144,7 @@ function ____exports.currentRival(level, progress, now)
         return nil
     end
     local p = progress[def.id] or ({beaten = 0})
-    local away = if if __truthy(p.back) then p.back > now else p.back then p.back else 0
+    local away = if __truthy(if __truthy(p.back) then p.back > now else p.back) then p.back else 0
     return {def = def, visit = p.beaten, locked = level < ____exports.RIVAL_LEVEL, away = away}
 end
 ____exports.rivalLadderPi = function(def, visit) return math.floor(def.pi[1] + (def.pi[2] - def.pi[1]) * visit / (____exports.RIVAL_VISITS - 1) + 0.5) end

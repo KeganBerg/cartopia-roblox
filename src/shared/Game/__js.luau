@@ -257,6 +257,14 @@ function ____exports.imul(a, b)
         0
     )
 end
+function ____exports.hypot(...)
+    local xs = {...}
+    local sum = 0
+    for ____, x in ipairs(xs) do
+        sum = sum + x * x
+    end
+    return math.sqrt(sum)
+end
 function ____exports.localeString(n)
     local neg = n < 0
     local s = tostring(math.floor(math.abs(n) + 0.5))
