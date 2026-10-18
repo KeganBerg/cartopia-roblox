@@ -146,6 +146,9 @@ crateRemote.Parent = remotes
 local meshRemote = Instance.new("RemoteFunction")
 meshRemote.Name = "Meshes"
 meshRemote.Parent = remotes
+local bankRemote = Instance.new("RemoteFunction")
+bankRemote.Name = "Bank"
+bankRemote.Parent = remotes
 -- The race desk, as init.server.luau makes it (a seeded stand-in for Random).
 local seed = 7
 local G = RS.Shared.Game
@@ -344,12 +347,35 @@ local crateDesk = emu.require(SSS.Server.Crates).new(towns, store, emu.require(G
 		return player:GetAttribute(k)
 	end), pay, free)
 end)
+-- The server end of Cartopia.Bank (server/Purchases), with every product made.
+local bankDesk = emu.require(SSS.Server.Purchases).new(towns, store, emu.require(G.bucksPacks), function()
+	return true
+end)
+do
+	local list = {}
+	for i, p in emu.require(G.bucksPacks).ALL_PACKS do
+		table.insert(list, { name = p.name, product = i, robux = math.floor(p.price * 80 + 0.5) })
+	end
+	bankDesk:setProducts(list)
+	bankDesk:load(1, {})
+end
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
 	if remote.Name == "Race" then
 		return raceDesk(name, ...)
 	elseif remote.Name == "Meshes" then
 		-- Every mesh is already here in the previews.
 		return true
+	elseif remote.Name == "Bank" then
+		-- The Bank: every pack's product made at a made-up price, so the cards show prices.
+		if name == "shop" then
+			local shop = bankDesk:shop(1)
+			checkSend("bank shop", shop)
+			table.insert(calls, "ok bank shop")
+			return true, shop
+		end
+		local product, why = bankDesk:canBuy(1, ...)
+		table.insert(calls, if product then `ok bank buy {...}` else `bank buy refused: {why}`)
+		return product ~= nil, why
 	elseif remote.Name == "Crate" then
 		local ran, result, why = pcall(crateDesk.open, crateDesk, 1, name, ...)
 		if not ran then
@@ -698,7 +724,7 @@ print(`{total} buttons pressed, {bad} problems, {silent} not wired`)
 local fs = require("@lune/fs")
 local serde = require("@lune/serde")
 local Gui = require("./gui")
-local function shot(name, world)
+local function shot(name, world, w, h)
 	if not SHOTS then
 		return
 	end
@@ -725,7 +751,7 @@ local function shot(name, world)
 		end
 	end
 	local raceGui = player.PlayerGui:FindFirstChild("Race")
-	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, 1280, 800), bubbles = {} }))
+	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, w or 1280, h or 800), bubbles = {} }))
 	local cam = game.Workspace.CurrentCamera
 	local cf = cam.CFrame
 	local at = cf.Position + cf.LookVector * 50
@@ -1040,6 +1066,18 @@ if SHOTS then
 	hud.ctx.close()
 	hud.openPanel("book")
 	shot("book", nil)
+	-- The Bank, wide and on a phone: an 844 x 390 screen scales the HUD by 0.55, so it lays out at
+	-- 1535 x 709 (render at that size, then shrink the picture to 844 x 390).
+	local root = hud.gui:FindFirstChild("Root")
+	for _, size in { { 1280, 800, "" }, { 1535, 709, "-phone" } } do
+		root.Size = roblox.UDim2.fromOffset(size[1], size[2])
+		for _, p in { "bank", "carpacks" } do
+			hud.ctx.close()
+			hud.openPanel(p)
+			shot(`panel-{p}{size[3]}`, nil, size[1], size[2])
+		end
+	end
+	root.Size = roblox.UDim2.fromOffset(1280, 800)
 	-- Paint: try chrome with white stripes on the first car, look at a locked colour, then buy.
 	towns:_with(1, function()
 		-- Gems and stock cars again: pressing every Mods button above spent them and fitted parts.

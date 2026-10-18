@@ -11,6 +11,8 @@
 --                          ("wheel") spins the Daily Spin -> ok, the spin { slice, open } or why
 --   Arcade RemoteFunction  client -> server: ("state" | "start" | "submit" | "board" | "prizes" |
 --                          "claim", ...) -> ok, result or why (see Arcade)
+--   Bank   RemoteFunction  client -> server: ("shop") -> the gem and car packs on sale, or
+--                          ("buy", pack id) -> ok, or why not; opens Roblox's purchase prompt
 --   Meshes RemoteFunction  client -> server: (car id) -> loads that car's mod meshes into
 --                          ReplicatedStorage.MeshLibrary, answering once they're in
 --
@@ -19,6 +21,7 @@
 
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -42,6 +45,7 @@ local Ghosts = require(script.Ghosts)
 local Crates = require(script.Crates)
 local Arcade = require(script.Arcade)
 local Policies = require(script.Policies)
+local Purchases = require(script.Purchases)
 local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
 local Sky = require(script.Sky)
@@ -209,6 +213,9 @@ crateRemote.Parent = remotes
 local arcadeRemote = Instance.new("RemoteFunction")
 arcadeRemote.Name = "Arcade"
 arcadeRemote.Parent = remotes
+local bankRemote = Instance.new("RemoteFunction")
+bankRemote.Name = "Bank"
+bankRemote.Parent = remotes
 local meshRemote = Instance.new("RemoteFunction")
 meshRemote.Name = "Meshes"
 meshRemote.Parent = remotes
@@ -347,16 +354,31 @@ local function ghostCard(userId: number)
 	end
 end
 
-local function save(player: Player, release: boolean?)
-	if towns:isOpen(player.UserId) and saves:holds(player.UserId) then
-		saves:write(player.UserId, towns:save(player.UserId), release)
-		pcall(ghostCard, player.UserId)
+-- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
+local purchases
+local function saveId(userId: number, release: boolean?): boolean
+	if towns:isOpen(userId) and saves:holds(userId) then
+		local receipts = purchases:toSave(userId)
+		local wrote = saves:write(userId, towns:save(userId), release, receipts)
+		if wrote and receipts then
+			purchases:saved(userId, receipts)
+		end
+		pcall(ghostCard, userId)
+		return wrote
 	end
+	return false
+end
+purchases = Purchases.new(towns, require(Game.store), require(Game.bucksPacks), function(userId)
+	return saveId(userId)
+end)
+
+local function save(player: Player, release: boolean?)
+	saveId(player.UserId, release)
 end
 
 Players.PlayerAdded:Connect(function(player)
 	task.spawn(policies.load, policies, player)
-	local ok, data = pcall(saves.load, saves, player.UserId)
+	local ok, data, receipts = pcall(saves.load, saves, player.UserId)
 	if not ok then
 		local failure = if type(data) == "table" then data else { reason = "failed", message = tostring(data) }
 		warn(`[Cartopia] {failure.message}`)
@@ -376,6 +398,7 @@ Players.PlayerAdded:Connect(function(player)
 		saves:write(player.UserId, data, true)
 		return
 	end
+	purchases:load(player.UserId, receipts)
 	towns:open(player.UserId, data)
 	-- Their own race car on their loading screen.
 	pcall(function()
@@ -425,6 +448,7 @@ Players.PlayerRemoving:Connect(function(player)
 	arcade:close(player.UserId)
 	save(player, true)
 	towns:close(player.UserId)
+	purchases:forget(player.UserId)
 	policies:forget(player.UserId)
 	if views[player] then
 		views[player]:destroy()
@@ -585,6 +609,70 @@ crateRemote.OnServerInvoke = function(player: Player, id: any, free: any, count:
 	end
 	return true, result
 end
+
+-- The gem and car packs: what's on sale, and buying one (Roblox's own prompt; ProcessReceipt pays).
+bankRemote.OnServerInvoke = function(player: Player, op: any, id: any)
+	if not towns:isOpen(player.UserId) then
+		return false, "town not loaded"
+	end
+	if not allow(player) then
+		return false, "slow down"
+	end
+	if op == "shop" then
+		return true, purchases:shop(player.UserId)
+	elseif op == "buy" then
+		local product, why = purchases:canBuy(player.UserId, id)
+		if not product then
+			return false, why
+		end
+		-- The town is saved first, so whatever was just earned is safe before the prompt.
+		task.spawn(save, player)
+		MarketplaceService:PromptProductPurchase(player, product)
+		return true, nil
+	end
+	return false, "unknown"
+end
+
+MarketplaceService.ProcessReceipt = function(info: any)
+	local player = Players:GetPlayerByUserId(info.PlayerId)
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	local ok, result = pcall(purchases.process, purchases, info.PlayerId, info.ProductId, tostring(info.PurchaseId))
+	if not ok then
+		warn(`[Cartopia] receipt {info.PurchaseId} for {player.Name}: {result}`)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if towns:isOpen(player.UserId) then
+		push(player)
+	end
+	return if result == "granted" then Enum.ProductPurchaseDecision.PurchaseGranted else Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+-- The experience's Developer Products, matched to packs by name; looked up again every few minutes
+-- so a product made while servers run goes on sale in them too.
+task.spawn(function()
+	while true do
+		local ok, err = pcall(function()
+			local list = {}
+			local pages = MarketplaceService:GetDeveloperProductsAsync()
+			while true do
+				for _, d in pages:GetCurrentPage() do
+					table.insert(list, { name = d.Name, product = d.ProductId, robux = d.PriceInRobux })
+				end
+				if pages.IsFinished then
+					break
+				end
+				pages:AdvanceToNextPageAsync()
+			end
+			purchases:setProducts(list)
+		end)
+		if not ok then
+			warn(`[Cartopia] reading the gem packs' products: {err}`)
+		end
+		task.wait(if ok then 600 else 60)
+	end
+end)
 
 -- The town clock: jobs finish, fuel refills, tasks roll over.
 task.spawn(function()

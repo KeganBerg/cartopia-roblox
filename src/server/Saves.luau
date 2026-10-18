@@ -1,7 +1,9 @@
 --!strict
 -- Player saves in a DataStore, with session locking so two servers never write the same town.
 --
--- Each key holds { save = <the web game's SaveState>, lock = { job, at } | nil, version }. Loading
+-- Each key holds { save = <the web game's SaveState>, lock = { job, at } | nil, version, receipts }.
+-- receipts: the Robux purchases (PurchaseIds) already in this save, written in the same UpdateAsync
+-- as the save itself, so a purchase is either in both or in neither (see Purchases). Loading
 -- takes the lock in the same UpdateAsync that reads the save; every write checks this server still
 -- holds it, and releasing clears it. A lock that hasn't been refreshed for LOCK_TTL seconds belongs
 -- to a server that crashed, so it can be taken over.
@@ -15,7 +17,7 @@ Saves.LOCK_TTL = 30 * 60
 Saves.RETRIES = 5
 Saves.RETRY_WAIT = 6
 
-export type Record = { save: any?, lock: { job: string, at: number }?, version: number? }
+export type Record = { save: any?, lock: { job: string, at: number }?, version: number?, receipts: { string }? }
 export type Store = {
 	UpdateAsync: (self: any, key: string, fn: (old: Record?) -> Record?) -> any,
 }
@@ -58,14 +60,15 @@ local function isOff(err: string): boolean
 		or string.find(err, "must publish", 1, true) ~= nil
 end
 
--- Takes the lock and returns the save (nil for a new player). When it can't, it errors with a
+-- Takes the lock and returns the save (nil for a new player) and its receipts. When it can't, it errors with a
 -- LoadError, and the caller should not give the player a blank town that would overwrite theirs.
-function Saves.load(self: Saves, userId: number): any?
+function Saves.load(self: Saves, userId: number): (any?, { string })
 	local key = keyOf(userId)
 	local failure: LoadError = { reason = "locked", message = "locked by another server" }
 	for attempt = 1, Saves.RETRIES do
 		local busy = false
 		local save: any? = nil
+		local receipts: { string } = {}
 		local ok, err = pcall(function()
 			self.store:UpdateAsync(key, function(old: Record?): Record?
 				if lockedByOther(self, old) then
@@ -76,12 +79,13 @@ function Saves.load(self: Saves, userId: number): any?
 				local record: Record = old or { version = 0 }
 				record.lock = { job = self.job, at = self.now() }
 				save = record.save
+				receipts = record.receipts or {}
 				return record
 			end)
 		end)
 		if ok and not busy then
 			self.held[key] = true
-			return save
+			return save, receipts
 		end
 		if ok then
 			failure = { reason = "locked", message = `{key} is locked by another server` }
@@ -101,8 +105,8 @@ end
 
 -- Writes the save and refreshes the lock (release = true lets it go). Returns false without
 -- writing when this server no longer holds the lock, e.g. another server took it over after this
--- one stalled; that server's copy is the real one now.
-function Saves.write(self: Saves, userId: number, save: any, release: boolean?): boolean
+-- one stalled; that server's copy is the real one now. receipts, when given, replaces the stored list.
+function Saves.write(self: Saves, userId: number, save: any, release: boolean?, receipts: { string }?): boolean
 	local key = keyOf(userId)
 	if not self.held[key] then
 		return false
@@ -119,6 +123,9 @@ function Saves.write(self: Saves, userId: number, save: any, release: boolean?):
 			local record = old :: Record
 			record.save = save
 			record.version = (record.version or 0) + 1
+			if receipts then
+				record.receipts = receipts
+			end
 			record.lock = if release then nil else { job = self.job, at = self.now() }
 			return record
 		end)
