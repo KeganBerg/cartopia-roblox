@@ -589,10 +589,39 @@ if SHOTS then
 	tap("#8c1d40")
 	shot("paint-locked", nil)
 	tap("#1e88e5")
-	tap("Go")
-	local painted = towns:snapshot(1).save.cars[1]
+	local paintShop = hud.gui:FindFirstChild("PaintShop", true)
+	local paintBar = paintShop and paintShop:FindFirstChild("TryBar")
+	local paintGo = paintBar and paintBar:FindFirstChild("Go", true)
+	assert(paintGo, "no buy button for the paint job")
+	signalFor(paintGo, "Activated"):Fire()
+	-- The car the garage shows (the top of its list, which earlier presses may have changed): the
+	-- one the paint job went on.
+	local shownUid = nil
+	for _, c in towns:snapshot(1).save.cars do
+		if c.finish == "chrome" and c.color == "#1e88e5" then
+			shownUid = c.uid
+		end
+	end
+	local function shown(): any
+		for _, c in towns:snapshot(1).save.cars do
+			if c.uid == shownUid then
+				return c
+			end
+		end
+		return {}
+	end
+	local painted = shown()
 	assert(painted.finish == "chrome" and painted.stripe == "#fafafa" and painted.color == "#1e88e5", `paint job didn't stick: {painted.color} {painted.finish} {painted.stripe}`)
 	shot("paint-bought", nil)
+	-- Skins: try Hexcore (won at level 3) and put it on.
+	tap("hexcore")
+	shot("skins-try", nil)
+	local skins = hud.gui:FindFirstChild("BodySkins", true)
+	local putOn = skins and skins:FindFirstChild("Go", true)
+	assert(putOn, "no Put on button for the skin")
+	signalFor(putOn, "Activated"):Fire()
+	assert(shown().skin == "hexcore", "the skin didn't stick")
+	shot("skins-on", nil)
 	-- Hats: try the cap, make it two colours with a blue brim and wear it; then look at a locked one.
 	towns:_with(1, function()
 		store.useGame.setState({ hats = { "cap", "tophat" } })
@@ -607,7 +636,7 @@ if SHOTS then
 	tap("Brim#1e88e5")
 	shot("hats-try", nil)
 	tap("Go")
-	local capped = towns:snapshot(1).save.cars[1].hat
+	local capped = shown().hat
 	assert(capped and capped.id == "cap" and capped.colors and capped.colors[2] == "#1e88e5", "the cap didn't stick")
 	shot("hats-worn", nil)
 	tap("crown")
@@ -627,9 +656,18 @@ if SHOTS then
 	local buy = wing and wing:FindFirstChild("Go", true)
 	assert(buy, "no buy button on the GT Wing")
 	signalFor(buy, "Activated"):Fire()
-	local modded = towns:snapshot(1).save.cars[1].mods or {}
+	local modded = shown().mods or {}
 	assert(table.find(modded, "gtwing"), "the GT Wing didn't stick")
 	shot("mods-fitted", nil)
+	-- A mod skin on the wing: Ember (won at level 5).
+	tap("ember")
+	local modSkins = hud.gui:FindFirstChild("ModSkins", true)
+	local skinGo = modSkins and modSkins:FindFirstChild("Go", true)
+	assert(skinGo, "no Put on button for the mod skin")
+	signalFor(skinGo, "Activated"):Fire()
+	local ms = shown().modSkin
+	assert(ms and ms.spoiler == "ember", "the mod skin didn't stick")
+	shot("mods-skin", nil)
 	tap("rims")
 	tap("goldmesh")
 	shot("mods-rims", nil)
@@ -661,7 +699,7 @@ if SHOTS then
 	tap("#fafafa")
 	shot("custom-try", nil)
 	tap("Go")
-	local custom = towns:snapshot(1).save.cars[1].panels
+	local custom = shown().panels
 	assert(custom and custom.hood and custom.hood.color == "#1e88e5" and custom.hood.pattern == "camo", "the custom paint didn't stick")
 	shot("custom-bought", nil)
 	-- Trim: try limo tint, violet headlights and black handles, buy them, then save the look.
@@ -683,7 +721,7 @@ if SHOTS then
 	tap("handles:black")
 	shot("trim-try", nil)
 	tap("Go")
-	local trimmed = towns:snapshot(1).save.cars[1].trim
+	local trimmed = shown().trim
 	assert(trimmed and trimmed.tint == "smoke" and trimmed.lights == "violet" and trimmed.handles == "black", "the trim didn't stick")
 	tap("Save")
 	local saved = towns:snapshot(1).save.presets

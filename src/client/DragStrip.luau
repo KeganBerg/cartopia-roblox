@@ -18,6 +18,7 @@ local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 local Mods = require(ReplicatedStorage.Shared.Models.Mods)
 local Panels = require(ReplicatedStorage.Shared.Models.Panels)
 local Trim = require(ReplicatedStorage.Shared.Models.Trim)
+local Skins = require(ReplicatedStorage.Shared.Models.Skins)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local TownCamera = require(script.Parent.TownCamera)
@@ -174,13 +175,14 @@ local function buildStrip(venueId: string): (Model, Model?)
 end
 
 -- A car on the strip, with its boost flame and wheelspin smoke.
-local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, x: number, parent: Instance): (Model, BasePart, ParticleEmitter)
+local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any, x: number, parent: Instance): (Model, BasePart, ParticleEmitter)
 	local m = library("Cars", model) or Instance.new("Model")
 	Paint.apply(m, job, library("Stripes", model))
 	Panels.apply(m, model, panels, job.finish, Builder.build)
 	Trim.apply(m, model, trim, job.color)
 	Paint.wearHat(m, model, hat, Builder.build)
 	Mods.fit(m, model, mods, Builder.build)
+	Skins.apply(m, skin, modSkin)
 	-- The racers are drawn 1.4 times their town size, as RaceScene draws them.
 	local pivot = m:GetPivot()
 	for _, d in m:GetDescendants() do
@@ -227,8 +229,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> ())
 	local carsFolder = Instance.new("Folder")
 	carsFolder.Name = "RaceCars"
 	carsFolder.Parent = world
-	local meModel, meFlame, meSmoke = placeCar(car.model, Paint.jobOf(car), car.hat, car.mods, car.panels, car.trim, LANE, carsFolder)
-	local themModel, themFlame, themSmoke = placeCar(rival.model, { color = rival.color }, nil, rival.mods, rival.panels, rival.trim, -LANE, carsFolder)
+	local meModel, meFlame, meSmoke = placeCar(car.model, Paint.jobOf(car), car.hat, car.mods, car.panels, car.trim, car.skin, car.modSkin, LANE, carsFolder)
+	local themModel, themFlame, themSmoke = placeCar(rival.model, { color = rival.color }, nil, rival.mods, rival.panels, rival.trim, rival.skin, rival.modSkin, -LANE, carsFolder)
 	local bar = world:FindFirstChild("StartLights") :: Model
 	local lamps = {}
 	for i = 1, 3 do

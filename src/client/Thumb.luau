@@ -11,6 +11,7 @@ local Builder = require(Models:WaitForChild("Builder"))
 local Mods = require(Models:WaitForChild("Mods"))
 local Panels = require(Models:WaitForChild("Panels"))
 local Trim = require(Models:WaitForChild("Trim"))
+local Skins = require(Models:WaitForChild("Skins"))
 
 local Thumb = {}
 
@@ -47,8 +48,8 @@ function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: C
 end
 
 -- A car in a whole paint job (its colour in its finish, and its stripes), its custom paint, the
--- hat it wears, its mods and its trim.
-function Thumb.car(id: string, size: UDim2, job: Paint.Job, hat: any?, mods: { string }?, panels: any?, trim: any?): ViewportFrame
+-- hat it wears, its mods, its trim and its skins.
+function Thumb.car(id: string, size: UDim2, job: Paint.Job, hat: any?, mods: { string }?, panels: any?, trim: any?, skin: string?, modSkin: any?): ViewportFrame
 	local vp = Thumb.new("Cars", id, size)
 	local m = vp:FindFirstChildOfClass("Model")
 	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
@@ -59,6 +60,7 @@ function Thumb.car(id: string, size: UDim2, job: Paint.Job, hat: any?, mods: { s
 		Trim.apply(m, id, trim, job.color)
 		Paint.wearHat(m, id, hat, Builder.build)
 		Mods.fit(m, id, mods, Builder.build)
+		Skins.apply(m, skin, modSkin)
 	end
 	return vp
 end
