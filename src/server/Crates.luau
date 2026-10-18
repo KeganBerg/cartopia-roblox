@@ -4,18 +4,20 @@
 -- player's town. The level, price and free-crate checks, the roll, the pity counter and the prize
 -- all come from the web game's code; the client only gets back what was opened, for the reveal.
 --
--- Crates are paid random items, so a player whose Roblox rules restrict those
--- (PolicyService ArePaidRandomItemsRestricted, see shared/Policy and server/Policies) can only open
--- free crates. That check is here, before the store runs, whatever the client's menu showed.
+-- Crates bought with gems are paid random items, so a player whose Roblox rules restrict those
+-- (PolicyService ArePaidRandomItemsRestricted, see shared/Policy and server/Policies) can't buy
+-- them; coin crates and free crates still open. That check is here, before the store runs,
+-- whatever the client's menu showed.
 
 local Crates = {}
 Crates.__index = Crates
 
-export type Crates = typeof(setmetatable({} :: { towns: any, store: any, crates: any, canOpen: (number, boolean) -> boolean }, Crates))
+export type Crates = typeof(setmetatable({} :: { towns: any, store: any, crates: any, canOpen: (number, string, boolean) -> boolean }, Crates))
 
--- `canOpen(userId, free)` says whether the player's Roblox rules let them open a paid (free false)
--- or free crate; without one, every open is allowed (as in tests of the opening itself).
-function Crates.new(towns: any, store: any, crates: any, canOpen: ((number, boolean) -> boolean)?): Crates
+-- `canOpen(userId, pay, free)` says whether the player's Roblox rules let them open a crate paid
+-- for in `pay` ("coins" or "bucks"), or a free one; without it every open is allowed (as in the
+-- tests of the opening itself).
+function Crates.new(towns: any, store: any, crates: any, canOpen: ((number, string, boolean) -> boolean)?): Crates
 	return setmetatable({
 		towns = towns,
 		store = store,
@@ -36,7 +38,7 @@ function Crates.open(self: Crates, userId: number, id: any, free: any, count: an
 		return nil, "bad free crate"
 	end
 	-- The store only treats a non-empty source as free (and then charges nothing).
-	if not self.canOpen(userId, free ~= nil and free ~= "") then
+	if not self.canOpen(userId, self.crates.crateDef(id).pay, free ~= nil and free ~= "") then
 		return nil, "paid crates restricted"
 	end
 	local n = if count == 10 and free == nil then 10 else 1

@@ -6,8 +6,9 @@
 -- one: no paid crates, no outside links, no sharing.
 --
 -- What each rule covers in Cartopia:
---   paidRandomRestricted  Crates bought with coins or gems (both can come from Robux gem packs,
---                         bucksPacks coinGems) can't be opened. Free crates (cup prizes, gifts) can.
+--   paidRandomRestricted  Crates bought with gems (the premium currency, sold for Robux) can't be
+--                         bought. Coin crates (coins are earned) and free crates (cup and arcade
+--                         prizes) still open.
 --   links                 The outside sites a share or "follow us" link may name, e.g. "Discord"
 --                         (AllowedExternalLinkReferences). Roblox now always sends an empty list,
 --                         so in practice no outside link is ever shown; shares stay inside Roblox.
@@ -97,9 +98,15 @@ function Policy.fromAttributes(get: (string) -> any): Rules
 	}
 end
 
--- Whether a crate may be opened: paid opens need paid random items allowed; free ones always can.
-function Policy.canOpenCrate(r: Rules, free: boolean): boolean
-	return free or not r.paidRandomRestricted
+-- Whether a crate (`pay`: its currency, "coins" or "bucks" for gems) may be opened: a gem-bought
+-- open needs paid random items allowed; coin crates and free opens always can.
+function Policy.canOpenCrate(r: Rules, pay: string, free: boolean): boolean
+	return free or pay ~= "bucks" or not r.paidRandomRestricted
+end
+
+-- Whether a crate can be bought at all here (the depot hides the ones that can't).
+function Policy.canBuyCrate(r: Rules, pay: string): boolean
+	return Policy.canOpenCrate(r, pay, false)
 end
 
 -- Whether a link to an outside site (as PolicyService names it, e.g. "Discord") may be shown.

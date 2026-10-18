@@ -1,7 +1,7 @@
 --!nocheck
 -- Tests for Roblox's per-player rules (shared/Policy, server/Policies) and the crate gate they
--- put on the server's crates (Crates): paid crates refused where paid random items are restricted,
--- free crates still open, and the strict rules whenever PolicyService can't answer.
+-- put on the server's crates (Crates): gem crates refused where paid random items are restricted,
+-- coin and free crates still open, and the strict rules whenever PolicyService can't answer.
 
 local Policy = require("../src/shared/Policy")
 local Policies = require("../src/server/Policies")
@@ -56,8 +56,8 @@ local function setup(rules)
 	towns:_with(1, function()
 		store.useGame.setState({ coins = 1000000, bucks = 100000, level = 30, freeCrates = { "gift:1" } })
 	end)
-	local crates = Crates.new(towns, store, require(G .. "crates"), function(_, free)
-		return Policy.canOpenCrate(rules, free)
+	local crates = Crates.new(towns, store, require(G .. "crates"), function(_, pay, free)
+		return Policy.canOpenCrate(rules, pay, free)
 	end)
 	return crates, towns
 end
@@ -70,7 +70,8 @@ return function(test)
 		assert(partial.paidRandomRestricted and not partial.sharing, "missing fields are strict")
 		local open = Policy.fromInfo({ ArePaidRandomItemsRestricted = false, IsContentSharingAllowed = true, AllowedExternalLinkReferences = { "Discord" } })
 		assert(not open.paidRandomRestricted and open.sharing and Policy.canLink(open, "Discord") and not Policy.canLink(open, "YouTube"), "open")
-		assert(Policy.canOpenCrate(r, true) and not Policy.canOpenCrate(r, false), "free only when strict")
+		assert(Policy.canOpenCrate(r, "bucks", true) and not Policy.canOpenCrate(r, "bucks", false), "free gem crates only when strict")
+		assert(Policy.canOpenCrate(r, "coins", false), "coin crates always")
 	end)
 
 	test("policy: rules survive the trip through Player attributes", function()
@@ -115,10 +116,10 @@ return function(test)
 		assert(ps:get(8).paidRandomRestricted, "forgotten: strict")
 	end)
 
-	test("crates: restricted players can't buy crates, but free ones still open", function()
+	test("crates: restricted players can't buy gem crates, but coin and free ones still open", function()
 		local crates, towns = setup(Policy.fromInfo({ ArePaidRandomItemsRestricted = true }))
 		local before = towns:snapshot(1).save
-		for _, id in { "street", "garage", "gold", "diamond" } do
+		for _, id in { "gold", "diamond" } do
 			for _, n in { 1, 10 } do
 				local opens, why = crates:open(1, id, nil, n)
 				assert(opens == nil and why == "paid crates restricted", `{id} x{n}: {why}`)
@@ -126,8 +127,10 @@ return function(test)
 		end
 		assert(crates:open(1, "gold", "", 1) == nil, "an empty free source is a paid open")
 		local after = towns:snapshot(1).save
-		assert(after.coins == before.coins and after.bucks == before.bucks, "nothing charged")
-		local opens, why = crates:open(1, "street", "gift:1", 1)
+		assert(after.bucks == before.bucks, "no gems charged")
+		local coin = assert(crates:open(1, "street", nil, 10))
+		assert(#coin == 10, "coin crates still open")
+		local opens, why = crates:open(1, "gold", "gift:1", 1)
 		assert(opens and #opens == 1, `free crate: {why}`)
 		assert(opens[1].cost.coins == 0 and opens[1].cost.bucks == 0, "free")
 	end)
@@ -140,7 +143,7 @@ return function(test)
 
 	test("crates: until the rules are known, paid crates are refused", function()
 		local crates = setup(Policy.strict())
-		local none, why = crates:open(1, "street", nil, 1)
+		local none, why = crates:open(1, "gold", nil, 1)
 		assert(none == nil and why == "paid crates restricted", tostring(why))
 	end)
 end

@@ -92,8 +92,8 @@ local races = Races.new(towns, {
 })
 -- Each player's Roblox rules (PolicyService), strict until known; crates check them before opening.
 local policies = Policies.new(game:GetService("PolicyService"), Policy, task.wait)
-local crates = Crates.new(towns, require(Game.store), require(Game.crates), function(userId, free)
-	return Policy.canOpenCrate(policies:get(userId), free)
+local crates = Crates.new(towns, require(Game.store), require(Game.crates), function(userId, pay, free)
+	return Policy.canOpenCrate(policies:get(userId), pay, free)
 end)
 
 local remotes = Instance.new("Folder")

@@ -5,9 +5,10 @@
 -- the crate shakes and bursts, and the prize card (or, for ×10, all ten prizes) takes the dock's
 -- place, edged in the prize's glow.
 --
--- Where Roblox's rules restrict paid random items (PolicyService, shared/Policy), crates can't be
--- bought: the Open, ×10 and Again buttons give way to a note, and only free crates open. The odds
--- stay on show. The server checks the same rule (server/Crates), so this is only the menu's side.
+-- Where Roblox's rules restrict paid random items (PolicyService, shared/Policy), crates bought
+-- with gems are hidden (unless one was won free, which still opens) and a line says why; coin
+-- crates are as usual. The odds are always on show. The server checks the same rule
+-- (server/Crates), so this is only the menu's side.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -42,15 +43,14 @@ local busy = false
 local live: ((string, { any }?) -> ())? = nil
 local shake: (() -> ())? = nil
 
--- Whether this player may buy crates (their rules arrive as Player attributes from the server).
-local function canBuy(): boolean
+-- This player's Roblox rules (they arrive as Player attributes from the server).
+local function rules(): any
 	local me = Players.LocalPlayer
-	local rules = Policy.fromAttributes(function(name)
+	return Policy.fromAttributes(function(name)
 		return me:GetAttribute(name)
 	end)
-	return Policy.canOpenCrate(rules, false)
 end
-local NO_BUY = "Buying crates isn't available where you live. Crates you win still open free."
+local NO_BUY = "💎 Gem crates aren't available where you live"
 
 local function priceText(def: any, level: number, n: number?): string
 	local p = crates.crateCost(def, level)
@@ -185,15 +185,32 @@ function Crates.draw(parent: Instance, ctx: any)
 		end
 		local s = store.useGame.getState()
 		local level = s.level
-		local buyable = canBuy()
 		local free = s.freeCrates or {}
-		local def = crates.crateDef(lastPick) or crates.CRATES[1]
-		local freeHere = {}
-		for _, f in free do
-			if cups.freeCrateOf(f) == def.id then
-				table.insert(freeHere, f)
+		local function freeOf(id: string): { string }
+			local out = {}
+			for _, f in free do
+				if cups.freeCrateOf(f) == id then
+					table.insert(out, f)
+				end
 			end
+			return out
 		end
+		-- The crates shown: a gem crate that can't be bought here only while one is free.
+		local r = rules()
+		local restricted = false
+		local shownCrates = {}
+		for _, c in crates.CRATES do
+			if Policy.canBuyCrate(r, c.pay) or #freeOf(c.id) > 0 then
+				table.insert(shownCrates, c)
+			end
+			restricted = restricted or not Policy.canBuyCrate(r, c.pay)
+		end
+		local def = crates.crateDef(lastPick) or crates.CRATES[1]
+		if not table.find(shownCrates, def) then
+			def = shownCrates[1]
+		end
+		local buyable = Policy.canBuyCrate(r, def.pay)
+		local freeHere = freeOf(def.id)
 
 		-- The wallet along the top.
 		local wallet = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 10), Size = UDim2.fromOffset(0, 30), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, ZIndex = 4, Parent = root }, {
@@ -268,7 +285,8 @@ function Crates.draw(parent: Instance, ctx: any)
 			Ui.text({ Text = sub:upper(), TextSize = 13, TextColor3 = glow, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(74, 10), Size = UDim2.new(1, -86, 0, 18), ZIndex = 5, Parent = prize })
 			Ui.text({ Text = title, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(74, 28), Size = UDim2.new(1, -86, 0, 30), ZIndex = 5, Parent = prize })
 			local rest = { table.unpack(opens, 2) }
-			local again = if #rest > 0 then "Next" elseif #freeHere > 0 then `🎁 Free · {#freeHere}` elseif buyable then `Again · {priceText(def, level)}` else nil
+			-- (Again only for the crate still picked: a free gem crate, once opened, leaves the dock.)
+			local again = if #rest > 0 then "Next" elseif o.crate ~= def.id then nil elseif #freeHere > 0 then `🎁 Free · {#freeHere}` elseif buyable then `Again · {priceText(def, level)}` else nil
 			if again then
 				Ui.buy({ AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -112, 1, -10), Size = UDim2.fromOffset(150, 38), ZIndex = 5, Parent = prize }, again, "green", function()
 					if #rest > 0 then
@@ -325,11 +343,11 @@ function Crates.draw(parent: Instance, ctx: any)
 			return
 		end
 
-		-- The dock: the four crates.
+		-- The dock: the crates (all four, unless gem crates can't be bought here).
 		local pick = Ui.new("Frame", { LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 84), BackgroundTransparency = 1, ZIndex = 4, Parent = dock }, {
-			Ui.new("UIGridLayout", { CellSize = UDim2.new(0.25, -5, 1, 0), CellPadding = UDim2.fromOffset(6, 0), SortOrder = Enum.SortOrder.LayoutOrder }),
+			Ui.new("UIGridLayout", { CellSize = UDim2.new(1 / #shownCrates, -5, 1, 0), CellPadding = UDim2.fromOffset(6, 0), SortOrder = Enum.SortOrder.LayoutOrder }),
 		})
-		for i, c in crates.CRATES do
+		for i, c in shownCrates do
 			local sel = c.id == def.id
 			local nFree = 0
 			for _, f in free do
@@ -344,7 +362,7 @@ function Crates.draw(parent: Instance, ctx: any)
 			})
 			crateArt(tab, c, Vector2.new(34, 30), { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, if sel then 4 else 7) })
 			Ui.text({ Text = c.name:gsub(" Crate", ""), TextSize = 13, Position = UDim2.fromOffset(0, 40), Size = UDim2.new(1, 0, 0, 18), ZIndex = 5, Parent = tab })
-			local label = if nFree > 0 then `🎁 {nFree}` elseif not buyable then "🎁 Free only" elseif locked then `🔒 Lv {c.unlockLevel}` else priceText(c, level)
+			local label = if nFree > 0 then `🎁 {nFree}` elseif locked then `🔒 Lv {c.unlockLevel}` else priceText(c, level)
 			Ui.text({ Text = label, TextSize = 12, TextColor3 = Color3.fromHex(if c.pay == "bucks" then "#b3e5fc" else "#ffe082"), Position = UDim2.fromOffset(0, 60), Size = UDim2.new(1, 0, 0, 16), ZIndex = 5, Parent = tab })
 			if locked then
 				tab.BackgroundTransparency = 0.4
@@ -411,15 +429,11 @@ function Crates.draw(parent: Instance, ctx: any)
 			Ui.text({ Text = if left <= 1 then `✨ Next open is a {what}!` else `✨ A {what} in {left} opens at most`, TextSize = 13, Position = UDim2.fromOffset(0, 33), Size = UDim2.new(1, 0, 0, 20), ZIndex = 5, Parent = odds })
 		end
 
-		-- Where crates can't be bought: a note, and Open only for a free crate.
-		if not buyable then
-			local note = card(dock, { LayoutOrder = 3, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y })
+		-- Where gem crates can't be bought: one line saying so.
+		if restricted then
+			local note = card(dock, { LayoutOrder = 3, Size = UDim2.new(1, 0, 0, 30) })
 			note.Name = "NoBuy"
-			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), Parent = note })
-			Ui.text({ Text = NO_BUY, TextSize = 14, TextWrapped = true, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, ZIndex = 5, Parent = note })
-			if #freeHere == 0 then
-				return
-			end
+			Ui.text({ Text = NO_BUY, TextSize = 14, Size = UDim2.fromScale(1, 1), ZIndex = 5, Parent = note })
 		end
 
 		-- Open, and ×10 for the price of ten.
