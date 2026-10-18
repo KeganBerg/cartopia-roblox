@@ -17,6 +17,8 @@ local venues = require(Game.scene_venues) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
+local CallCardArt = require(script.Parent.CallCardArt)
+local callCards = require(Game.callCards) :: any
 local DragStrip = require(script.Parent.DragStrip)
 local RepChip = require(script.Parent.RepChip)
 local Mastery = require(script.Parent.Mastery)
@@ -753,16 +755,29 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 12), HorizontalFlex = Enum.UIFlexAlignment.Fill, Parent = page })
 		for i, rv in quick do
 			local _, card = tile(page, { LayoutOrder = i, Size = UDim2.new(0, 100, 1, 0) }, "#34507f", "#1f3358", true)
-			local pic = Thumb.new("Cars", rv.model, UDim2.new(1, -20, 0, 150), Color3.fromHex(rv.color))
-			pic.Position = UDim2.fromOffset(10, 30)
-			pic.Parent = card
-			Ui.text({ Text = rv.name, TextSize = 24, Position = UDim2.fromOffset(10, 186), Size = UDim2.new(1, -20, 0, 30), Stroke = 2.5, Shadow = 2, TextScaled = true, Parent = card })
-			Ui.text({ Text = rv.carName, Body = true, TextSize = 15, Position = UDim2.fromOffset(10, 218), Size = UDim2.new(1, -20, 0, 20), TextColor3 = Color3.fromHex("#cfe0ff"), Parent = card })
+			-- The rival's car standing on their Call Card (Race.tsx CardArt; rivals without one wear
+			-- the Showroom in their car's colour), its ground at 56% (.rm-qc.cc-stage).
+			CallCardArt.stage(card, rv.callCard, { car = { model = rv.model, color = rv.color }, g = 0.56, carH = 0.52, aspect = 0.62 })
+			CallCardArt.frame(card, rv.callCard, 0, 15)
+			local def = rv.callCard and callCards.callCardDef(rv.callCard)
+			if def and def.tier then
+				-- The tier's gem (.rm-cc-gem).
+				local gem = Ui.new("Frame", { Name = "Gem", Position = UDim2.fromOffset(7, 7), Size = UDim2.fromOffset(28, 28), BackgroundColor3 = Color3.fromHex("#080e20"), BackgroundTransparency = 0.45, ZIndex = 2, Parent = card }, { Ui.round(), Ui.stroke(2, CallCardArt.EDGE[def.tier]) })
+				Ui.text({ Text = def.icon, TextSize = 15, Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = gem })
+			end
+			-- The name plate fading up from the bottom (.rm-qc-body).
+			Ui.new("Frame", { Name = "Body", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 176), BackgroundColor3 = Color3.fromHex("#060a1a"), BorderSizePixel = 0, ZIndex = 1, Parent = card }, {
+				Ui.corner(15),
+				Ui.new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.22), NumberSequenceKeypoint.new(1, 0.1) }) }),
+			})
+			Ui.text({ Text = rv.name, TextSize = 24, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -118), Size = UDim2.new(1, -20, 0, 30), Stroke = 2.5, Shadow = 2, TextScaled = true, ZIndex = 2, Parent = card })
+			Ui.text({ Text = rv.carName, Body = true, TextSize = 15, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -96), Size = UDim2.new(1, -20, 0, 20), TextColor3 = Color3.fromHex("#cfe0ff"), ZIndex = 2, Parent = card })
 			local skill = if rv.skill and data.SKILLS[rv.skill] then `  {data.SKILLS[rv.skill].icon}` else ""
-			Ui.text({ Text = `PI {rv.pi}{skill}`, TextSize = 18, Position = UDim2.fromOffset(10, 242), Size = UDim2.new(1, -20, 0, 24), TextColor3 = if rv.pi > myPi then Color3.fromHex("#ff8a80") else Color3.fromHex("#ffd54f"), Parent = card })
-			raceButton(card, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.new(1, -24, 0, 48) }, rv.prize, function()
+			Ui.text({ Text = `PI {rv.pi}{skill}`, TextSize = 18, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -70), Size = UDim2.new(1, -20, 0, 24), TextColor3 = if rv.pi > myPi then Color3.fromHex("#ff8a80") else Color3.fromHex("#ffd54f"), ZIndex = 2, Parent = card })
+			local shadow = raceButton(card, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.new(1, -24, 0, 48) }, rv.prize, function()
 				start("quick", i)
 			end)
+			shadow.ZIndex = 2
 		end
 	end
 
@@ -976,8 +991,25 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		if oldChip then
 			oldChip:Destroy()
 		end
+		local oldCard = headExtras:FindFirstChild("MyCard")
+		if oldCard then
+			oldCard:Destroy()
+		end
 		if which == "hub" then
 			RepChip.draw(headExtras)
+		elseif which == "quick" then
+			-- Your own Call Card, what other players see behind your car (Race.tsx MyCardChip):
+			-- opens the picker.
+			local chip = Ui.new("TextButton", { Name = "MyCard", Text = "", AutoButtonColor = false, LayoutOrder = 1, Size = UDim2.fromOffset(64, 30), BackgroundColor3 = Color3.fromHex("#0a1e46"), BackgroundTransparency = 0.65, Parent = headExtras }, {
+				Ui.round(),
+				Ui.stroke(2, Ui.LINE, 0.45),
+			})
+			chip.Activated:Connect(function()
+				ctx.open("garage", "cards")
+			end)
+			local swatch = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(34, 24), BackgroundColor3 = Color3.fromHex("#0b1430"), ClipsDescendants = true, Parent = chip }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
+			CallCardArt.scene(swatch, store.useGame.getState().callCard, { still = true, aspect = 34 / 24 })
+			Ui.text({ Text = "🃏", TextSize = 15, Position = UDim2.fromOffset(40, 0), Size = UDim2.new(1, -42, 1, 0), Parent = chip })
 		end
 		content:ClearAllChildren()
 		-- A page with its own car bar (the Daily Run's loaner) hides the usual one.

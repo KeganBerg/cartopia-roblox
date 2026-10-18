@@ -233,6 +233,14 @@ end
 lib.Parent = RS
 -- SHOTS=1: the real models, and pictures of the race screens (build/shot-*.json, for render.mjs).
 local SHOTS = process.env.SHOTS ~= nil
+-- Previews draw the Call Cards from build/callcards as if their sheets were uploaded (render.mjs
+-- finds each sheet by its Key), so the cards show their real scenes rather than stand-ins.
+if SHOTS and require("@lune/fs").isFile("build/callcards/list.json") then
+	local looks = emu.require(RS.Shared.CallCardLooks)
+	for i in looks.sheets do
+		looks.sheets[i] = i
+	end
+end
 if SHOTS then
 	local Builder = emu.require(RS.Shared.Models.Builder)
 	Builder.previewMeshes = true

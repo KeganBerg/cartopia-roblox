@@ -296,6 +296,10 @@ local function node(g, r)
 	if (g:IsA("ImageLabel") or g:IsA("ImageButton")) and g:GetAttribute("Key") then
 		-- Which picture (render.mjs finds it in build/splash), its tint and how it's fitted.
 		n.image = { key = g:GetAttribute("Key"), color = hex(g.ImageColor3), t = g.ImageTransparency, scale = enumName(g.ScaleType) }
+		-- A piece of a sheet (ImageRectOffset/Size), as the Call Cards use.
+		if g.ImageRectSize.X > 0 then
+			n.image.rect = { g.ImageRectOffset.X, g.ImageRectOffset.Y, g.ImageRectSize.X, g.ImageRectSize.Y }
+		end
 	end
 	if g:IsA("ViewportFrame") then
 		-- What it shows: its parts and camera, which render.mjs draws as a little picture.
@@ -313,7 +317,7 @@ local function node(g, r)
 			ambient = hex(g.Ambient),
 		}
 	end
-	if g.ClipsDescendants or g:IsA("ScrollingFrame") then
+	if g.ClipsDescendants or g:IsA("ScrollingFrame") or g:IsA("CanvasGroup") then
 		n.clip = true
 	end
 	return n

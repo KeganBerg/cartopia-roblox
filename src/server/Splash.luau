@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Images = require(ReplicatedFirst:WaitForChild("Loading"):WaitForChild("SplashImages")) :: any
 local Catalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Catalog")) :: any
+local CallCardLooks = require(ReplicatedStorage.Shared:WaitForChild("CallCardLooks")) :: any
 local Pictures = require(script.Parent.Pictures)
 
 local Splash = {}
@@ -53,6 +54,10 @@ function Splash.start()
 	end
 	for _, t in textures do
 		Pictures.resolve(t.image)
+	end
+	-- Then the Call Cards' sheets.
+	for _, id in CallCardLooks.sheets do
+		Pictures.resolve(id)
 	end
 end
 
