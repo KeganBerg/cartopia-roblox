@@ -647,7 +647,23 @@ end
 -- road. A merged block is the top-left building's model grown to fill it (a 2x4 is two 2x2s side
 -- by side); four level 10 houses are the Vanguard Tower, eight the Globe Tower (World.tsx
 -- BuildingLot), when the model build has them.
+-- Each building's grown levels (server/Levels/<id>, from tools/models), loaded the first time a
+-- town has that building.
+local levelsDir = script.Parent:FindFirstChild("Levels")
+local levelsIn: { [string]: boolean } = {}
+local function withLevels(id: string)
+	if levelsIn[id] then
+		return
+	end
+	levelsIn[id] = true
+	local m = levelsDir and levelsDir:FindFirstChild(id)
+	if m and m:IsA("ModuleScript") then
+		Builder.addModels(require(m) :: any)
+	end
+end
+
 local function blockModel(b: any, g: any, turn: number, level: number): Model?
+	withLevels(b.def)
 	local name = Builder.buildingName(b.def, level) or Builder.buildingName("parked", 1)
 	local facing = CFrame.Angles(0, turn * math.pi / 2, 0)
 	if g and merge.isGlobe(g) and Builder.has("landmark:globe") then
@@ -674,12 +690,18 @@ local function blockModel(b: any, g: any, turn: number, level: number): Model?
 	end
 	local model: Model? = nil
 	for _, part in merge.groupParts(g, turn) do
-		local m = Builder.build(name)
+		-- The model the web draws for this block (a pair laid out longer, props and people kept at
+		-- their true size: tools/models), grown by what's left (a 4x4 is the 2x2 grown twice over);
+		-- the single building stretched to fit when there's none.
+		local sx, sy, sz = part.scale[1], part.scale[2], part.scale[3]
+		local k = if sx == sy and sy == sz and sx > 2 then sx / 2 else 1
+		local drawn = Builder.buildingName(b.def, level, `{sx / k}x{sy / k}x{sz / k}`)
+		local m = Builder.build(drawn or name)
 		if not m then
 			return nil
 		end
-		Ladders.add(m, name)
-		stretch(m, Vector3.new(part.scale[1], part.scale[2], part.scale[3]))
+		Ladders.add(m, drawn or name)
+		stretch(m, if drawn then Vector3.one * k else Vector3.new(sx, sy, sz))
 		m:PivotTo(CFrame.new(part.at[1] * TILE, 0, part.at[2] * TILE) * facing)
 		if model then
 			for _, d in m:GetChildren() do

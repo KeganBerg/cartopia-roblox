@@ -542,10 +542,19 @@ function Builder.has(name: string): boolean
 	return Catalog.MODELS[name] ~= nil or Scenery.MODELS[name] ~= nil or RaceScenery.MODELS[name] ~= nil
 end
 
--- A building's model at a level, falling back to the nearest level converted.
-function Builder.buildingName(id: string, level: number?): string?
+-- More models to build from (a building's grown levels, server/Levels/<id>, which only the server
+-- draws), alongside Catalog's own.
+function Builder.addModels(models: { [string]: any })
+	for name, parts in models do
+		Catalog.MODELS[name] = parts
+	end
+end
+
+-- A building's model at a level, falling back to the nearest level converted. block: a merged
+-- block's scale ("2x1x1", "1x1x2", "2x2x2"), for the model drawn for that block ("id@level/block").
+function Builder.buildingName(id: string, level: number?, block: string?): string?
 	for l = math.clamp(level or 1, 1, 10), 1, -1 do
-		local name = `{id}@{l}`
+		local name = if block then `{id}@{l}/{block}` else `{id}@{l}`
 		if Catalog.MODELS[name] then
 			return name
 		end

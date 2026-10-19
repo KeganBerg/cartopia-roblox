@@ -300,6 +300,8 @@ type Piece = { g: number; group?: number; m: number[]; look: Look }
 
 type Geo = { type: string; params: Record<string, unknown>; pos: number[]; idx: number[]; nrm?: number[]; col?: number[] }
 
+// Per list of shapes: the same shape drawn again maps to the id it already has in that list.
+const sameShapes = new WeakMap<Geo[], Map<string, number>>()
 function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[]) {
   root.updateMatrixWorld(true)
   const inv = new Matrix4().copy(root.matrixWorld).invert()
@@ -318,10 +320,21 @@ function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[])
     const c = g.getAttribute('color')
     const col: number[] | undefined = c ? [] : undefined
     if (c && col) for (let i = 0; i < c.count; i++) col.push(r4(c.getX(i)), r4(c.getY(i)), r4(c.getZ(i)))
-    id = geoList.length
-    geoList.push({ type: g.type, params: { ...((g as { parameters?: Record<string, unknown> }).parameters ?? {}) }, pos: p, idx, nrm, col })
+    const params = { ...((g as { parameters?: Record<string, unknown> }).parameters ?? {}) }
     // Material groups: which triangles each material slot draws.
-    ;(geoList[id] as Geo & { groups?: { start: number; count: number; materialIndex: number }[] }).groups = g.groups.map((x) => ({ start: x.start, count: x.count, materialIndex: x.materialIndex ?? 0 }))
+    const groups = g.groups.map((x) => ({ start: x.start, count: x.count, materialIndex: x.materialIndex ?? 0 }))
+    // Each render makes its shapes afresh: the same shape drawn again (a building at its next
+    // level) is kept once, so its pieces compare equal.
+    const sum = createHash('sha1').update(JSON.stringify([g.type, params, p, idx, nrm, col, groups])).digest('hex')
+    let sameShape = sameShapes.get(geoList)
+    if (!sameShape) sameShapes.set(geoList, (sameShape = new Map()))
+    id = sameShape.get(sum)
+    if (id === undefined) {
+      id = geoList.length
+      geoList.push({ type: g.type, params, pos: p, idx, nrm, col })
+      ;(geoList[id] as Geo & { groups?: { start: number; count: number; materialIndex: number }[] }).groups = groups
+      sameShape.set(sum, id)
+    }
     geos.set(g, id)
     return id
   }
@@ -468,7 +481,7 @@ const OUT = process.env.RBX_MODELS_OUT ?? 'rbx-models.json'
 it('exports every building and car', async () => {
   const geos = new Map<BufferGeometry, number>()
   const geoList: Geo[] = []
-  const models: { id: string; kind: string; level?: number; pieces: Piece[]; paint?: number[] }[] = []
+  const models: { id: string; kind: string; level?: number; block?: string; lot?: number[]; pieces: Piece[]; paint?: number[] }[] = []
   // The far land's wind turbines, for the rotors client/Horizon spins: [x, y, z, yaw, tint].
   const turbines: number[][] = []
   const { BuildingModel } = await import('./scene/BuildingModel')
@@ -515,15 +528,52 @@ it('exports every building and car', async () => {
     textures.push({ key: `pattern_${id}`, name, file: `${name}.png`, span })
   }
   if (process.env.RBX_ONLY === 'textures') return void writeFileSync(OUT, JSON.stringify({ textures }))
-  const LEVELS = (process.env.RBX_LEVELS ?? '1').split(',').map(Number)
+  // Every building at every level, alone and merged. Most buildings have their own design at each
+  // level (a storey, an awning, a sign, a roof garden), so each is drawn at all ten. A merged block
+  // is drawn as World.tsx's BuildingLot draws it: the model inside the block's scale, told that
+  // scale (MergeScale) so a pair lays out more windows along its length and props, people and
+  // cars keep their true size. Shapes: a pair along the model's own x or z, and a 2x2 (a 4x4 is
+  // the 2x2 grown twice over; a 2x4 is two 2x2s side by side: game/merge.ts groupParts).
+  // A model drawn the same as at the level below isn't kept: the game falls back to the nearest
+  // level below (Builder.buildingName). RBX_LEVELS=1,4 draws only those levels (a quicker run).
+  const LEVELS = (process.env.RBX_LEVELS ?? '1,2,3,4,5,6,7,8,9,10').split(',').map(Number)
   // RBX_ONLY=outskirts skips the buildings, cars and street pieces (a quicker run while working on
-  // the countryside).
+  // the countryside); RBX_ONLY=buildings draws only the buildings.
   const only = process.env.RBX_ONLY
-  // The Speedway grows with its level (taller glass, a canopy from 4, the upper deck from 7 that
-  // the fans in client/SpeedwayLife.luau stand on), so it's drawn at every level.
-  const levelsOf = (id: string) => (id === 'stadium' ? [...new Set([...LEVELS, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])].sort((a, b) => a - b) : LEVELS)
-  if (!only) for (const d of BUILDINGS) {
-    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, lot: [d.w * TILE, d.h * TILE], pieces: await render(<BuildingModel def={d} level={level} />) })
+  const { MergeScale, KeepShapes } = await import('./scene/mergeScale')
+  const { limitFor } = await import('./scene/keepShape')
+  const { mergeable } = await import('./game/merge')
+  const BLOCKS: [number, number, number][] = [[1, 1, 1], [2, 1, 1], [1, 1, 2], [2, 2, 2]]
+  if (!only || only === 'buildings') for (const d of BUILDINGS) {
+    const last = new Map<string, string>()
+    for (const level of LEVELS) {
+      for (const scale of BLOCKS) {
+        const one = scale[0] === 1 && scale[2] === 1
+        if (!one && !mergeable(d.id)) continue
+        const pieces = await render(
+          one ? <BuildingModel def={d} level={level} /> : (
+            <group scale={scale}>
+              <MergeScale.Provider value={scale}>
+                <KeepShapes limit={limitFor(d)}>
+                  <BuildingModel def={d} level={level} />
+                </KeepShapes>
+              </MergeScale.Provider>
+            </group>
+          ),
+        )
+        const block = one ? undefined : scale.join('x')
+        const key = JSON.stringify(pieces)
+        if (last.get(block ?? '') === key) continue
+        last.set(block ?? '', key)
+        models.push({ id: d.id, kind: 'building', level, block, lot: [d.w * TILE * scale[0], d.h * TILE * scale[2]], pieces })
+      }
+    }
+  }
+  if (only === 'buildings') {
+    const fd = openSync(`${OUT}.geos`, 'w')
+    for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
+    closeSync(fd)
+    return void writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, textures }))
   }
   // Mods (CarMods.tsx, the Rims and Stance looks): each car drawn with one part fitted at a time
   // and compared with the stock car. The pieces the part adds are its model ("mod:<car>:<part>"),
