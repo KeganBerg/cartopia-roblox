@@ -380,10 +380,12 @@ end
 -- round every plot that nobody has bought: round free plots all but the new town's land (the fenced
 -- lawn), round a neighbour's town all but the plots they own. The player's own town has its own
 -- (client/Countryside). Only plots near where the camera looks are drawn, so phones stay smooth.
--- Drawn out to about twice the camera's height (so a zoomed-out view isn't cut short), between
--- these radii; from higher than WILDS_TOP (the claim screen's view of the whole map) none at all.
+-- Drawn out to about twice the camera's height, between these radii, and only for a camera down
+-- at driving or walking height: each plot's grass is a few big merged meshes, which Roblox draws
+-- coarsely from far off (Automatic render fidelity, see Builder.sharpenRaces), so from a town
+-- camera they came out as flat dark slabs, a patch of them round wherever the camera looked.
 local WILDS_MIN, WILDS_MAX, WILDS_MAX_PHONE = 900, 1400, 1000
-local WILDS_TOP = 2600
+local WILDS_TOP = 400
 local LAND_W = data.PLOT * data.TILE * Catalog.SCALE -- a land plot, across, in studs
 local START: { [string]: boolean } = {}
 for _, k in data.START_LAND do
