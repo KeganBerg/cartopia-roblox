@@ -1,6 +1,7 @@
 --!strict
--- The Live page (ui/RaceHub.tsx's 🟢 Live, and LiveKartParty.tsx's roster): kart parties with the
--- other players in this server. Start one and wait for others to join, or join one that's open;
+-- The Live page (ui/RaceHub.tsx's 🟢 Live, Race.tsx's live list, and LiveKartParty.tsx's roster):
+-- live drag races and kart parties with the other players in this server. A driver's ⚔️ button
+-- challenges them to a drag race (client/LiveDuels; it waits in their 🏁 bell). Start one and wait for others to join, or join one that's open;
 -- the host's Go deals the race to everyone in it (server/KartParty, client/LiveKarts). AI karts
 -- fill the grid up to six, and the prize is the live kart prize for the others' PI.
 
@@ -10,6 +11,7 @@ local Ui = require(script.Parent.Parent.Ui)
 local Thumb = require(script.Parent.Parent.Thumb)
 local Remote = require(script.Parent.Parent.Remote)
 local LiveKarts = require(script.Parent.Parent.LiveKarts)
+local LiveDuels = require(script.Parent.Parent.LiveDuels)
 
 local Live = {}
 Live.id = "live"
@@ -49,7 +51,16 @@ local function note(parent: Instance, order: number, text: string)
 	Ui.text({ Name = "Note", LayoutOrder = order, Text = text, Body = true, Weight = "heavy", TextSize = 15, TextWrapped = true, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Size = UDim2.new(1, 0, 0, 40), Parent = parent })
 end
 
-function Live.draw(page: Frame, _ctx: any, _api: any)
+-- The web's liveReward (Race.tsx): what beating a live rival pays, by their PI.
+local function prize(pi: number): number
+	return 300 + pi * 8
+end
+
+local function money(n: number): string
+	return if n >= 10000 then `${math.round(n / 1000)}k` else `${Ui.commas(n)}`
+end
+
+function Live.draw(page: Frame, ctx: any, _api: any)
 	local me = Players.LocalPlayer and Players.LocalPlayer.UserId or 0
 	local list = Ui.new("ScrollingFrame", { Name = "Live", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 6, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y, Parent = page }, {
 		Ui.new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
@@ -66,6 +77,55 @@ function Live.draw(page: Frame, _ctx: any, _api: any)
 			busy = false
 		end)
 	end
+	-- The other drivers here, for a drag race (nil while loading).
+	local drivers: { any }? = nil
+	local refresh: () -> ()
+	local function drawDrivers(nextOrder: () -> number)
+		heading(list, nextOrder(), "⚔️ Drag race a driver")
+		local rows = drivers
+		if not rows then
+			note(list, nextOrder(), "Looking for drivers…")
+			return
+		end
+		if #rows == 0 then
+			note(list, nextOrder(), "Nobody else is in this server right now. When a friend joins, challenge them here!")
+			return
+		end
+		for _, p in rows do
+			local card = Ui.new("Frame", { Name = `Driver{p.id}`, LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, ROW), BackgroundColor3 = Ui.WHITE, Parent = list }, { Ui.corner(12), Ui.stroke(2, hex("#cfd8dc")) })
+			if p.model then
+				local pic = Thumb.new("Cars", p.model, UDim2.fromOffset(84, 58), if p.color then Color3.fromHex(p.color) else nil)
+				pic.Position = UDim2.fromOffset(6, 3)
+				pic.Parent = card
+			end
+			Ui.text({ Text = p.name or "Driver", TextSize = 19, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(98, 6), Size = UDim2.new(1, -250, 0, 26), Parent = card })
+			Ui.text({ Text = `Lv {p.level or 1} · PI {p.pi or 0}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(98, 34), Size = UDim2.new(1, -250, 0, 20), Parent = card })
+			local text, kind = `⚔️ {money(prize(p.pi or 0))}`, "green"
+			if p.asked then
+				text, kind = "⏳ Cancel", "garage"
+			elseif p.closed then
+				text, kind = "🚫 Busy", "grey"
+			elseif p.wait then
+				text, kind = "⏱ Soon", "grey"
+			end
+			Ui.buy({ Name = "Challenge", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(130, 46), Parent = card }, text, kind, function()
+				if busy or p.closed or p.wait then
+					return
+				end
+				busy = true
+				task.spawn(function()
+					if p.asked then
+						Remote.race("duelCancel")
+						LiveDuels.outgoing = nil
+					else
+						LiveDuels.challenge(ctx, p.id, p.name or "Driver")
+					end
+					busy = false
+					refresh()
+				end)
+			end, 17)
+		end
+	end
 	local function draw(state: any)
 		for _, d in list:GetChildren() do
 			if d:IsA("GuiObject") then
@@ -78,6 +138,9 @@ function Live.draw(page: Frame, _ctx: any, _api: any)
 			return n
 		end
 		local mine = state and state.mine
+		if not mine then
+			drawDrivers(nextOrder)
+		end
 		if mine then
 			-- Your party: the roster, and Go for the host (2 players or more) or the wait.
 			heading(list, nextOrder(), if mine.host == me then "🏎️ Your kart party" else `🏎️ {mine.hostName}'s kart party`)
@@ -145,8 +208,12 @@ function Live.draw(page: Frame, _ctx: any, _api: any)
 			end
 		end
 	end
-	local function refresh()
+	refresh = function()
 		task.spawn(function()
+			local okD, d = Remote.race("duelList", nil, true)
+			if okD and type(d) == "table" then
+				drivers = d
+			end
 			local ok, s = Remote.race("partyList", nil, true)
 			if ok and list.Parent then
 				draw(s)
@@ -155,16 +222,18 @@ function Live.draw(page: Frame, _ctx: any, _api: any)
 	end
 	draw(if LiveKarts.mine then { mine = LiveKarts.mine, open = {} } else nil)
 	refresh()
-	local conn: RBXScriptConnection? = nil
-	conn = LiveKarts.changed:Connect(function()
-		if not list.Parent or not page.Parent then
-			if conn then
-				conn:Disconnect()
+	local conns: { RBXScriptConnection } = {}
+	for _, signal in { LiveKarts.changed, LiveDuels.changed } do
+		table.insert(conns, signal:Connect(function()
+			if not list.Parent or not page.Parent then
+				for _, c in conns do
+					c:Disconnect()
+				end
+				return
 			end
-			return
-		end
-		refresh()
-	end)
+			refresh()
+		end))
+	end
 end
 
 return Live

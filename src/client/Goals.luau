@@ -56,7 +56,7 @@ end
 
 -- Race menu tabs for the web's race tabs. The port has no Grand Prix or Pro Tour pages yet: their
 -- tiles are on the front page.
-local RACE_TAB = { daily = "daily", quick = "quick", campaign = "campaign", gp = "hub", road = "road", tour = "hub", world = "world", cups = "cup", rivals = "rivals", tuner = "tuner" }
+local RACE_TAB = { daily = "daily", quick = "quick", campaign = "campaign", gp = "hub", road = "road", tour = "tour", event = "event", world = "world", cups = "cup", rivals = "rivals", tuner = "tuner" }
 local function race(ctx: any, tab: string)
 	ctx.open("race", RACE_TAB[tab] or "hub")
 end

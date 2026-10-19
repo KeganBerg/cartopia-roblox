@@ -5,9 +5,8 @@
 -- bobbing badge over it: "🏁 Race me!", "📸 $", "❓ 23s". Tapping the car or its badge is
 -- client/Visitors' tap. When the visitor leaves it fades out where it is.
 --
--- It drives with its own small copy of the web's traffic sim (Shared.Game.scene_traffic_sim) on the
--- town's roads, apart from the town's traffic (client/TownLife, which this leaves alone); it only
--- reads that traffic's lights each frame, so the visitor stops at the same reds the town shows.
+-- It drives in the town's own traffic (client/TownLife), as the web's visitor car joins the town's
+-- traffic sim: it gives way at the junctions and keeps its distance like everyone else.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,16 +17,13 @@ local Game = Shared:WaitForChild("Game")
 local Catalog = require(Shared:WaitForChild("Models"):WaitForChild("Catalog")) :: any
 local Builder = require(Shared.Models:WaitForChild("Builder")) :: any
 local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
-local lualib = require(Game:WaitForChild("lualib_bundle")) :: any
-local data = require(Game:WaitForChild("data")) :: any
-local placement = require(Game:WaitForChild("placement")) :: any
-local sim = require(Game:WaitForChild("scene_traffic_sim")) :: any
 local store = require(Game.store) :: any
 local Remote = require(script.Parent.Remote)
 local Town = require(script.Parent.Town)
 local Ui = require(script.Parent.Ui)
 local Placement = require(script.Parent.Placement)
 local Visitors = require(script.Parent.Visitors)
+local TownLife = require(script.Parent.TownLife) :: any
 
 local VisitorCar = {}
 
@@ -48,8 +44,7 @@ local LOOKS = {
 	barn = { "#ffb74d", "#ef6c00", "#ffffff" },
 }
 
-local traffic = lualib.__TS__New(sim.Traffic)
-local townKey = ""
+local traffic = TownLife._traffic
 local models: { [string]: Model } = {}
 local sizes: { [string]: { number } } = {}
 local shownId: string? = nil
@@ -102,28 +97,13 @@ local function build(c: any): Model?
 	return m
 end
 
--- The town's roads for the visitor's sim, kept up to date with the save.
-local function updateTown(save: any)
-	local roads = save.roads or {}
-	local buildings = save.buildings or {}
-	local parts = {}
-	for _, b in buildings do
-		table.insert(parts, `{b.uid}:{b.def}:{b.x}:{b.z}:{b.rot or "-"}`)
-	end
-	local key = table.concat(roads, ";") .. "|" .. table.concat(parts, ";")
-	if key ~= townKey then
-		townKey = key
-		traffic:setTown(roads, buildings, placement.turnOf)
-	end
-end
-
 -- The visitor's cars on the road, or none (the sim fades leaving visitors out where they are).
 local function updateCars()
 	local v = Visitors.visitor
 	local show = v ~= nil and not v.gone and v.kind ~= "barn"
 	if not show or (shownId ~= nil and v and v.id ~= shownId) then
 		if shownId then
-			traffic:setCars({}, 0)
+			TownLife.setGuests({})
 			shownId = nil
 		end
 		if not show then
@@ -144,25 +124,7 @@ local function updateCars()
 		end
 		table.insert(specs, { uid = c.uid, len = size[1], wid = size[2], cruise = CRUISE[visitor.kind] or 1.4, stalled = false })
 	end
-	traffic:setCars(specs, #specs)
-end
-
--- The town's traffic lights, read from the town's own traffic (client/TownLife) when it drives
--- the same roads, so the visitor keeps to them.
-local function copyLights()
-	local ok, TownLife = pcall(require, script.Parent.TownLife)
-	local town = ok and (TownLife :: any)._traffic
-	if not town or not town.net or not traffic.net then
-		return
-	end
-	if #town.net.layout.clusters ~= #traffic.net.layout.clusters then
-		return
-	end
-	local mine = lualib.__TS__New(lualib.Map)
-	town.sigs:forEach(function(_, g: any, id: number)
-		mine:set(id, table.clone(g))
-	end)
-	traffic.sigs = mine
+	TownLife.setGuests(specs)
 end
 
 -- The badge over the lead car (or over Rusty's for a barn tip).
@@ -297,13 +259,12 @@ end
 function VisitorCar.step(dt: number)
 	local f = Town.folder()
 	local origin: Vector3? = f and f:GetAttribute("Origin") :: any
-	local save = Remote.last and Remote.last.save
-	if save then
-		updateTown(save)
-	end
 	updateCars()
-	pcall(copyLights)
-	traffic:step(math.min(dt, 0.1))
+	-- The town's traffic moves itself once it's running; before that (or in a test) it's moved here.
+	local save = Remote.last and Remote.last.save
+	if save and not TownLife.running then
+		TownLife.drive(save, math.min(dt, 0.1))
+	end
 	for uid, m in models do
 		local a = traffic.agents:get(uid)
 		if not a or not origin then

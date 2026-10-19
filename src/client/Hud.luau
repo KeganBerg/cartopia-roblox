@@ -20,6 +20,8 @@ local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
 local Remote = require(script.Parent.Remote)
+local LiveDuels = require(script.Parent.LiveDuels)
+local Sfx = require(script.Parent.Sounds.Sfx)
 local Ui = require(script.Parent.Ui)
 local Motion = require(script.Parent.Motion)
 local Icons = require(script.Parent.Icons)
@@ -87,8 +89,13 @@ function Hud.start()
 	local scale = Ui.new("UIScale", { Scale = 1, Parent = root })
 	local left = Ui.new("Frame", { Name = "Left", Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(250, 120), BackgroundTransparency = 1, Parent = root })
 	local function fit()
+		-- The screen the GUI is drawn on, which can be smaller than the camera's view (safe
+		-- areas, window edges): sized from the camera alone, wide menus ran off the right edge.
 		local cam = workspace.CurrentCamera
-		local view = if cam then cam.ViewportSize else Vector2.new(REF_W, REF_H)
+		local view = gui.AbsoluteSize
+		if (view.X < 2 or view.Y < 2) and cam then
+			view = cam.ViewportSize
+		end
 		if view.X < 2 or view.Y < 2 then
 			view = Vector2.new(REF_W, REF_H)
 		end
@@ -103,6 +110,7 @@ function Hud.start()
 		left.Position = UDim2.fromOffset(10, 10 + (if top > 0 then top / s - 4 else 0))
 	end
 	fit()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 	if workspace.CurrentCamera then
 		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 	end
@@ -204,19 +212,17 @@ function Hud.start()
 			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 10) }),
 		})
 		local _ = face
-		if icon == "coin" then
-			Icons.draw("coin", row, 24).LayoutOrder = 1
-		else
-			Ui.text({ Text = icon, TextSize = 19, Size = UDim2.fromOffset(24, 24), LayoutOrder = 1, Parent = row })
-		end
+		Icons.picture(icon, row, 24).LayoutOrder = 1
 		local value = Ui.text({ Name = "Value", Text = "0", TextSize = 17, Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = row })
-		local plusSlot = Ui.new("Frame", { Size = UDim2.fromOffset(20, 18), BackgroundTransparency = 1, LayoutOrder = 3, Parent = row })
-		local plus = Ui.new("Frame", { Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(14, 14), BackgroundColor3 = Ui.WHITE, Parent = plusSlot }, {
-			Ui.corner(5),
-			Ui.stroke(2),
+		local plusSlot = Ui.new("Frame", { Size = UDim2.fromOffset(22, 20), BackgroundTransparency = 1, LayoutOrder = 3, Parent = row })
+		local plus = Ui.new("Frame", { Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Ui.WHITE, Parent = plusSlot }, {
+			Ui.corner(6),
+			Ui.stroke(1.5, Color3.fromHex("#1d5a20"), 0.15),
 			Ui.gradient(Ui.COLORS.plus[1], Ui.COLORS.plus[2]),
 		})
-		Icons.draw("plus", plus, 11, Ui.WHITE, nil, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		-- The web's inset highlight along the top (theme.css .plus box-shadow).
+		Ui.new("Frame", { Position = UDim2.fromOffset(3, 1), Size = UDim2.new(1, -6, 0, 1.5), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.55, BorderSizePixel = 0, Parent = plus }, { Ui.round() })
+		Icons.draw("plus", plus, 12, Ui.WHITE, nil, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		row.Activated:Connect(onClick)
 		return value
 	end
@@ -224,14 +230,14 @@ function Hud.start()
 		openPanel("need", { res = "coins", missing = 0 })
 	end)
 	-- Gems open the Bank once it's unlocked (web Hud.tsx openGems), else how to earn them.
-	local gems = counter(2, "💎", function()
+	local gems = counter(2, "bucks", function()
 		if Bank.unlocked(store.useGame.getState()) then
 			openPanel("bank")
 		else
 			openPanel("need", { res = "bucks", missing = 0 })
 		end
 	end)
-	local parts = counter(3, "⚙️", function()
+	local parts = counter(3, "parts", function()
 		openPanel("need", { res = "parts", missing = 0 })
 	end)
 	-- Where collected rewards fly to (Fly.from): the counters, and the XP box for XP.
@@ -308,7 +314,7 @@ function Hud.start()
 	Icons.draw("trophy", trophyRow, 16, Ui.WHITE).LayoutOrder = 1
 	local trophyText = Ui.text({ Text = "0", TextSize = 17, Size = UDim2.fromOffset(0, 23), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = trophyRow })
 	trophyRow.Activated:Connect(function()
-		toast("Leaderboards are coming to Roblox soon")
+		openPanel("friends", "leaders")
 	end)
 	-- Sound on/off: mutes the game's sounds (they play through the Cartopia sound group).
 	local soundGroup = SoundService:FindFirstChild("Cartopia") or Ui.new("SoundGroup", { Name = "Cartopia", Volume = 1, Parent = SoundService })
@@ -385,15 +391,24 @@ function Hud.start()
 	-- behind it; My Town always brings you back to the view over your own town, wherever you were.
 	local walk = Ui.new("Frame", { Name = "Walk", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -250), Size = UDim2.fromOffset(60, 78), BackgroundTransparency = 1, Parent = root })
 	local walkLabel: TextLabel
-	local walkIcon: TextLabel
+	local walkIcon: GuiObject? = nil
 	local _, walkFace = Ui.button({ Name = "WalkButton", Position = UDim2.fromOffset(2.5, 5.5), Size = UDim2.fromOffset(55, 55), Parent = walk }, "white", function()
 		TownCamera.setWalking(not TownCamera.isWalking())
 	end, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
-	walkIcon = Ui.text({ Text = "🚗", TextSize = 30, Size = UDim2.fromScale(1, 1), Parent = walkFace })
+	-- The car (or the town), centred in the tile: a baked picture, as emoji sit high and to one side.
+	local function setWalkIcon(kind: string)
+		if walkIcon then
+			walkIcon:Destroy()
+		end
+		walkIcon = Icons.picture(kind, walkFace, 38)
+		walkIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+		walkIcon.Position = UDim2.fromScale(0.5, 0.5)
+	end
+	setWalkIcon("car")
 	walkLabel = Ui.text({ Text = "DRIVE", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
 	TownCamera.onWalking(function(on: boolean)
-		walkIcon.Text = if on then "🏙️" else "🚗"
-		walkLabel.Text = if on then "MY TOWN" else "DRIVE"
+		setWalkIcon(if on then "town" else "car")
+		Ui.setText(walkLabel, if on then "MY TOWN" else "DRIVE")
 		-- The server puts them in their car, or takes them out and back home.
 		if not on or Players.LocalPlayer:GetAttribute("Driving") ~= true then
 			task.spawn(Remote.social, if on then "drive" else "home", nil, true)
@@ -483,6 +498,28 @@ function Hud.start()
 	Icons.draw("goals", goalsFace, 34, Ui.BLUE, Color3.fromHex("#f3f7fc"), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	local goalBadge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 8, 0, -8), Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Color3.fromHex("#ff5252"), Visible = false, ZIndex = 3, Parent = goalsFace }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
 	local goalBadgeText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), Parent = goalBadge })
+	-- The gift bell (web GiftBell): friends' helps, gifts and new postcards waiting (server/Mail
+	-- keeps the count in the player's "Mail" attribute). Opens the mail once a session by itself.
+	local bell = Ui.new("Frame", { Name = "GiftBell", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -96, 1, -207), Size = UDim2.fromOffset(50, 50), BackgroundTransparency = 1, Visible = false, Parent = root })
+	local _, bellFace = Ui.button({ Name = "Bell", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(48, 48), Parent = bell }, "white", function()
+		openPanel("gifts")
+	end, { radius = 14, stroke = 2.5, drop = 3, split = 0.5, flat = true })
+	Ui.text({ Text = "🎁", TextSize = 26, Size = UDim2.fromScale(1, 1), Parent = bellFace })
+	local bellBadge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 8, 0, -8), Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 3, Parent = bellFace }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
+	local bellText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = bellBadge })
+	local mailShown = false
+	-- The challenge bell (web ChallengeBell): live drag races other players here have asked for
+	-- (client/LiveDuels). It sits beside the gift bell, or in its place when there's no mail.
+	local duelBell = Ui.new("Frame", { Name = "RaceBell", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -96, 1, -207), Size = UDim2.fromOffset(50, 50), BackgroundTransparency = 1, Visible = false, Parent = root })
+	local _, duelFace = Ui.button({ Name = "Bell", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(48, 48), Parent = duelBell }, "white", function()
+		openPanel("invites")
+	end, { radius = 14, stroke = 2.5, drop = 3, split = 0.5, flat = true })
+	Ui.text({ Text = "🏁", TextSize = 26, Size = UDim2.fromScale(1, 1), Parent = duelFace })
+	local duelBadge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 8, 0, -8), Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 3, Parent = duelFace }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
+	local duelText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = duelBadge })
+	local duelsSeen = 0
+	-- After the welcome-back and daily screens have had their turn.
+	local startedAt = os.clock()
 	local collectShadow, collect = Ui.shadowed({ Name = "CollectAll", Position = UDim2.fromOffset(3, 76 + 4), Size = UDim2.fromOffset(54, 54), Parent = dock }, { radius = 27, stroke = 3, drop = 4, dark = 0.3, class = "TextButton", color = Color3.fromHex("#ffca28") })
 	local _ = collectShadow
 	local inner = Ui.new("Frame", { Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1, -4, 1, -4), BackgroundColor3 = Ui.WHITE, ZIndex = 0, Parent = collect }, {
@@ -623,6 +660,24 @@ function Hud.start()
 		if soundOff.Visible ~= muted then
 			soundOff.Visible = muted
 			soundOn.Visible = not muted
+		end
+		local waiting = Players.LocalPlayer:GetAttribute("Mail")
+		waiting = if type(waiting) == "number" then waiting else 0
+		bell.Visible = waiting > 0 and not visiting and not inTutorial and not Placement.active()
+		Ui.setText(bellText, tostring(waiting))
+		local challenges = #LiveDuels.waiting()
+		duelBell.Visible = challenges > 0 and not visiting and not inTutorial and not Placement.active()
+		duelBell.Position = UDim2.new(1, if bell.Visible then -152 else -96, 1, -207)
+		Ui.setText(duelText, tostring(challenges))
+		-- A new challenge rings once.
+		if challenges > duelsSeen then
+			Sfx.challenge()
+		end
+		duelsSeen = challenges
+		-- Pops the mail open once, when nothing else is on screen and the tutorial is done.
+		if waiting > 0 and not mailShown and not open and not visiting and not inTutorial and not Placement.active() and os.clock() - startedAt > 20 then
+			mailShown = true
+			openPanel("gifts")
 		end
 		local claim = store.claimable(s)
 		goalBadge.Visible = claim > 0

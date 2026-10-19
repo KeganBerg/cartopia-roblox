@@ -27,6 +27,10 @@
 --                          foot and out again (see GetIn)
 --   Visitor RemoteFunction client -> server: ("next") | ("claim", id) | ("leave", id): town
 --                          visitors, their prizes rolled here (see Visitors)
+--   WebLink RemoteFunction client -> server: (code) -> ok, or why not: brings the player's web
+--                          town over, earned progress only (see WebLink)
+--   AdminRemote            only in the owner's own PlayerGui.CartopiaAdmin: the admin panel's
+--                          testing tools, checked by user id on every call (see Admin)
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -65,13 +69,21 @@ local Purchases = require(script.Purchases)
 local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
 local Social = require(script.Social)
+local Leaders = require(script.Leaders)
+local Meet = require(script.Meet)
+local Mail = require(script.Mail)
+local Duels = require(script.Duels)
+local Invites = require(script.Invites)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
 local Prefs = require(script.Prefs)
+local WebLink = require(script.WebLink)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 local GetIn = require(script.GetIn)
 local Visitors = require(script.Visitors)
+local Admin = require(script.Admin)
+local Rave = require(script.Rave)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
 local TICK = 1 -- seconds between town clock ticks, as on the web
@@ -129,6 +141,43 @@ local visitors = Visitors.new(towns, {
 		end,
 	},
 })
+-- Live drag races between players here (server/Duels, the race mode "live"). Messages go out on
+-- the Duel remote, made with the others below.
+local duelEvent: RemoteEvent? = nil
+-- What another racer sees of a player: their name, town, level and race car.
+local function liveCard(userId: number): any?
+	local player = Players:GetPlayerByUserId(userId)
+	if not player or not towns:isOpen(userId) then
+		return nil
+	end
+	local save = towns:save(userId)
+	local data = require(Game.data) :: any
+	local car = (require(Game.raceCar) :: any).raceCarOf(save.cars or {}, save.raceCar)
+	local out: any = { name = player.DisplayName, town = save.townName, level = save.level or 1, userId = userId }
+	if car then
+		out.carName = data.carDef(car.model).name
+		out.model, out.color = car.model, car.color
+		out.mods, out.panels, out.trim, out.skin, out.modSkin = car.mods, car.panels, car.trim, car.skin, car.modSkin
+		out.pi = data.performance(data.carDef(car.model), car.upgrades, car.mods)
+	end
+	return out
+end
+local duels = Duels.new({
+	clock = os.clock,
+	send = function(userId: number, event: string, payload: any)
+		local player = Players:GetPlayerByUserId(userId)
+		if player and duelEvent then
+			duelEvent:FireClient(player, event, payload)
+		end
+	end,
+	card = liveCard,
+	here = function(userId: number): boolean
+		return Players:GetPlayerByUserId(userId) ~= nil and towns:isOpen(userId)
+	end,
+	wait = function(s: number)
+		task.wait(s)
+	end,
+})
 local races = Races.new(towns, {
 	store = require(Game.store),
 	data = require(Game.data),
@@ -142,6 +191,7 @@ local races = Races.new(towns, {
 	rivals = require(Game.rivals),
 	distance = require(Game.distance),
 	DragRace = require(ReplicatedStorage.Shared.DragRace),
+	tourRivals = require(ReplicatedStorage.Shared.TourRivals),
 	random = Random.new(),
 	clock = os.clock,
 	-- The other race modes, by name (server/Modes: each module's `id`).
@@ -170,6 +220,8 @@ local races = Races.new(towns, {
 	},
 	ghosts = ghosts,
 	visitors = visitors,
+	duels = duels,
+	liveCard = liveCard,
 	-- Whose ghosts a player can race: everyone else in this server, then their friends.
 	people = function(userId: number): { any }
 		local out, seen = {}, { [userId] = true }
@@ -301,6 +353,14 @@ kartEvent.OnServerEvent:Connect(function(player: Player, event: any, payload: an
 		parties:relay(player.UserId, event, payload)
 	end
 end)
+duelEvent = Instance.new("RemoteEvent")
+;(duelEvent :: RemoteEvent).Name = "Duel"
+;(duelEvent :: RemoteEvent).Parent = remotes
+;(duelEvent :: RemoteEvent).OnServerEvent:Connect(function(player: Player, event: any, payload: any)
+	if event == "pos" then
+		duels:relay(player.UserId, payload)
+	end
+end)
 local act = Instance.new("RemoteFunction")
 act.Name = "Act"
 act.Parent = remotes
@@ -328,11 +388,14 @@ socialRemote.Parent = remotes
 local visitorRemote = Instance.new("RemoteFunction")
 visitorRemote.Name = "Visitor"
 visitorRemote.Parent = remotes
+local webLinkRemote = Instance.new("RemoteFunction")
+webLinkRemote.Name = "WebLink"
+webLinkRemote.Parent = remotes
 local prefsRemote = Instance.new("RemoteEvent")
 prefsRemote.Name = "Prefs"
 prefsRemote.Parent = remotes
 -- Rave Mode's button (the DJ only), shared with every server.
-require(script.Rave).start(remotes)
+Rave.start(remotes)
 remotes.Parent = ReplicatedStorage
 Prefs.start(DataStoreService:GetDataStore("Prefs_v1"), prefsRemote, Players)
 GetIn.start(towns)
@@ -352,6 +415,13 @@ task.spawn(function()
 	end)
 	meshesReady = true
 	workspace:SetAttribute("ShapesReady", true)
+	-- The race venues' and rescue lot's own meshes come in next, then the race venues' at full
+	-- detail (Builder.sharpenRaces), again for any that came late.
+	task.spawn(function()
+		Builder.loadVenues(60)
+		Builder.sharpenRaces()
+		task.delay(120, Builder.sharpenRaces)
+	end)
 	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
 	Builder.loadLate()
 	-- A copy of every car and building for the client's shop pictures and placement ghost.
@@ -472,6 +542,26 @@ end
 local leaving: { [Player]: boolean } = {}
 
 -- Lending a hand at a business in the town a player is visiting (server/Social).
+-- Friends' mail (server/Mail): help notes, gifts and postcards, and the count waiting for each
+-- player (their "Mail" attribute, for the HUD's gift bell).
+local mail = Mail.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+}, os.time, function(): string
+	return os.date("!%Y-%m-%d") :: string
+end)
+local function mailCount(userId: number)
+	local player = Players:GetPlayerByUserId(userId)
+	if player then
+		player:SetAttribute("Mail", mail:count(userId))
+	end
+end
+local function townOf(userId: number): string
+	local town = if towns:isOpen(userId) then towns:save(userId).townName else nil
+	return if type(town) == "string" then town else "My Town"
+end
+
 local function helpAt(player: Player, uid: string): (any?, string?)
 	local host = player:GetAttribute("Visiting")
 	if type(host) ~= "number" or not towns:isOpen(player.UserId) or leaving[player] then
@@ -484,6 +574,14 @@ local function helpAt(player: Player, uid: string): (any?, string?)
 	end
 	if result then
 		player:SetAttribute("Helped", table.concat(result.helped, ","))
+		-- The first help in a town today leaves its owner a note worth a little fuel.
+		if #result.helped == 1 then
+			task.spawn(function()
+				if pcall(mail.help, mail, player.UserId, player.DisplayName, townOf(player.UserId), host) then
+					mailCount(host)
+				end
+			end)
+		end
 	end
 	push(player)
 	return result, why
@@ -513,6 +611,45 @@ local function ghostCard(userId: number)
 	end
 end
 
+-- The player leaderboards (server/Leaders): Power, Wins, Trophies and Level, all time and weekly.
+local leaders = Leaders.new({
+	ordered = function(name: string): any
+		return DataStoreService:GetOrderedDataStore(name)
+	end,
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+}, os.clock, function(): string
+	return (require(Game.data) :: any).weekKey(os.time() * 1000)
+end)
+local function leaderStats(userId: number): any
+	local s = towns:save(userId)
+	return Leaders.stats(s, (require(Game.data) :: any).garagePower(s.cars or {}))
+end
+
+-- The Car Meet (server/Meet): everyone's display of three cars, and likes.
+local meet = Meet.new({
+	ordered = function(name: string): any
+		return DataStoreService:GetOrderedDataStore(name)
+	end,
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+}, os.time, function(): string
+	return os.date("!%Y-%m-%d") :: string
+end)
+local function showcase(userId: number): { any }
+	local s = towns:save(userId)
+	return (require(Game.meet) :: any).showcaseOf(s.cars or {}, s.showcase)
+end
+-- A player's card (Social's player cards): their public numbers and cars, on show first.
+local function cardOf(userId: number): any
+	local data = require(Game.data) :: any
+	return Meet.cardOf(towns:save(userId), showcase(userId), function(c: any): number
+		return data.performance(data.carDef(c.model), c.upgrades, c.mods)
+	end)
+end
+
 -- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
 local purchases
 local function saveId(userId: number, release: boolean?): boolean
@@ -523,6 +660,15 @@ local function saveId(userId: number, release: boolean?): boolean
 			purchases:saved(userId, receipts)
 		end
 		pcall(ghostCard, userId)
+		local player = Players:GetPlayerByUserId(userId)
+		if wrote and player then
+			local town = towns:save(userId).townName
+			task.spawn(pcall, leaders.record, leaders, userId, player.DisplayName, if type(town) == "string" then town else "My Town", leaderStats(userId), release)
+			task.spawn(pcall, meet.publish, meet, userId, player.DisplayName, if type(town) == "string" then town else "My Town", towns:save(userId).level or 1, showcase(userId))
+			task.spawn(pcall, function()
+				meet:saveCard(userId, player.DisplayName, cardOf(userId))
+			end)
+		end
 		return wrote
 	end
 	return false
@@ -535,8 +681,51 @@ local function save(player: Player, release: boolean?)
 	saveId(player.UserId, release)
 end
 
+-- Invite rewards (server/Invites): a new player who joined from a friend's game invite counts as
+-- theirs, and both get gems once the new player reaches level 10.
+local invites = Invites.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+})
+-- Players whose own reward has been looked at this session (at level 10 or more).
+local inviteChecked: { [number]: boolean } = {}
+local function payInvites(player: Player)
+	local userId = player.UserId
+	if not towns:isOpen(userId) then
+		return
+	end
+	local level = towns:save(userId).level or 1
+	local mine = 0
+	if level >= Invites.INVITE_LEVEL and not inviteChecked[userId] then
+		inviteChecked[userId] = true
+		mine = invites:reached(userId, level)
+	end
+	local theirs = invites:claim(userId)
+	if mine + theirs <= 0 or not towns:isOpen(userId) then
+		return
+	end
+	towns:_with(userId, function(s: any)
+		(require(Game.store) :: any).useGame.setState({ bucks = (s.bucks or 0) + mine + theirs })
+		if mine > 0 then
+			s.toast(`🎁 +{mine} Gems · invite reward for reaching level {Invites.INVITE_LEVEL}`)
+		end
+		if theirs > 0 then
+			s.toast(`🎁 +{theirs} Gems · a friend you invited reached level {Invites.INVITE_LEVEL}`)
+		end
+	end)
+	push(player)
+end
+
 Players.PlayerAdded:Connect(function(player)
 	task.spawn(policies.load, policies, player)
+	-- What friends left in the mail, checked now and then (other servers can't tell this one).
+	task.spawn(function()
+		while player.Parent do
+			pcall(mailCount, player.UserId)
+			task.wait(120)
+		end
+	end)
 	-- Whether Roblox lets this player chat: the HUD's CHAT button only shows when it does.
 	task.spawn(function()
 		local ok, can = pcall(TextChatService.CanUserChatAsync, TextChatService, player.UserId)
@@ -563,7 +752,19 @@ Players.PlayerAdded:Connect(function(player)
 		return
 	end
 	purchases:load(player.UserId, receipts)
+	local newPlayer = data == nil
 	towns:open(player.UserId, data)
+	-- Joined from a friend's invite with no town yet: theirs (server/Invites). Then any invite
+	-- gems waiting, now and every couple of minutes (other servers can't tell this one).
+	task.spawn(function()
+		local okJoin, join = pcall(player.GetJoinData, player)
+		local ref = if okJoin and type(join) == "table" then tonumber(join.ReferredByPlayerId) else nil
+		pcall(invites.arrive, invites, player.UserId, ref, newPlayer)
+		while player.Parent do
+			pcall(payInvites, player)
+			task.wait(120)
+		end
+	end)
 	-- How long they were away (since their save was last written): the welcome back shows it, and
 	-- two days or more turns on double pay for the next few races, as the web's noteAway.
 	local seen = saves:lastSeen(player.UserId)
@@ -578,15 +779,13 @@ Players.PlayerAdded:Connect(function(player)
 		local car = (require(Game.raceCar) :: any).raceCarOf(save.cars or {}, save.raceCar)
 		Splash.forPlayer(player, car and car.model, car and car.color)
 	end)
-	local start = os.clock()
-	while not meshesReady and os.clock() - start < 45 do
-		task.wait(0.2)
-	end
 	if not player.Parent then
 		return
 	end
 	push(player, true)
-	-- They pick a plot first (the claim screen, Popups/Claim); the loading screen lifts for it.
+	-- They pick a plot first (the claim screen, Popups/Claim); the loading screen lifts for it
+	-- straight away, without waiting for the server's 3D shapes: the plot map has none, and they
+	-- keep loading while the player picks (claim waits for any still missing).
 	player:SetAttribute("NeedsPlot", true)
 	spawnAt(player)
 	player.CharacterAdded:Connect(function()
@@ -595,6 +794,8 @@ Players.PlayerAdded:Connect(function(player)
 	end)
 end)
 
+-- Web codes tried per player this session, and when last: a code can't be guessed by trying.
+local linkTries: { [Player]: { n: number, at: number } } = {}
 -- When each player last asked for a visitor (Visitor "next"), and how often they may.
 local visitorAsked: { [Player]: number } = {}
 local VISITOR_ASK_GAP = 5
@@ -615,11 +816,14 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	-- First, so a double-or-nothing rematch left half way is settled in the save.
 	races:close(player.UserId)
+	duels:leave(player.UserId)
+	inviteChecked[player.UserId] = nil
 	karts:close(player.UserId)
 	parties:forget(player.UserId)
 	arcade:close(player.UserId)
 	visitors:close(player.UserId)
 	visitorAsked[player] = nil
+	linkTries[player] = nil
 	save(player, true)
 	towns:close(player.UserId)
 	purchases:forget(player.UserId)
@@ -696,6 +900,17 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 	if not allow(player) then
 		return false, "slow down"
 	end
+	-- A live race's finish: the server's replay of this run, then the other racer's (waited for
+	-- here, outside the town), for the race mode "live" to call it.
+	local live = races.pending[player.UserId]
+	if op == "finish" and live and live.mode == "live" then
+		local DragRace = require(ReplicatedStorage.Shared.DragRace) :: any
+		local myTime = math.huge
+		if DragRace.valid(arg) then
+			myTime = DragRace.times(DragRace.replay(live.spec, arg))
+		end
+		live.extra.their = duels:finish(player.UserId, myTime)
+	end
 	local ran, result, why = pcall(function(): (any, any)
 		if op == "rivals" then
 			return races:quickRivals(player.UserId), nil
@@ -714,6 +929,27 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return races:start(player.UserId, arg.mode, arg.which)
 		elseif op == "finish" then
 			return races:finish(player.UserId, arg)
+		elseif op == "duel" and type(arg) == "number" then
+			-- Challenges another player here to a live drag race (server/Duels).
+			local id, why = duels:challenge(player.UserId, arg)
+			return if id then { id = id } else nil, why
+		elseif op == "duelAnswer" and type(arg) == "table" and type(arg.id) == "string" then
+			local id, why = duels:answer(player.UserId, arg.id, arg.yes == true)
+			return if id then { id = id } else nil, why
+		elseif op == "duelCancel" then
+			duels:cancel(player.UserId)
+			return true, nil
+		elseif op == "duelList" then
+			local ids = {}
+			for _, other in Players:GetPlayers() do
+				table.insert(ids, other.UserId)
+			end
+			return duels:others(player.UserId, ids), nil
+		elseif op == "duelInvites" then
+			return duels:invitesFor(player.UserId), nil
+		elseif op == "duelLeave" then
+			duels:leave(player.UserId)
+			return true, nil
 		elseif op == "kartStart" and type(arg) == "table" then
 			return karts:start(player.UserId, arg.kind, arg.which)
 		elseif op == "kartFinish" then
@@ -814,6 +1050,57 @@ end
 -- Town visitors (server/Visitors): "next" asks for the next visitor (the one in town, a new one,
 -- or { wait = seconds }), "claim" taps tourists or the mystery car for their prize, "leave" sends
 -- the visitor on. Asking is held to once every few seconds on top of the usual budget.
+webLinkRemote.OnServerInvoke = function(player: Player, raw: any)
+	local userId = player.UserId
+	if not towns:isOpen(userId) or not saves:holds(userId) then
+		return false, "town not loaded"
+	end
+	local t = linkTries[player] or { n = 0, at = 0 }
+	linkTries[player] = t
+	if t.n >= 8 then
+		return false, "tries"
+	end
+	if os.clock() - t.at < 3 then
+		return false, "slow down"
+	end
+	local code = WebLink.clean(raw)
+	if not code then
+		return false, "code"
+	end
+	t.n += 1
+	t.at = os.clock()
+	if not HttpService.HttpEnabled then
+		warn("[Cartopia] Web link needs Game Settings > Security > Allow HTTP Requests")
+		return false, "offline"
+	end
+	local got, why = WebLink.claim(HttpService :: any, code, userId)
+	if not got then
+		return false, why
+	end
+	if not towns:isOpen(userId) or not player.Parent then
+		return false, "town not loaded"
+	end
+	local here = towns:save(userId)
+	local ok, err = pcall(function()
+		local save = WebLink.strip(got.state, got.paid, here)
+		-- Out of any race or kart party first, so nothing settles into the old town afterwards.
+		races:close(userId)
+		karts:close(userId)
+		towns:close(userId)
+		towns:open(userId, save)
+	end)
+	if not ok then
+		warn(`[Cartopia] {player.Name} web link: {err}`)
+		if not towns:isOpen(userId) then
+			towns:open(userId, here)
+		end
+		return false, "failed"
+	end
+	save(player)
+	push(player, true)
+	return true, nil
+end
+
 visitorRemote.OnServerInvoke = function(player: Player, op: any, id: any)
 	if not towns:isOpen(player.UserId) or leaving[player] then
 		return false, "town not loaded"
@@ -923,6 +1210,19 @@ end
 -- Claims plot `want` (or the first free one) for the player and builds their town on it.
 local function claim(player: Player, want: any): (number?, string?)
 	local have = slotOf(player)
+	if have then
+		return have, nil
+	end
+	-- In a server that has only just started, its 3D shapes may still be coming in: the town is
+	-- drawn once they're in, so it has no stand-in boxes (the Claim banner shows how far along).
+	local start = os.clock()
+	while not meshesReady and os.clock() - start < 45 do
+		task.wait(0.2)
+	end
+	if not player.Parent then
+		return nil, "left"
+	end
+	have = slotOf(player)
 	if have then
 		return have, nil
 	end
@@ -1074,6 +1374,128 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return claim(player, arg)
 		elseif op == "help" and type(arg) == "string" and #arg <= 64 then
 			return helpAt(player, arg)
+		elseif op == "leaders" and type(arg) == "table" and table.find(Leaders.METRICS, arg.metric) and (arg.period == "all" or arg.period == "week") then
+			-- A leaderboard (Social's Leaderboards tab), with who on it is in this server.
+			local stats = leaderStats(player.UserId)
+			local town = towns:save(player.UserId).townName
+			pcall(leaders.record, leaders, player.UserId, player.DisplayName, if type(town) == "string" then town else "My Town", stats)
+			local rows, mine = leaders:board(arg.metric, arg.period, player.UserId, stats)
+			local out = {}
+			for _, r in rows do
+				local here = Players:GetPlayerByUserId(r.id)
+				table.insert(out, { id = r.id, name = r.name, town = r.town, level = r.level, value = r.value, here = here ~= nil and here ~= player and views[here] ~= nil })
+			end
+			return { rows = out, mine = mine }, nil
+		elseif op == "meet" then
+			-- The Car Meet (Social's Meet tab): drivers in this server first, then recent displays.
+			local out, seen = {}, {}
+			for _, other in Players:GetPlayers() do
+				if other ~= player and towns:isOpen(other.UserId) and views[other] then
+					local cars = {}
+					for _, c in showcase(other.UserId) do
+						table.insert(cars, Meet.carOf(c))
+					end
+					if #cars > 0 then
+						local town = towns:save(other.UserId).townName
+						table.insert(out, { id = other.UserId, name = other.DisplayName, town = town, level = towns:save(other.UserId).level, cars = cars, here = true })
+						seen[other.UserId] = true
+					end
+				end
+			end
+			for _, d in meet:displays() do
+				if d.id ~= player.UserId and not seen[d.id] then
+					table.insert(out, d)
+				end
+			end
+			local owners = { player.UserId }
+			for _, d in out do
+				table.insert(owners, d.id)
+			end
+			return { displays = out, likes = meet:likesFor(player.UserId, owners) }, nil
+		elseif op == "like" and type(arg) == "number" then
+			local r = meet:like(player.UserId, arg)
+			if r ~= "liked" then
+				return nil, if r == "limit" then "like limit" elseif r == "already" then "liked" else "no"
+			end
+			return { likes = meet:likes(arg) }, nil
+		elseif op == "mail" then
+			-- The gift bell's mail, and who they've sent a gift or postcard today.
+			local box = mail:inbox(player.UserId)
+			box.sent = mail:sentToday(player.UserId)
+			player:SetAttribute("Mail", #box.notes)
+			mail:see(player.UserId)
+			return box, nil
+		elseif op == "invites" then
+			-- The Friends tab's invite line (server/Invites).
+			return invites:stats(player.UserId), nil
+		elseif op == "sent" then
+			return mail:sentToday(player.UserId), nil
+		elseif op == "claimMail" then
+			local got = mail:claim(player.UserId)
+			if got.count > 0 then
+				towns:_with(player.UserId, function(s)
+					s.receiveGifts(got.fuel, got.parts)
+				end)
+				saveId(player.UserId)
+			end
+			if got.left > 0 then
+				towns:_with(player.UserId, function(s)
+					s.toast(if got.count > 0 then `{got.left} more waiting. You can collect 10 a day.` else "You've collected 10 today. The rest wait for tomorrow.")
+				end)
+			end
+			push(player)
+			player:SetAttribute("Mail", got.left)
+			return got, nil
+		elseif (op == "gift" or op == "postcard") and type(arg) == "table" and type(arg.to) == "number" then
+			-- A gift (15 fuel or 5 parts) or a postcard, for a friend or a driver in this server.
+			local to = arg.to
+			local other = Players:GetPlayerByUserId(to)
+			if to == player.UserId or not (other or areFriends(player, to)) then
+				return nil, "not a friend"
+			end
+			local r
+			if op == "gift" then
+				r = mail:gift(player.UserId, player.DisplayName, townOf(player.UserId), to, arg.item)
+			else
+				r = mail:postcard(player.UserId, player.DisplayName, townOf(player.UserId), to, arg.card, tonumber(arg.msg) or -1)
+			end
+			if r == "limit" then
+				return nil, if op == "gift" then "gift limit" else "card limit"
+			elseif r == "already" then
+				return nil, "sent today"
+			elseif r ~= "sent" then
+				return nil, "no"
+			end
+			local name = if type(arg.name) == "string" and #arg.name <= 40 then arg.name else nil
+			towns:_with(player.UserId, function(s)
+				s.befriend(tostring(to), op, name)
+				if op == "gift" then
+					s.toast(`Sent {if arg.item == "parts" then "⚙" else "⛽"} {Mail.GIFTS[arg.item]} {arg.item}!`)
+				else
+					s.toast("💌 Postcard sent!")
+				end
+			end)
+			push(player)
+			task.spawn(pcall, mailCount, to)
+			return { sent = true }, nil
+		elseif op == "card" and type(arg) == "number" then
+			-- Another player's card: from their town when they're in this server, else as last saved.
+			local other = Players:GetPlayerByUserId(arg)
+			local card: any
+			if other and towns:isOpen(arg) then
+				card = cardOf(arg)
+				card.name = other.DisplayName
+			else
+				card = meet:card(arg)
+			end
+			if not card then
+				return nil, "no card"
+			end
+			card.id = arg
+			card.here = other ~= nil and other ~= player and views[other] ~= nil
+			card.mine = arg == player.UserId
+			card.likes = meet:likesFor(player.UserId, { arg })[tostring(arg)]
+			return card, nil
 		elseif op == "join" and type(arg) == "number" then
 			return join(player, arg)
 		end
@@ -1152,6 +1574,54 @@ task.spawn(function()
 		task.wait(if ok then 600 else 60)
 	end
 end)
+
+-- The admin panel (server/Admin): testing tools for Kegan's account only, checked here by user id.
+local admin = Admin.new({
+	towns = towns,
+	store = require(Game.store),
+	data = require(Game.data),
+	visitors = visitors,
+	player = function(userId: number): any
+		return Players:GetPlayerByUserId(userId)
+	end,
+	players = function(): { any }
+		return Players:GetPlayers()
+	end,
+	push = function(player: any, force: boolean?)
+		push(player, force)
+	end,
+	save = function(player: any)
+		save(player)
+	end,
+	hub = function(): CFrame
+		return CFrame.new(0, 5, 160)
+	end,
+	plot = function(i: number): CFrame?
+		return World.gate(i)
+	end,
+	plots = World.COUNT,
+	rave = function(player: any): (boolean, string?)
+		return Rave.go(player)
+	end,
+	stats = function(): { [string]: any }
+		local Stats = game:GetService("Stats")
+		return {
+			memoryMb = math.floor(Stats:GetTotalMemoryUsageMb()),
+			physicsFps = math.floor(workspace:GetRealPhysicsFPS()),
+			heartbeatMs = math.floor(Stats.HeartbeatTimeMs * 10) / 10,
+			uptime = math.floor(time()),
+			players = #Players:GetPlayers(),
+			instances = Stats.InstanceCount,
+			version = game.PlaceVersion,
+			job = if game.JobId == "" then "studio" else string.sub(game.JobId, 1, 8),
+		}
+	end,
+	now = now,
+	uid = function(): string
+		return HttpService:GenerateGUID(false)
+	end,
+})
+admin:start(Players)
 
 -- The town clock: jobs finish, fuel refills, tasks roll over.
 task.spawn(function()

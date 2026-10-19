@@ -75,7 +75,33 @@ for _, m in WorldLife.cars() do
 		near += 1
 	end
 end
-print(`{near} cars within 150 studs; ok`)
+print(`{near} cars within 150 studs`)
+
+-- The wheels: on a car near the camera they roll (turning round the axle, staying in place).
+local Catalog = emu.require(RS.Shared.Models.Catalog)
+local car, cd = nil, math.huge
+for _, m in WorldLife.cars() do
+	local d = (m:GetPivot().Position - eye).Magnitude
+	if d < cd and Catalog.WHEELS[m:GetAttribute("Model")] then
+		car, cd = m, d
+	end
+end
+assert(car, "no car with wheels in sight")
+local wheel = car:FindFirstChild(tostring(Catalog.WHEELS[car:GetAttribute("Model")][1]))
+local function relOf()
+	return car:GetPivot():ToObjectSpace(wheel.CFrame)
+end
+local before = relOf()
+for _ = 1, 10 do
+	step(1 / 30, eye, nil)
+end
+local after = relOf()
+local turned = math.deg(math.acos(math.clamp(before.UpVector:Dot(after.UpVector), -1, 1)))
+local drift = (before.Position - after.Position).Magnitude
+print(`wheel of {car:GetAttribute("Model")} {math.floor(cd)} studs off: turned {math.floor(turned)}°, moved {string.format("%.3f", drift)} studs on the car`)
+assert(turned > 1, "wheels didn't turn")
+assert(drift < 0.6, "wheel wandered off its axle")
+print("ok")
 
 -- SHOT=1 also writes build/roadcars.json and -cam.json for render.mjs: behind the nearest car,
 -- as the follow camera sits behind the player's.

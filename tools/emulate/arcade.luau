@@ -177,6 +177,9 @@ make("RemoteFunction", "Race")
 make("RemoteFunction", "Crate")
 make("RemoteFunction", "Arcade")
 make("RemoteFunction", "Meshes")
+make("RemoteFunction", "Social")
+make("RemoteFunction", "WebLink")
+make("RemoteEvent", "Kart")
 remotes.Parent = RS
 local calls = {}
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, op, a, b, c)

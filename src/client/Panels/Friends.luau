@@ -2,8 +2,8 @@
 -- The Social menu's Friends tab, as the web game's FriendsPanel (ui/Friends.tsx), with Roblox's
 -- own friends in place of the web's friend requests: Invite friends, your friends (in this server:
 -- Visit; playing Cartopia elsewhere: Join; online in another game or offline: greyed), then the
--- other drivers in this server to visit and help. The Crew, Meet and Leaderboards tabs aren't on
--- Roblox yet.
+-- other drivers in this server to visit and help. Leaderboards: client/Social/Leaders; the Car Meet:
+-- client/Social/Meet. The Crew tab isn't on Roblox yet.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -16,8 +16,16 @@ local store = require(Game.store) :: any
 local Policy = require(ReplicatedStorage.Shared.Policy)
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
+local Leaders = require(script.Parent.Parent.Social.Leaders)
+local MeetTab = require(script.Parent.Parent.Social.Meet)
+local Card = require(script.Parent.Parent.Social.Card)
+local Postcards = require(script.Parent.Parent.Social.Postcards)
 
 local Friends = {}
+
+-- The invite reward (server/Invites): gems each, once the new player reaches the level.
+local INVITE_GEMS = 100
+local INVITE_LEVEL = 10
 Friends.id = "friends"
 
 local ROW_H = 52
@@ -44,12 +52,16 @@ local function avatar(parent: Instance, name: string, userId: number?, on: boole
 end
 
 -- One row: avatar, name (and friendship badge), a small line, then its buttons right to left.
+-- onTap: tapping the rest of the row (opens the player's card).
 type Button = { text: string, kind: string, width: number, onClick: () -> () }
-local function row(list: Instance, order: number, o: { name: string, userId: number?, on: boolean, line: string, badge: string?, dim: boolean?, buttons: { Button } })
+local function row(list: Instance, order: number, o: { name: string, userId: number?, on: boolean, line: string, badge: string?, dim: boolean?, buttons: { Button }, onTap: (() -> ())? })
 	local r = Ui.new("Frame", { Name = o.name, LayoutOrder = order, Size = UDim2.new(1, 0, 0, ROW_H), BackgroundColor3 = Ui.WHITE, Parent = list }, {
 		Ui.corner(12),
 		Ui.stroke(2, Color3.fromHex("#e0e0e0")),
 	})
+	if o.onTap then
+		Ui.new("TextButton", { Name = "Open", Text = "", BackgroundTransparency = 1, ZIndex = 0, Size = UDim2.fromScale(1, 1), Parent = r }).Activated:Connect(o.onTap)
+	end
 	avatar(r, o.name, o.userId, o.on)
 	local right = 10
 	for _, b in o.buttons do
@@ -126,20 +138,24 @@ local function robloxFriends(): { any }
 	return out
 end
 
-function Friends.open(ctx: any, _arg: any?): Instance
+function Friends.open(ctx: any, arg: any?): Instance
 	local overlay, _sheet, body = Ui.panel(ctx.gui, "Social", { wide = true, onClose = ctx.close, bodyTop = 0 })
-	local soon = { clan = "Crews", meet = "The Car Meet", leaders = "Leaderboards" }
+	local soon = { clan = "Crews are" }
+	local first = if arg == "leaders" or arg == "meet" then arg else "friends"
 	local pick: (string) -> ()
+	local show: (string) -> ()
 	_, pick = Ui.tabs(body, {
 		{ id = "friends", label = "👫 Friends" },
 		{ id = "clan", label = "🛡️ Crew" },
 		{ id = "meet", label = "🚗 Meet" },
 		{ id = "leaders", label = "🏅 Leaderboards" },
-	}, "friends", function(id)
+	}, first, function(id)
 		if soon[id] then
-			ctx.toast(`{soon[id]} are coming to Roblox soon`)
+			ctx.toast(`{soon[id]} coming to Roblox soon`)
 			pick("friends")
+			return
 		end
+		show(id)
 	end, { position = UDim2.fromOffset(-14, 0), size = UDim2.new(1, 28, 0, 54) })
 
 	local list = Ui.scroller({ Name = "List", Position = UDim2.fromOffset(-6, 64), Size = UDim2.new(1, 12, 1, -64), Parent = body })
@@ -153,6 +169,10 @@ function Friends.open(ctx: any, _arg: any?): Instance
 			ctx.close()
 			ctx.setVisit(town)
 		end
+	end
+	-- A player's card over the menu (Social/Card).
+	local function card(userId: number, name: string, town: string?)
+		Card.open(overlay, userId, { name = name, town = town }, { visit = visit, ctx = ctx })
 	end
 	local function join(userId: number, name: string)
 		ctx.toast(`Joining {name}…`)
@@ -171,105 +191,171 @@ function Friends.open(ctx: any, _arg: any?): Instance
 		end
 	end
 
-	local loading = Ui.text({ Name = "Loading", Text = "Finding your friends…", Body = true, TextSize = 15, TextColor3 = Ui.MUTED, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 40), Parent = list })
-	task.spawn(function()
-		local rules = Policy.fromAttributes(function(name)
-			return me:GetAttribute(name)
-		end)
-		local canInvite = Policy.canShare(rules) and (function()
-			local ok, can = pcall(SocialService.CanSendGameInviteAsync, SocialService, me)
-			return ok and can == true
-		end)()
-		local friends = robloxFriends()
-		local okPlayers, here = Remote.social("players", nil, true)
-		if not overlay.Parent then
-			return
+	local leaderState, meetState = {}, {}
+	local shown = ""
+	local function clear()
+		for _, c in list:GetChildren() do
+			if c:IsA("GuiObject") then
+				c:Destroy()
+			end
 		end
-		loading:Destroy()
-		local order = 1
-		local function nextOrder(): number
-			order += 1
-			return order
-		end
-		if canInvite then
-			local holder = Ui.new("Frame", { Name = "Invite", LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 46), BackgroundTransparency = 1, Parent = list })
-			Ui.buy({ Position = UDim2.fromOffset(0, 2), Size = UDim2.new(1, 0, 0, 40), Parent = holder }, "🔗 Invite friends", "green", function()
-				pcall(SocialService.PromptGameInvite, SocialService, me)
-			end, 18)
-		end
+		list.CanvasPosition = Vector2.zero
+	end
+	local function drawFriends()
+		local loading = Ui.text({ Name = "Loading", Text = "Finding your friends…", Body = true, TextSize = 15, TextColor3 = Ui.MUTED, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 40), Parent = list })
+		task.spawn(function()
+			local rules = Policy.fromAttributes(function(name)
+				return me:GetAttribute(name)
+			end)
+			local canInvite = Policy.canShare(rules) and (function()
+				local ok, can = pcall(SocialService.CanSendGameInviteAsync, SocialService, me)
+				return ok and can == true
+			end)()
+			local friends = robloxFriends()
+			local okPlayers, here = Remote.social("players", nil, true)
+			local okSent, sent = Remote.social("sent", nil, true)
+			local okInvites, stats = Remote.social("invites", nil, true)
+			sent = if okSent then sent else { gifts = {}, cards = {} }
+			-- Today's gift and postcard for a player (Social/Postcards); ✔ once sent.
+			local function mailButtons(buttons: { Button }, id: number, name: string)
+				local gifted = sent.gifts[tostring(id)] == true
+				local carded = sent.cards[tostring(id)] == true
+				table.insert(buttons, { text = if carded then "💌✔" else "💌", kind = if carded then "grey" else "garage", width = if carded then 62 else 48, onClick = function()
+					if carded then
+						ctx.toast("Postcard sent today")
+						return
+					end
+					Postcards.pick(overlay, id, name, function()
+						shown = ""
+						show("friends")
+					end)
+				end })
+				table.insert(buttons, { text = if gifted then "🎁✔" else "🎁", kind = if gifted then "grey" else "garage", width = if gifted then 62 else 48, onClick = function()
+					if gifted then
+						ctx.toast("Gift sent today")
+						return
+					end
+					Postcards.gift(overlay, id, name, function()
+						shown = ""
+						show("friends")
+					end)
+				end })
+			end
+			if not overlay.Parent or shown ~= "friends" then
+				return
+			end
+			loading:Destroy()
+			local order = 1
+			local function nextOrder(): number
+				order += 1
+				return order
+			end
+			if canInvite then
+				-- Invite rewards (server/Invites, the web's lib/invite.ts): both get the gems once a
+				-- new player who joins from the invite reaches the level.
+				local holder = Ui.new("Frame", { Name = "Invite", LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 46), BackgroundTransparency = 1, Parent = list })
+				Ui.buy({ Position = UDim2.fromOffset(0, 2), Size = UDim2.new(1, 0, 0, 40), Parent = holder }, `🔗 Invite friends · 💎{INVITE_GEMS} each`, "green", function()
+					pcall(SocialService.PromptGameInvite, SocialService, me)
+				end, 18)
+				local hint = if okInvites and stats.joined > 0 then `👥 {stats.joined} joined · ⭐ {stats.reached} reached level {INVITE_LEVEL} · 💎 {stats.gems} earned` else `You both get 💎{INVITE_GEMS} when a new player you invite reaches level {INVITE_LEVEL}`
+				Ui.text({ Name = "InviteNote", LayoutOrder = nextOrder(), Text = hint, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextWrapped = true, Size = UDim2.new(1, 0, 0, 20), Parent = list })
+			end
 
-		local byId: { [number]: any } = {}
-		for _, p in (if okPlayers then here else {}) :: { any } do
-			byId[p.id] = p
-		end
-		local online = 0
-		for _, f in friends do
-			if f.online then
-				online += 1
+			local byId: { [number]: any } = {}
+			for _, p in (if okPlayers then here else {}) :: { any } do
+				byId[p.id] = p
 			end
-		end
-		heading(list, nextOrder(), "Friends", if #friends > 0 then `{online} online · {#friends}` else nil)
-		if #friends == 0 then
-			note(list, nextOrder(), "No Roblox friends yet. Add the drivers below, or invite yours.")
-		end
-		local shown = 0
-		for _, f in friends do
-			if shown >= 40 then
-				break
+			local online = 0
+			for _, f in friends do
+				if f.online then
+					online += 1
+				end
 			end
-			shown += 1
-			local p = byId[f.id]
-			local buttons: { Button } = {}
-			local line: string
-			if p then
-				line = `{p.townName} · Lvl {p.level} · 🏆 {p.trophies} · in this server`
+			heading(list, nextOrder(), "Friends", if #friends > 0 then `{online} online · {#friends}` else nil)
+			if #friends == 0 then
+				note(list, nextOrder(), "No Roblox friends yet. Add the drivers below, or invite yours.")
+			end
+			local listed = 0
+			for _, f in friends do
+				if listed >= 40 then
+					break
+				end
+				listed += 1
+				local p = byId[f.id]
+				local buttons: { Button } = {}
+				local line: string
+				if p then
+					line = `{p.townName} · Lvl {p.level} · 🏆 {p.trophies} · in this server`
+					local helpedAll = p.helped >= HELPS_PER_TOWN
+					table.insert(buttons, { text = if helpedAll then "🏠 Visit" else "🤝 Visit", kind = "garage", width = 92, onClick = function()
+						visit(f.id)
+					end })
+				elseif f.cartopia then
+					line = "🟢 Playing Cartopia"
+					table.insert(buttons, { text = "Join", kind = "green", width = 74, onClick = function()
+						join(f.id, f.name)
+					end })
+				elseif f.online then
+					line = "🟢 Online"
+				else
+					line = "Offline"
+				end
+				mailButtons(buttons, f.id, f.name)
+				row(list, nextOrder(), { name = f.name, userId = f.id, on = f.online, line = line, badge = badge(f.id), dim = not f.online, buttons = buttons })
+			end
+
+			-- The other drivers in this server (web: "Drivers to visit").
+			local others = {}
+			for _, p in (if okPlayers then here else {}) :: { any } do
+				if not p.friend then
+					table.insert(others, p)
+				end
+			end
+			heading(list, nextOrder(), "Drivers to visit", `tap {HELPS_PER_TOWN} shops each for coins`)
+			if #others == 0 then
+				note(list, nextOrder(), "Nobody else is in this server yet.")
+			end
+			for _, p in others do
 				local helpedAll = p.helped >= HELPS_PER_TOWN
-				table.insert(buttons, { text = if helpedAll then "🏠 Visit" else "🤝 Visit", kind = "garage", width = 92, onClick = function()
-					visit(f.id)
-				end })
-			elseif f.cartopia then
-				line = "🟢 Playing Cartopia"
-				table.insert(buttons, { text = "Join", kind = "green", width = 74, onClick = function()
-					join(f.id, f.name)
-				end })
-			elseif f.online then
-				line = "🟢 Online"
-			else
-				line = "Offline"
-			end
-			row(list, nextOrder(), { name = f.name, userId = f.id, on = f.online, line = line, badge = badge(f.id), dim = not f.online, buttons = buttons })
-		end
-
-		-- The other drivers in this server (web: "Drivers to visit").
-		local others = {}
-		for _, p in (if okPlayers then here else {}) :: { any } do
-			if not p.friend then
-				table.insert(others, p)
-			end
-		end
-		heading(list, nextOrder(), "Drivers to visit", `tap {HELPS_PER_TOWN} shops each for coins`)
-		if #others == 0 then
-			note(list, nextOrder(), "Nobody else is in this server yet.")
-		end
-		for _, p in others do
-			local helpedAll = p.helped >= HELPS_PER_TOWN
-			row(list, nextOrder(), {
-				name = p.name,
-				userId = p.id,
-				on = true,
-				line = `{p.townName} · Lvl {p.level} · 🏆 {p.trophies}`,
-				badge = badge(p.id),
-				buttons = {
+				local buttons: { Button } = {
 					{ text = if helpedAll then "🏠 Visit" else "🤝 Visit", kind = "garage", width = 92, onClick = function()
 						visit(p.id)
 					end },
 					{ text = "+ 👫", kind = "garage", width = 56, onClick = function()
 						addFriend(p.id)
 					end },
-				},
-			})
+				}
+				mailButtons(buttons, p.id, p.name)
+				row(list, nextOrder(), {
+					name = p.name,
+					userId = p.id,
+					on = true,
+					line = `{p.townName} · Lvl {p.level} · 🏆 {p.trophies}`,
+					badge = badge(p.id),
+					onTap = function()
+						card(p.id, p.name, p.townName)
+					end,
+					buttons = buttons,
+				})
+			end
+		end)
+	end
+
+	show = function(id: string)
+		if shown == id then
+			return
 		end
-	end)
+		shown = id
+		clear()
+		if id == "leaders" then
+			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit, card = card }, leaderState)
+		elseif id == "meet" then
+			MeetTab.draw(list, { note = note, visit = visit, card = card, toast = ctx.toast }, meetState)
+		else
+			drawFriends()
+		end
+	end
+	show(first)
 	return overlay
 end
 

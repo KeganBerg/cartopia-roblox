@@ -15,6 +15,7 @@ local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Bank = require(script.Parent.Bank)
+local Confirm = require(script.Parent.Confirm)
 local Mixer = require(script.Parent.Sounds.Mixer)
 local Sfx = require(script.Parent.Sounds.Sfx)
 
@@ -378,7 +379,64 @@ local function soundRows(row: (number) -> Frame, redraw: () -> ())
 	end)
 end
 
-local function settingsTab(list: Instance, redraw: () -> ()): number
+-- Brings the player's web town over (server/WebLink) with the code from the web game's Settings,
+-- Play on Roblox. Only what was earned by playing comes over; packs paid for on the web stay there.
+local function webTownGroup(ctx: any, list: Instance, order: number): Frame
+	local g, row = group(list, order, "🌐", "Web town")
+	local r = row(100)
+	label(r, "Bring your web town", "Already play on the web? Type its code here")
+	local field = Ui.new("Frame", { Size = UDim2.new(1, -126, 0, 40), Position = UDim2.fromOffset(12, 50), BackgroundColor3 = Ui.WHITE, Parent = r }, {
+		Ui.corner(10),
+		Ui.stroke(2, Color3.fromHex("#cfd8dc")),
+	})
+	local box = Ui.new("TextBox", {
+		Name = "WebCode",
+		Text = "",
+		PlaceholderText = "Code, like ABCD2345",
+		ClearTextOnFocus = false,
+		FontFace = Ui.BODY,
+		TextSize = 18,
+		TextColor3 = Ui.INK,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(1, -24, 1, 0),
+		Parent = field,
+	}) :: TextBox
+	local busy = false
+	Ui.buy({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 52), Size = UDim2.fromOffset(96, 36), Parent = r }, "Link", "green", function()
+		local code = box.Text
+		if busy or not code:match("%w") then
+			return
+		end
+		Confirm.ask(ctx.gui, {
+			pref = "askLink",
+			icon = "🌐",
+			title = "Swap in your web town?",
+			ok = "Swap",
+			z = 41,
+			body = function(b)
+				Ui.text({ Text = "Your web town replaces this one. Paid web packs stay on the web.", Body = true, TextSize = 14, TextWrapped = true, TextColor3 = Ui.INK, ZIndex = 41, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 1, 0), Parent = b })
+			end,
+			onOk = function()
+				busy = true
+				task.spawn(function()
+					local ok, why = Remote.webLink(code)
+					busy = false
+					if ok then
+						box.Text = ""
+						ctx.toast("Your web town is here!")
+					else
+						ctx.toast(why or "That didn't work. Try again.")
+					end
+				end)
+			end,
+		})
+	end, 16)
+	return g
+end
+
+local function settingsTab(ctx: any, list: Instance, redraw: () -> ()): number
 	local sound = SoundService:FindFirstChild("Cartopia") :: SoundGroup?
 	local g1, row1 = group(list, 1, "🔊", "Sound")
 	local r = row1(48)
@@ -392,7 +450,8 @@ local function settingsTab(list: Instance, redraw: () -> ()): number
 	soundRows(row1, redraw)
 	local g2, row2 = group(list, 2, "✨", "Graphics")
 	label(row2(52), "Graphics quality", "Roblox sets this: open its menu (Esc) > Settings")
-	return g1.Size.Y.Offset + g2.Size.Y.Offset + GAP * 2
+	local g3 = webTownGroup(ctx, list, 3)
+	return g1.Size.Y.Offset + g2.Size.Y.Offset + g3.Size.Y.Offset + GAP * 3
 end
 
 local function accountTab(list: Instance): number
@@ -432,7 +491,7 @@ function Menu.open(ctx: any): Instance
 	local function show()
 		clear(list)
 		local s = store.useGame.getState()
-		local h = if tab == "town" then townTab(ctx, list, s) elseif tab == "settings" then settingsTab(list, show) elseif tab == "account" then accountTab(list) else helpTab(list)
+		local h = if tab == "town" then townTab(ctx, list, s) elseif tab == "settings" then settingsTab(ctx, list, show) elseif tab == "account" then accountTab(list) else helpTab(list)
 		limit.MaxSize = Vector2.new(W, 61 + 64 + h + 22)
 	end
 	Ui.tabs(body, TABS, tab, function(id)
@@ -467,12 +526,6 @@ function Menu.need(ctx: any, need: any?): Instance?
 	end
 	local s = store.useGame.getState()
 	local t = now()
-	local function soon(what: string): () -> ()
-		return function()
-			ctx.close()
-			ctx.toast(`{what} is coming to Roblox soon`)
-		end
-	end
 	local function owned(id: string): number
 		local n = 0
 		for _, b in s.buildings do
@@ -543,7 +596,7 @@ function Menu.need(ctx: any, need: any?): Instance?
 		table.insert(sources, { icon = "🔍", title = "Search at Rusty's", detail = "Searches can turn up coin stashes along with cars.", action = if owned("rescue") > 0 then { label = "Rusty's", run = function() ctx.open("rescue") end } else build("rescue") })
 		table.insert(sources, { icon = "🏆", title = "Win drag races", detail = `Each race costs {data.RACE_FUEL} fuel and pays a few hundred coins.`, action = { label = "Race", run = function() ctx.open("race") end } })
 		table.insert(sources, { icon = "📋", title = "Finish goals", detail = "Goals pay coins, XP and sometimes gems.", action = { label = "Goals", run = function() ctx.open("goals") end } })
-		table.insert(sources, { icon = "👫", title = "Help other towns", detail = "Visit a town and tap its shops to help.", action = { label = "Social", run = soon("Visiting towns") } })
+		table.insert(sources, { icon = "👫", title = "Help other towns", detail = "Visit a town and tap its shops to help.", action = { label = "Social", run = function() ctx.open("friends") end } })
 	elseif need.res == "parts" then
 		summary = (if missing > 0 then `You need {missing} more parts{if what then ` for {what}` else ""}.` else `You have {s.parts} parts.`) .. " Parts (the ⚙ gears) come from these businesses:"
 		local function partsRow(icon: string, title: string, id: string, detail: string): Source

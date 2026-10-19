@@ -99,11 +99,8 @@ function CallCards.draw(parent: Instance, ctx: any, onCrates: () -> (), redraw: 
 			Ui.corner(12),
 			Ui.stroke(if sel then 3 else 2.5, if sel then Color3.fromHex("#ffd43b") else LINE),
 		})
-		CallCardArt.scene(b, c.id, { still = true, aspect = 80 / 96 })
-		if not have then
-			-- The web dims and greys a card you don't have yet (saturate .35, brightness .6).
-			Ui.new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#2b3140"), BackgroundTransparency = 0.55, BorderSizePixel = 0, ZIndex = 4, Parent = b }, { Ui.corner(10) })
-		end
+		-- (A card you don't have yet is greyed, as the web's saturate(.35) brightness(.6).)
+		CallCardArt.scene(b, c.id, { still = true, locked = not have, aspect = 80 / 96 })
 		CallCardArt.frame(b, c.id, 0, 10)
 		local foot = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = Ui.WHITE, BorderSizePixel = 0, ZIndex = 4, Parent = b }, {
 			Ui.new("UIGradient", { Rotation = 90, Color = Ui.seq("#060a1a", "#060a1a"), Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.45, 0.15), NumberSequenceKeypoint.new(1, 0.15) }) }),

@@ -9,7 +9,8 @@
 --   - a chase camera sits behind the car and swings round after it smoothly, widening a little
 --     with speed; right-drag (or a drag on the right of a phone screen) looks round, the wheel
 --     zooms;
---   - the body leans a touch on corners and dips under braking (this player's view only).
+--   - the body leans a touch on corners and dips under braking, and the wheels roll with the
+--     speed and the front ones steer (shared/Models/Wheels) (this player's view only).
 -- Shift / BOOST (client/GetIn) raises the top speed.
 
 local Players = game:GetService("Players")
@@ -18,6 +19,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local CarFeel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CarFeel")) :: any
+local Wheels = require(ReplicatedStorage.Shared:WaitForChild("Models"):WaitForChild("Wheels"))
 local TownCamera = require(script.Parent.TownCamera) :: any
 
 local CarDrive = {}
@@ -30,6 +32,7 @@ local CAM_SWING = 4 -- how fast the camera swings round behind the car
 local LOOK_AHEAD = 10
 local FOV = 70
 local MAX_BODY_PARTS = 600
+local FLIP = CFrame.Angles(0, math.pi, 0) -- car models face +Z, avatars -Z
 
 local boosting: () -> boolean = function()
 	return false
@@ -50,7 +53,7 @@ local orbitLetGo = 0
 local orbitTouch: InputObject? = nil
 
 -- The leaning body: a local copy of the car moved each frame, the real one hidden.
-local body: { car: Model, copy: Model, parts: { BasePart }, rel: { CFrame }, hidden: { BasePart }, pivot: Vector3, added: RBXScriptConnection }? = nil
+local body: { car: Model, copy: Model, parts: { BasePart }, rel: { CFrame }, hidden: { BasePart }, pivot: Vector3, added: RBXScriptConnection, wheels: Wheels.Rig? }? = nil
 -- Set when more of the car arrives after the copy was made (streaming): the copy is made again.
 local stale = false
 local roll, rollV, pitch, pitchV = 0, 0, 0, 0
@@ -164,6 +167,8 @@ local function makeBody(root: BasePart, humanoid: Humanoid, car: Model)
 				stale = true
 			end
 		end),
+		-- The copy's wheels, measured from the root turned round (the car faces the avatar's -Z).
+		wheels = Wheels.rig(copy, car:GetAttribute("Model") :: string?, root.CFrame * FLIP, copies),
 	}
 	stale = false
 	roll, rollV, pitch, pitchV = 0, 0, 0, 0
@@ -273,6 +278,12 @@ local function renderStep(dt: number)
 		local cfs = table.create(#body.parts)
 		for i, r in body.rel do
 			cfs[i] = base * r
+		end
+		if body.wheels then
+			local t = math.clamp(math.abs(state.speed) / CarFeel.TOP, 0, 1)
+			local lock = CarFeel.STEER_SLOW + (CarFeel.STEER_FAST - CarFeel.STEER_SLOW) * t
+			Wheels.turn(body.wheels, dt, state.speed, state.steer * lock)
+			Wheels.into(body.wheels, base * FLIP, cfs)
 		end
 		workspace:BulkMoveTo(body.parts, cfs, Enum.BulkMoveMode.FireCFrameChanged)
 	end
