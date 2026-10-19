@@ -337,6 +337,20 @@ function Crew.draw(list: Instance, kit: any, state: any)
 			end
 			Crew.goal(list, nextOrder, res.goal, openChest)
 
+			-- Crew chat: the crew's tab in Roblox's chat (server/CrewChat), for players Roblox lets chat.
+			local lp = Players.LocalPlayer
+			if lp and lp:GetAttribute("CanChat") == true then
+				local chatRow = box(list, nextOrder(), 50, "CrewChat")
+				Ui.text({ Text = `💬 Crew chat · the "Crew {c.tag}" tab`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -150, 0, 20), Parent = chatRow })
+				Ui.text({ Text = "Crewmates in this server", Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 26), Size = UDim2.new(1, -150, 0, 17), Parent = chatRow })
+				Ui.buy({ Name = "OpenChat", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(120, 36), Parent = chatRow }, "Open chat", "garage", function()
+					kit.ctx.close()
+					pcall(function()
+						game:GetService("StarterGui"):SetCore("ChatActive", true)
+					end)
+				end, 15)
+			end
+
 			-- Part requests (web CrewPartsTile): ask once a day, give crewmates a part each.
 			kit.heading(list, nextOrder(), "⚙ Part requests")
 			local asks = res.parts or {}

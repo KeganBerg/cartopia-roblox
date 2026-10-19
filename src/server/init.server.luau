@@ -77,6 +77,7 @@ local Invites = require(script.Invites)
 local Crews = require(script.Crews)
 local CrewGoals = require(script.CrewGoals)
 local CrewParts = require(script.CrewParts)
+local CrewChat = require(script.CrewChat)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -746,6 +747,28 @@ local function collectCrewParts(player: Player)
 	push(player)
 end
 
+-- Crew chat (server/CrewChat): a channel in Roblox's chat for each crew's members in this server.
+local crewChat = CrewChat.new({
+	parent = TextChatService,
+	newChannel = function(name: string): any
+		local ch = Instance.new("TextChannel")
+		ch.Name = name
+		return ch
+	end,
+})
+pcall(function()
+	-- A tab per channel in the chat window, so the crew's is one tap away.
+	(TextChatService :: any).ChannelTabsConfiguration.Enabled = true
+end)
+-- Puts a player in their crew's channel, or out of it (crews change on other servers too).
+local function syncCrewChat(player: Player)
+	local id = crews:mineId(player.UserId)
+	local c = id and crews:crew(id)
+	if player.Parent then
+		crewChat:set(player.UserId, if c then c.id else nil, if c then c.tag else nil)
+	end
+end
+
 -- Pays the crew chests a player has opened that their town hasn't had yet (one per chest).
 local function payCrewChests(player: Player)
 	local userId = player.UserId
@@ -908,6 +931,13 @@ Players.PlayerAdded:Connect(function(player)
 		pcall(invites.arrive, invites, player.UserId, ref, newPlayer)
 		pcall(payCrewChests, player)
 		pcall(checkPasses, player)
+		-- Their crew's chat channel, checked now and then (crews change on other servers too).
+		task.spawn(function()
+			while player.Parent do
+				pcall(syncCrewChat, player)
+				task.wait(60)
+			end
+		end)
 		while player.Parent do
 			pcall(payInvites, player)
 			task.wait(120)
@@ -970,6 +1000,7 @@ Players.PlayerRemoving:Connect(function(player)
 	task.defer(function()
 		crewSeen[player.UserId] = nil
 	end)
+	crewChat:forget(player.UserId)
 	karts:close(player.UserId)
 	parties:forget(player.UserId)
 	arcade:close(player.UserId)
@@ -1815,6 +1846,14 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 	end
 	if result == nil then
 		return false, why
+	end
+	-- A crew joined, left or renamed: the crew chat channels follow (the other player's too).
+	if op == "crewCreate" or op == "crewAsk" or op == "crewLeave" or op == "crewSettings" or op == "crewRespond" or op == "crewKick" then
+		task.spawn(pcall, syncCrewChat, player)
+		local other = Players:GetPlayerByUserId(if type(arg) == "number" then arg elseif type(arg) == "table" and type(arg.id) == "number" then arg.id else 0)
+		if other then
+			task.spawn(pcall, syncCrewChat, other)
+		end
 	end
 	return true, result
 end
