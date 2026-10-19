@@ -184,7 +184,13 @@ const REWRITES = [
   [/\.(map|filter|some|every|forEach|find)\(([A-Za-z_]\w*)\)/g, '.$1((x: any) => $2(x))'],
   // The arcade's device bests are parsed JSON (untyped); give the list its type so .map converts.
   [/Array\.isArray\(b\.park\) \? b\.park\.map\(/, 'Array.isArray(b.park) ? (b.park as unknown[]).map('],
+  // Town traffic keeps a following distance that grows with speed (about 0.7s behind the car in
+  // front) instead of riding its bumper; queued at a light it still closes up to GAP.
+  [/\n(\s*)cap\(a\.gap - room\)\n/, '\n$1cap(a.gap - room)\n$1limit = Math.min(limit, Math.max(0, a.gap - room) / HEADWAY)\n'],
+  [/\nconst GAP = ([\d.]+) \/\/ bumper to bumper when queued\n/, '\nconst GAP = $1 // bumper to bumper when queued\nconst HEADWAY = 0.7 // seconds kept behind the car in front (tools/transpile)\n'],
 ]
+// Rewrites that must find their spot: the build fails if the web's code moves out from under them.
+const REQUIRED = [['scene/traffic/sim.ts', 'a.gap - room) / HEADWAY'], ['scene/traffic/sim.ts', 'const HEADWAY = ']]
 
 function walk(dir) {
   return readdirSync(dir).flatMap((f) => {
@@ -197,6 +203,9 @@ for (const file of walk(join(work, 'src'))) {
   if (file.endsWith('__js.ts')) continue
   let src = readFileSync(file, 'utf8')
   for (const [from, to] of REWRITES) src = src.replace(from, to)
+  for (const [path, mark] of REQUIRED) {
+    if (file.replace(/\\/g, '/').endsWith(path) && !src.includes(mark)) throw new Error(`${path}: a tools/transpile rewrite no longer applies (${mark})`)
+  }
   const toRoot = relative(dirname(file), join(work, 'src')).replace(/\\/g, '/') || '.'
   src = src.replace(/from 'zustand'/g, `from '${toRoot}/__zustand'`).replace(/from 'zustand\/middleware'/g, `from '${toRoot}/__zustand_middleware'`)
   src = src.replace(/from 'three'/g, `from '${toRoot}/__three'`).replace(/from 'three\/examples\/jsm\/utils\/BufferGeometryUtils\.js'/g, `from '${toRoot}/__three'`)

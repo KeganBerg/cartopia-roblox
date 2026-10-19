@@ -43,6 +43,8 @@ local function build(car: any): Model?
 	if not m then
 		return nil
 	end
+	-- Which car it is, for the driver's own view of it (client/CarDrive turns its wheels).
+	m:SetAttribute("Model", car.model)
 	local job = Paint.jobOf(car)
 	Paint.apply(m, job, if type(job.stripe) == "string" then Builder.build(`stripe:{car.model}`) else nil)
 	if car.uid then

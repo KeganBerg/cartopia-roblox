@@ -31,6 +31,8 @@ local panEnabled = true
 local paused = false
 -- On while the player walks their town on foot (see setWalking): Roblox's own camera follows them.
 local walking = false
+-- On while the claim screen looks over the whole shared world (see setOverview).
+local overview = false
 -- Told whenever walking starts or stops (the HUD's Walk button).
 local walkListeners: { (boolean) -> () } = {}
 -- The avatar's controls (PlayerModule), found once the module loads.
@@ -261,7 +263,6 @@ end
 
 -- The view over the whole shared world, zoomed out, for picking a plot (true); back over the
 -- player's own town (false).
-local overview = false
 function TownCamera.setOverview(on: boolean)
 	overview = on
 	if on then

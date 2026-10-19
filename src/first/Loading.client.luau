@@ -5,7 +5,9 @@
 --   2. the server's 3D shapes (it sets ShapesLoaded / ShapesTotal on Workspace as they come in)
 --   3. the player's own town, drawn by the server (their TownReady attribute), and the shop's
 --      model library; or, in a new server, the shared world's hub where they pick a plot first
---      (NeedsPlot: their town is built once they've claimed one, see client/Popups/Claim)
+--      (NeedsPlot: their town is built once they've claimed one, see client/Popups/Claim). The
+--      plot map has no 3D shapes in it, so a player picking doesn't wait for them (2) here: a
+--      server that's just started keeps loading them while they pick.
 --   4. the town's parts streamed to this client, and the countryside drawn round it
 --   5. every mesh, texture and picture in view, downloaded (ContentProvider:PreloadAsync). Only
 --      what's in view: the whole mesh library is thousands of meshes, most of them never seen
@@ -122,14 +124,14 @@ waitFor(function()
 	if total and done and total > 0 then
 		screen:set(LABEL, 0.05 + 0.4 * done / total)
 	end
-	return workspace:GetAttribute("ShapesReady") == true
+	return workspace:GetAttribute("ShapesReady") == true or player:GetAttribute("NeedsPlot") == true
 end)
 
 -- 3. The player's town.
 screen:set(LABEL, 0.45)
 waitFor(function()
 	-- And the server's model library, which the shop's pictures are drawn from.
-	return (player:GetAttribute("TownReady") == true or player:GetAttribute("NeedsPlot") == true) and ReplicatedStorage:FindFirstChild("ModelLibrary") ~= nil
+	return player:GetAttribute("NeedsPlot") == true or (player:GetAttribute("TownReady") == true and ReplicatedStorage:FindFirstChild("ModelLibrary") ~= nil)
 end)
 local picking = player:GetAttribute("TownReady") ~= true
 

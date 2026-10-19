@@ -1,0 +1,33 @@
+# Checks a pull request before it's merged, with the same checks the publish runs after the merge
+# (publish.yml), so a mistake can't block every publish once it reaches main: luau-analyze on the
+# files it covers, unknown globals and syntax errors in every hand-written script
+# (tools/check/globals.mjs), and the tests.
+name: Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install Luau 0.700 (the version the publish uses)
+        run: |
+          curl -sSL -o luau.zip https://github.com/luau-lang/luau/releases/download/0.700/luau-ubuntu.zip
+          unzip -q luau.zip -d "$HOME/luau" && rm luau.zip
+          echo "$HOME/luau" >> "$GITHUB_PATH"
+
+      - name: Analyze
+        run: |
+          luau-analyze src/shared/RaceFloors.luau src/server/Towns.luau
+          node tools/check/globals.mjs
+
+      - name: Test
+        run: luau tests/run.luau

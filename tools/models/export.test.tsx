@@ -13,7 +13,7 @@ import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
   Color, Euler, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
-  type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D,
+  type BoxGeometry, type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D, type PlaneGeometry,
 } from 'three'
 import { BUILDINGS, CARS } from './game/data'
 
@@ -311,6 +311,8 @@ type Piece = { g: number; group?: number; m: number[]; look: Look }
 
 type Geo = { type: string; params: Record<string, unknown>; pos: number[]; idx: number[]; nrm?: number[]; col?: number[] }
 
+// Per list of shapes: the same shape drawn again maps to the id it already has in that list.
+const sameShapes = new WeakMap<Geo[], Map<string, number>>()
 function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[]) {
   root.updateMatrixWorld(true)
   const inv = new Matrix4().copy(root.matrixWorld).invert()
@@ -329,10 +331,21 @@ function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[])
     const c = g.getAttribute('color')
     const col: number[] | undefined = c ? [] : undefined
     if (c && col) for (let i = 0; i < c.count; i++) col.push(r4(c.getX(i)), r4(c.getY(i)), r4(c.getZ(i)))
-    id = geoList.length
-    geoList.push({ type: g.type, params: { ...((g as { parameters?: Record<string, unknown> }).parameters ?? {}) }, pos: p, idx, nrm, col })
+    const params = { ...((g as { parameters?: Record<string, unknown> }).parameters ?? {}) }
     // Material groups: which triangles each material slot draws.
-    ;(geoList[id] as Geo & { groups?: { start: number; count: number; materialIndex: number }[] }).groups = g.groups.map((x) => ({ start: x.start, count: x.count, materialIndex: x.materialIndex ?? 0 }))
+    const groups = g.groups.map((x) => ({ start: x.start, count: x.count, materialIndex: x.materialIndex ?? 0 }))
+    // Each render makes its shapes afresh: the same shape drawn again (a building at its next
+    // level) is kept once, so its pieces compare equal.
+    const sum = createHash('sha1').update(JSON.stringify([g.type, params, p, idx, nrm, col, groups])).digest('hex')
+    let sameShape = sameShapes.get(geoList)
+    if (!sameShape) sameShapes.set(geoList, (sameShape = new Map()))
+    id = sameShape.get(sum)
+    if (id === undefined) {
+      id = geoList.length
+      geoList.push({ type: g.type, params, pos: p, idx, nrm, col })
+      ;(geoList[id] as Geo & { groups?: { start: number; count: number; materialIndex: number }[] }).groups = groups
+      sameShape.set(sum, id)
+    }
     geos.set(g, id)
     return id
   }
@@ -479,7 +492,7 @@ const OUT = process.env.RBX_MODELS_OUT ?? 'rbx-models.json'
 it('exports every building and car', async () => {
   const geos = new Map<BufferGeometry, number>()
   const geoList: Geo[] = []
-  const models: { id: string; kind: string; level?: number; pieces: Piece[]; paint?: number[] }[] = []
+  const models: { id: string; kind: string; level?: number; block?: string; lot?: number[]; pieces: Piece[]; paint?: number[] }[] = []
   // The far land's wind turbines, for the rotors client/Horizon spins: [x, y, z, yaw, tint].
   const turbines: number[][] = []
   const { BuildingModel } = await import('./scene/BuildingModel')
@@ -526,15 +539,52 @@ it('exports every building and car', async () => {
     textures.push({ key: `pattern_${id}`, name, file: `${name}.png`, span })
   }
   if (process.env.RBX_ONLY === 'textures') return void writeFileSync(OUT, JSON.stringify({ textures }))
-  const LEVELS = (process.env.RBX_LEVELS ?? '1').split(',').map(Number)
+  // Every building at every level, alone and merged. Most buildings have their own design at each
+  // level (a storey, an awning, a sign, a roof garden), so each is drawn at all ten. A merged block
+  // is drawn as World.tsx's BuildingLot draws it: the model inside the block's scale, told that
+  // scale (MergeScale) so a pair lays out more windows along its length and props, people and
+  // cars keep their true size. Shapes: a pair along the model's own x or z, and a 2x2 (a 4x4 is
+  // the 2x2 grown twice over; a 2x4 is two 2x2s side by side: game/merge.ts groupParts).
+  // A model drawn the same as at the level below isn't kept: the game falls back to the nearest
+  // level below (Builder.buildingName). RBX_LEVELS=1,4 draws only those levels (a quicker run).
+  const LEVELS = (process.env.RBX_LEVELS ?? '1,2,3,4,5,6,7,8,9,10').split(',').map(Number)
   // RBX_ONLY=outskirts skips the buildings, cars and street pieces (a quicker run while working on
-  // the countryside).
+  // the countryside); RBX_ONLY=buildings draws only the buildings.
   const only = process.env.RBX_ONLY
-  // The Speedway grows with its level (taller glass, a canopy from 4, the upper deck from 7 that
-  // the fans in client/SpeedwayLife.luau stand on), so it's drawn at every level.
-  const levelsOf = (id: string) => (id === 'stadium' ? [...new Set([...LEVELS, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])].sort((a, b) => a - b) : LEVELS)
-  if (!only) for (const d of BUILDINGS) {
-    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, lot: [d.w * TILE, d.h * TILE], pieces: await render(<BuildingModel def={d} level={level} />) })
+  const { MergeScale, KeepShapes } = await import('./scene/mergeScale')
+  const { limitFor } = await import('./scene/keepShape')
+  const { mergeable } = await import('./game/merge')
+  const BLOCKS: [number, number, number][] = [[1, 1, 1], [2, 1, 1], [1, 1, 2], [2, 2, 2]]
+  if (!only || only === 'buildings') for (const d of BUILDINGS) {
+    const last = new Map<string, string>()
+    for (const level of LEVELS) {
+      for (const scale of BLOCKS) {
+        const one = scale[0] === 1 && scale[2] === 1
+        if (!one && !mergeable(d.id)) continue
+        const pieces = await render(
+          one ? <BuildingModel def={d} level={level} /> : (
+            <group scale={scale}>
+              <MergeScale.Provider value={scale}>
+                <KeepShapes limit={limitFor(d)}>
+                  <BuildingModel def={d} level={level} />
+                </KeepShapes>
+              </MergeScale.Provider>
+            </group>
+          ),
+        )
+        const block = one ? undefined : scale.join('x')
+        const key = JSON.stringify(pieces)
+        if (last.get(block ?? '') === key) continue
+        last.set(block ?? '', key)
+        models.push({ id: d.id, kind: 'building', level, block, lot: [d.w * TILE * scale[0], d.h * TILE * scale[2]], pieces })
+      }
+    }
+  }
+  if (only === 'buildings') {
+    const fd = openSync(`${OUT}.geos`, 'w')
+    for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
+    closeSync(fd)
+    return void writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, textures }))
   }
   // Mods (CarMods.tsx, the Rims and Stance looks): each car drawn with one part fitted at a time
   // and compared with the stock car. The pieces the part adds are its model ("mod:<car>:<part>"),
@@ -1009,6 +1059,91 @@ it('exports every building and car', async () => {
       console.log(`${id}: ${near.length} pieces, ${far.length} far`)
       await r.unmount()
     }
+    batching.off = false
+  }
+  // Rusty's search lot at each spot (RescueScene.tsx), laid out for 8 to 11 spots as the tow
+  // truck's levels give them, on a wide screen (a Roblox phone is held sideways): the ground, the
+  // dirt loop, the spots' pads, the yard round it and the spot's own scenery (RescueYard,
+  // LotScenery) and Rusty himself, as "rescue:<spot>:<n>". What moves is drawn by the game
+  // (client/RescueLot): each spot's tarp ("rescue:tarp:<spot>:<k>", one per tarp shape, in the
+  // spot's colours), the tow truck with its crane post ("rescue:truck") and the small finds
+  // ("rescue:loot:<kind>").
+  if (!only || only === 'rescue') await rescues()
+  async function rescues() {
+    const { RescueScene } = await import('./scene/RescueScene')
+    const { RESCUE_SPOTS, TRUCK } = await import('./game/data')
+    const counts = [...new Set(TRUCK.map((t: { pins: number }) => t.pins))]
+    const scene = async (spot: string, pins: unknown[], revealed: boolean[]) => {
+      const search = { spot, pins, revealed, truckAt: null, flatAt: null, flat: false }
+      const r = await ReactThreeTestRenderer.create(
+        <RescueScene search={search as never} magnet={false} fast={false} auto={false} leaving={false} onArrive={() => {}} onFound={() => {}} onLeft={() => {}} onBusy={() => {}} />,
+        { width: 1280, height: 800 },
+      )
+      await r.advanceFrames(2, 1 / 60)
+      return r
+    }
+    const isMesh = (o: Object3D, type: string) => ((o as Mesh).geometry as { type?: string } | undefined)?.type === type
+    const has = (o: Object3D, test: (c: Object3D) => boolean) => {
+      let found = false
+      o.traverse((c) => void (found ||= test(c)))
+      return found
+    }
+    // A search spot: its first child is the big invisible tap target.
+    const isSpot = (o: Object3D) => isMesh(o.children[0] ?? o, 'CylinderGeometry') && (((o.children[0] as Mesh).geometry as { parameters?: { radiusTop?: number } }).parameters?.radiusTop === 1.3)
+    // The tow truck: the group with the flashing amber beacons on its cab roof.
+    const isTruck = (o: Object3D) => has(o, (c) => isMesh(c, 'BoxGeometry') && ((c as Mesh).geometry as BoxGeometry).parameters.width === 0.12 && ((c as Mesh).geometry as BoxGeometry).parameters.height === 0.07)
+    const count = (o: Object3D) => {
+      let n = 0
+      o.traverse(() => n++)
+      return n
+    }
+    batching.off = true
+    for (const sp of RESCUE_SPOTS) {
+      for (const n of counts) {
+        const r = await scene(sp.id, Array.from({ length: n }, () => ({ kind: 'nothing' })), Array.from({ length: n }, () => false))
+        const root = r.scene.instance as Object3D
+        const kids = root.children
+        // The lot itself: the biggest group (everything merged into a few draws in the web game).
+        const yard = kids.reduce((a, b) => (count(b) > count(a) ? b : a))
+        const ground = kids.find((o) => isMesh(o, 'PlaneGeometry') && ((o as Mesh).geometry as PlaneGeometry).parameters.width >= 100)
+        const rusty = kids.find((o) => o !== yard && !isSpot(o) && has(o, (c) => isMesh(c, 'CapsuleGeometry')))
+        const keep = new Set([yard, ground, rusty].filter(Boolean))
+        const shown = kids.map((o) => o.visible)
+        kids.forEach((o) => (o.visible = keep.has(o)))
+        const pieces = walk(root, geos, geoList)
+        kids.forEach((o, i) => (o.visible = shown[i]))
+        models.push({ id: `rescue:${sp.id}:${n}`, kind: 'race', pieces })
+        if (n === counts[0]) {
+          // The tarps, each without its turn to face the road (the game turns it).
+          const spots = kids.filter(isSpot)
+          for (let k = 0; k < 3; k++) {
+            const turned = spots[k].children[1].children[0]
+            models.push({ id: `rescue:tarp:${sp.id}:${k}`, kind: 'piece', pieces: walk(turned, geos, geoList) })
+          }
+          if (sp === RESCUE_SPOTS[0]) {
+            // The truck with an empty bed, without the soft shadow under it.
+            const truck = kids.find(isTruck)!
+            truck.traverse((c) => {
+              if (isMesh(c, 'PlaneGeometry')) c.visible = false
+            })
+            models.push({ id: 'rescue:truck', kind: 'piece', pieces: walk(truck, geos, geoList) })
+          }
+        }
+        console.log(`rescue:${sp.id}:${n}: ${pieces.length} pieces`)
+        await r.unmount()
+      }
+    }
+    // The small finds, as they ride in the truck's bed (found before the scene came up, so loaded
+    // at once): each bed slot holds one, drawn at half size.
+    const smalls = ['coins', 'parts', 'fuel', 'trophy'] as const
+    const pins = [...smalls.map((kind) => (kind === 'trophy' ? { kind } : { kind, n: 1 })), ...Array.from({ length: counts[0] - smalls.length }, () => ({ kind: 'nothing' }))]
+    const r = await scene(RESCUE_SPOTS[0].id, pins, pins.map((_, i) => i < smalls.length))
+    const truck = (r.scene.instance as Object3D).children.find(isTruck)!
+    const scaled = truck.children[0]
+    const slots = scaled.children.filter((o) => !(o as Mesh).isMesh && Math.abs(o.scale.x - 0.5) < 1e-6)
+    if (slots.length !== smalls.length) throw new Error(`rescue loot: ${slots.length} bed slots`)
+    slots.forEach((slot, i) => models.push({ id: `rescue:loot:${smalls[i]}`, kind: 'piece', pieces: walk(slot, geos, geoList) }))
+    await r.unmount()
     batching.off = false
   }
   // Each car's size in town traffic (townCarSize.ts): drawn smaller so it fits its lane.
