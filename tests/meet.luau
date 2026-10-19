@@ -49,4 +49,43 @@ return function(test)
 		day = "2026-10-20"
 		expectEq(m:like(1, 99), "liked", "a new day")
 	end)
+
+	test("meet: a player's card puts the cars on show first, then the rest by PI", function()
+		local m = Meet.new(nil, function()
+			return 0
+		end, function()
+			return "2026-10-19"
+		end)
+		local pis = { a = 300, b = 500, c = 400, d = 200 }
+		local save = { townName = "Annville", level = 9, trophies = 12, racesWon = 4, cars = {
+			{ uid = "a", model = "pip", color = "#ff0000", upgrades = {} },
+			{ uid = "b", model = "pip", color = "#00ff00", upgrades = {} },
+			{ uid = "c", model = "pip", color = "#0000ff", upgrades = {} },
+			{ uid = "d", model = "pip", color = "#ffffff", upgrades = {} },
+			{ model = "broken" },
+		} }
+		local card = Meet.cardOf(save, { save.cars[4] }, function(c)
+			return pis[c.uid]
+		end)
+		expectEq(#card.cars, 4, "cars (a broken one is left out)")
+		expectEq(card.cars[1].uid, "d", "on show first")
+		expectEq(card.cars[2].uid, "b", "then the fastest")
+		expectEq(card.cars[4].uid, "a", "slowest last")
+		expectEq(card.cars[2].pi, 500, "each car's PI")
+		expectEq(card.cars[1].upgrades, nil, "only the look is kept")
+		expectEq(card.bestPi, 500, "best PI")
+		expectEq(card.raceWins, 4, "wins")
+		expectEq(card.showcase[1], "d", "showcase")
+		m:saveCard(1, "Ann", card)
+		local kept = m:card(1)
+		expectEq(kept.name, "Ann", "kept card's name")
+		expectEq(kept.town, "Annville", "kept card's town")
+		expectEq(m:card(2), nil, "no card")
+		m.mem.MeetCards_v1["1"] = nil
+		m:saveCard(1, "Ann", card)
+		expectEq(m:card(1), nil, "an unchanged card isn't written again")
+		card.level = 10
+		m:saveCard(1, "Ann", card)
+		expectEq(m:card(1).level, 10, "a changed card is")
+	end)
 end

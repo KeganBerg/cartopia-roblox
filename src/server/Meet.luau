@@ -8,6 +8,10 @@
 -- was saved in the OrderedDataStore "MeetRecent_v1" (newest first). Like counts are in
 -- "MeetLikes_v1" (by owner) and who each player has liked in "MeetLiked_v1". Without DataStores
 -- (tests, the emulator) everything lives in memory.
+--
+-- Player cards (the web game's lib/playerCard.ts): another player's public numbers and their cars,
+-- the ones on show first. Kept in "MeetCards_v1" (by owner) when the town is saved, for players who
+-- aren't in this server.
 
 local Meet = {}
 Meet.__index = Meet
@@ -17,6 +21,8 @@ local RECENT = 30
 local FRESH = 60
 -- The car fields a display carries (enough to draw the car as it looks in its owner's garage).
 local CAR_KEYS = { "uid", "model", "color", "finish", "stripe", "hat", "mods", "panels", "trim", "skin", "modSkin" }
+-- A card carries this many cars at most (the web's STRIP_MAX).
+Meet.CARD_CARS = 40
 
 export type Backend = {
 	ordered: (name: string) -> any,
@@ -32,13 +38,14 @@ export type Meet = typeof(setmetatable(
 		recent: { [number]: number },
 		cache: { at: number, value: any }?,
 		likeCache: { [number]: number },
+			cardKeys: { [number]: string },
 	},
 	Meet
 ))
 
 -- clock: seconds (os.time); today: today's date key, for the daily limit.
 function Meet.new(backend: Backend?, clock: () -> number, today: () -> string): Meet
-	return setmetatable({ backend = backend, clock = clock, today = today, mem = {}, recent = {}, cache = nil, likeCache = {} }, Meet)
+	return setmetatable({ backend = backend, clock = clock, today = today, mem = {}, recent = {}, cache = nil, likeCache = {}, cardKeys = {} }, Meet)
 end
 
 -- A car as a display carries it.
@@ -211,6 +218,81 @@ function Meet.like(self: Meet, viewer: number, owner: number): string
 		end)
 	end
 	return result
+end
+
+-- A player's card from their save. shown: their cars on show (game/meet showcaseOf); pi: a car's
+-- performance index. Cars: the ones on show, then the rest by PI, each with its pi.
+function Meet.cardOf(save: any, shown: { any }, pi: (any) -> number): any
+	local cars = {}
+	local best = 0
+	for _, c in save.cars or {} do
+		if type(c) == "table" and type(c.uid) == "string" and type(c.model) == "string" then
+			local p = math.floor(pi(c))
+			best = math.max(best, p)
+			table.insert(cars, { car = c, pi = p })
+		end
+	end
+	local on: { [string]: boolean } = {}
+	local out, showcase = {}, {}
+	for _, c in shown do
+		on[c.uid] = true
+		table.insert(showcase, c.uid)
+	end
+	table.sort(cars, function(a, b)
+		local sa, sb = on[a.car.uid] == true, on[b.car.uid] == true
+		if sa ~= sb then
+			return sa
+		end
+		if sa then
+			return (table.find(showcase, a.car.uid) :: number) < (table.find(showcase, b.car.uid) :: number)
+		end
+		if a.pi ~= b.pi then
+			return a.pi > b.pi
+		end
+		return a.car.uid < b.car.uid
+	end)
+	for i, e in cars do
+		if i > Meet.CARD_CARS then
+			break
+		end
+		local c = Meet.carOf(e.car)
+		c.pi = e.pi
+		table.insert(out, c)
+	end
+	return {
+		town = if type(save.townName) == "string" then save.townName else "My Town",
+		level = math.floor(tonumber(save.level) or 1),
+		trophies = math.floor(tonumber(save.trophies) or 0),
+		raceWins = math.floor(tonumber(save.racesWon) or 0),
+		bestPi = best,
+		cars = out,
+		showcase = showcase,
+	}
+end
+
+-- Keeps a player's card for players in other servers (on save), when anything on it changed.
+function Meet.saveCard(self: Meet, userId: number, name: string, card: any)
+	if userId <= 0 then
+		return
+	end
+	local parts = { name, card.town, card.level, card.trophies, card.raceWins, table.concat(card.showcase, ",") }
+	for _, c in card.cars do
+		table.insert(parts, `{c.uid}{c.model}{c.color}{c.pi}{c.finish}{c.skin}{c.hat}`)
+	end
+	local key = table.concat(parts :: { any }, "|")
+	if self.cardKeys[userId] == key then
+		return
+	end
+	self.cardKeys[userId] = key
+	local stored = table.clone(card)
+	stored.name = name
+	self:_set("MeetCards_v1", tostring(userId), stored)
+end
+
+-- A kept card, or nil.
+function Meet.card(self: Meet, userId: number): any
+	local v = self:_get("MeetCards_v1", tostring(userId))
+	return if type(v) == "table" and type(v.cars) == "table" then v else nil
 end
 
 return Meet

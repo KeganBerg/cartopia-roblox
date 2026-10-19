@@ -564,6 +564,13 @@ local function showcase(userId: number): { any }
 	local s = towns:save(userId)
 	return (require(Game.meet) :: any).showcaseOf(s.cars or {}, s.showcase)
 end
+-- A player's card (Social's player cards): their public numbers and cars, on show first.
+local function cardOf(userId: number): any
+	local data = require(Game.data) :: any
+	return Meet.cardOf(towns:save(userId), showcase(userId), function(c: any): number
+		return data.performance(data.carDef(c.model), c.upgrades, c.mods)
+	end)
+end
 
 -- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
 local purchases
@@ -580,6 +587,9 @@ local function saveId(userId: number, release: boolean?): boolean
 			local town = towns:save(userId).townName
 			task.spawn(pcall, leaders.record, leaders, userId, player.DisplayName, if type(town) == "string" then town else "My Town", leaderStats(userId), release)
 			task.spawn(pcall, meet.publish, meet, userId, player.DisplayName, if type(town) == "string" then town else "My Town", towns:save(userId).level or 1, showcase(userId))
+			task.spawn(pcall, function()
+				meet:saveCard(userId, player.DisplayName, cardOf(userId))
+			end)
 		end
 		return wrote
 	end
@@ -1241,6 +1251,24 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 				return nil, if r == "limit" then "like limit" elseif r == "already" then "liked" else "no"
 			end
 			return { likes = meet:likes(arg) }, nil
+		elseif op == "card" and type(arg) == "number" then
+			-- Another player's card: from their town when they're in this server, else as last saved.
+			local other = Players:GetPlayerByUserId(arg)
+			local card: any
+			if other and towns:isOpen(arg) then
+				card = cardOf(arg)
+				card.name = other.DisplayName
+			else
+				card = meet:card(arg)
+			end
+			if not card then
+				return nil, "no card"
+			end
+			card.id = arg
+			card.here = other ~= nil and other ~= player and views[other] ~= nil
+			card.mine = arg == player.UserId
+			card.likes = meet:likesFor(player.UserId, { arg })[tostring(arg)]
+			return card, nil
 		elseif op == "join" and type(arg) == "number" then
 			return join(player, arg)
 		end

@@ -18,6 +18,7 @@ local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local Leaders = require(script.Parent.Parent.Social.Leaders)
 local MeetTab = require(script.Parent.Parent.Social.Meet)
+local Card = require(script.Parent.Parent.Social.Card)
 
 local Friends = {}
 Friends.id = "friends"
@@ -46,12 +47,16 @@ local function avatar(parent: Instance, name: string, userId: number?, on: boole
 end
 
 -- One row: avatar, name (and friendship badge), a small line, then its buttons right to left.
+-- onTap: tapping the rest of the row (opens the player's card).
 type Button = { text: string, kind: string, width: number, onClick: () -> () }
-local function row(list: Instance, order: number, o: { name: string, userId: number?, on: boolean, line: string, badge: string?, dim: boolean?, buttons: { Button } })
+local function row(list: Instance, order: number, o: { name: string, userId: number?, on: boolean, line: string, badge: string?, dim: boolean?, buttons: { Button }, onTap: (() -> ())? })
 	local r = Ui.new("Frame", { Name = o.name, LayoutOrder = order, Size = UDim2.new(1, 0, 0, ROW_H), BackgroundColor3 = Ui.WHITE, Parent = list }, {
 		Ui.corner(12),
 		Ui.stroke(2, Color3.fromHex("#e0e0e0")),
 	})
+	if o.onTap then
+		Ui.new("TextButton", { Name = "Open", Text = "", BackgroundTransparency = 1, ZIndex = 0, Size = UDim2.fromScale(1, 1), Parent = r }).Activated:Connect(o.onTap)
+	end
 	avatar(r, o.name, o.userId, o.on)
 	local right = 10
 	for _, b in o.buttons do
@@ -159,6 +164,10 @@ function Friends.open(ctx: any, arg: any?): Instance
 			ctx.close()
 			ctx.setVisit(town)
 		end
+	end
+	-- A player's card over the menu (Social/Card).
+	local function card(userId: number, name: string, town: string?)
+		Card.open(overlay, userId, { name = name, town = town }, { visit = visit })
 	end
 	local function join(userId: number, name: string)
 		ctx.toast(`Joining {name}…`)
@@ -276,6 +285,9 @@ function Friends.open(ctx: any, arg: any?): Instance
 					on = true,
 					line = `{p.townName} · Lvl {p.level} · 🏆 {p.trophies}`,
 					badge = badge(p.id),
+					onTap = function()
+						card(p.id, p.name, p.townName)
+					end,
 					buttons = {
 						{ text = if helpedAll then "🏠 Visit" else "🤝 Visit", kind = "garage", width = 92, onClick = function()
 							visit(p.id)
@@ -296,9 +308,9 @@ function Friends.open(ctx: any, arg: any?): Instance
 		shown = id
 		clear()
 		if id == "leaders" then
-			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit }, leaderState)
+			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit, card = card }, leaderState)
 		elseif id == "meet" then
-			MeetTab.draw(list, { note = note, visit = visit, toast = ctx.toast }, meetState)
+			MeetTab.draw(list, { note = note, visit = visit, card = card, toast = ctx.toast }, meetState)
 		else
 			drawFriends()
 		end
