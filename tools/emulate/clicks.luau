@@ -3160,6 +3160,21 @@ do
 				bad += 1
 				print(`[tutorial step {s.tutorial}] pressing {what}: ERROR {e}`)
 			end
+			Emu.resumeWaits()
+			if what == "junk-go" and hud.ctx.panel() == "need" then
+				-- The find costs more than the town has (some finds do, on the web too): a player
+				-- earns it with pizza jobs. The walk hands over what those jobs would pay.
+				local short = 0
+				towns:_with(1, function(st)
+					local g = store.useGame.getState()
+					short = 3000
+					store.useGame.setState({ coins = g.coins + short })
+				end)
+				print(`  (the restore costs more than the town has: +{short} coins, as pizza jobs would pay)`)
+				hud.ctx.close()
+				signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+				Emu.resumeWaits()
+			end
 			draw()
 			Emu.resumeWaits()
 			waited = 0
@@ -3246,7 +3261,21 @@ do
 		bad += 1
 		print("[tutorial] the Daily Spin didn't open after the tutorial")
 	end
+	-- Lune never fires Destroying on its own: fire it as Roblox would, so the spin's room light
+	-- (Panels/Wheel) goes out with it. (Menus closed earlier may still be dropping away under the
+	-- same name: fire each.)
+	local closing = {}
+	for _, c in hud.root:GetChildren() do
+		if c.Name == "Panel" then
+			table.insert(closing, signalFor(c, "Destroying"))
+		end
+	end
 	hud.ctx.close()
+	Emu.resumeWaits()
+	for _, sig in closing do
+		sig:Fire()
+	end
+	Emu.resumeWaits()
 	Gui.onNode = nil
 	TownCamera.lookAt = lookAt
 	townsFolder:Destroy()
