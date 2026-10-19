@@ -4,7 +4,9 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SocialService = game:GetService("SocialService")
 local SoundService = game:GetService("SoundService")
+local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
@@ -17,6 +19,11 @@ local Icons = require(script.Parent.Icons)
 local Bank = require(script.Parent.Bank)
 local Mixer = require(script.Parent.Sounds.Mixer)
 local Sfx = require(script.Parent.Sounds.Sfx)
+local Prefs = require(script.Parent.Prefs)
+local Jobs = require(script.Parent.Jobs)
+local Placement = require(script.Parent.Placement)
+local FlashWarning = require(script.Parent.Popups.FlashWarning)
+local wheel = require(Game.wheel) :: any
 
 local Menu = {}
 
@@ -220,7 +227,7 @@ end
 -- ── Settings, Account and Help tabs ─────────────────────────────────────────────────────────
 
 -- A titled white card of rows (.set-group): returns the card and a function adding a row.
-local function group(list: Instance, order: number, icon: string, title: string): (Frame, (number) -> Frame)
+local function group(list: Instance, order: number, icon: string, title: string): (Frame, (number, boolean?) -> Frame)
 	local g = Ui.new("Frame", { Name = title, LayoutOrder = order, Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = Ui.WHITE, ClipsDescendants = true, Parent = list }, {
 		Ui.corner(16),
 		Ui.stroke(2.5, Ui.TAB_EDGE),
@@ -231,9 +238,10 @@ local function group(list: Instance, order: number, icon: string, title: string)
 	Ui.new("Frame", { Position = UDim2.new(0, 0, 1, -2), Size = UDim2.new(1, 0, 0, 2), BorderSizePixel = 0, BackgroundColor3 = Color3.fromHex("#d5e2f3"), Parent = headBar })
 	Ui.text({ Text = `{icon}  {title}`, TextSize = 16, TextColor3 = Color3.fromHex("#24406b"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 1, -2), Parent = headBar })
 	local y = 36
-	return g, function(height: number): Frame
+	-- joined: no line above it (a note under its control, as the web's .set-note).
+	return g, function(height: number, joined: boolean?): Frame
 		local r = Ui.new("Frame", { Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 0, height), BackgroundTransparency = 1, Parent = g })
-		if y > 36 then
+		if y > 36 and not joined then
 			Ui.new("Frame", { Size = UDim2.new(1, 0, 0, 1.5), BorderSizePixel = 0, BackgroundColor3 = Color3.fromHex("#edf2f8"), Parent = r })
 		end
 		y += height
@@ -378,8 +386,47 @@ local function soundRows(row: (number) -> Frame, redraw: () -> ())
 	end)
 end
 
+-- The web's segmented picker (.seg.set-seg): the picked one white, the rest on the blue-grey track.
+local function seg(row: Frame, items: { { id: string, label: string } }, value: string, onPick: (string) -> ())
+	local box = Ui.new("Frame", { Name = "Seg", Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 1, -12), BackgroundColor3 = Ui.SEG, Parent = row }, { Ui.corner(12) })
+	local n = #items
+	for i, it in items do
+		local sel = it.id == value
+		local b = Ui.new("TextButton", {
+			Name = it.id,
+			Text = "",
+			AutoButtonColor = false,
+			Position = UDim2.new((i - 1) / n, 3, 0, 3),
+			Size = UDim2.new(1 / n, -6, 1, -6),
+			BackgroundColor3 = Ui.WHITE,
+			BackgroundTransparency = if sel then 0 else 1,
+			Parent = box,
+		}, { Ui.corner(9) })
+		if sel then
+			Ui.stroke(1, Ui.BLACK, 0.85).Parent = b
+		end
+		Ui.text({ Text = it.label, TextSize = 14, TextColor3 = if sel then Ui.INK else Color3.fromHex("#546e7a"), Size = UDim2.fromScale(1, 1), Parent = b })
+		b.Activated:Connect(function()
+			if not sel then
+				onPick(it.id)
+			end
+		end)
+	end
+end
+
+-- Graphics (lib/prefs.ts GRAPHICS), worded for what each does here (client/Prefs): Saver turns the
+-- town's shadows and glow off and draws lighter rain and snow; High always draws the full weather.
+local GRAPHICS = {
+	{ id = "auto", label = "Auto", sub = "Picks the best look your device can keep smooth." },
+	{ id = "high", label = "High", sub = "Full glow and weather. Uses more battery." },
+	{ id = "saver", label = "Saver", sub = "No shadows or glow, lighter weather. Cooler phone, longer battery." },
+}
+
+local TOUCH = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+
 local function settingsTab(list: Instance, redraw: () -> ()): number
 	local sound = SoundService:FindFirstChild("Cartopia") :: SoundGroup?
+	local prefs = Prefs.get()
 	local g1, row1 = group(list, 1, "🔊", "Sound")
 	local r = row1(48)
 	label(r, "Sound")
@@ -390,9 +437,57 @@ local function settingsTab(list: Instance, redraw: () -> ()): number
 		end
 	end)
 	soundRows(row1, redraw)
+
 	local g2, row2 = group(list, 2, "✨", "Graphics")
-	label(row2(52), "Graphics quality", "Roblox sets this: open its menu (Esc) > Settings")
-	return g1.Size.Y.Offset + g2.Size.Y.Offset + GAP * 2
+	seg(row2(52), GRAPHICS, prefs.graphics, function(id)
+		Prefs.set({ graphics = id })
+		redraw()
+	end)
+	local sub = GRAPHICS[1].sub
+	for _, gr in GRAPHICS do
+		if gr.id == prefs.graphics then
+			sub = gr.sub
+		end
+	end
+	Ui.text({ Name = "Note", Text = sub, Body = true, TextSize = 12.5, TextColor3 = Color3.fromHex("#607d8b"), TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -28, 1, -6), Parent = row2(30, true) })
+	r = row2(48)
+	label(r, "FPS counter")
+	switch(r, prefs.fps, function(on)
+		Prefs.set({ fps = on })
+	end)
+
+	-- Karts steer with the on-screen ◀ ▶ buttons or the keys (client/KartRun): nothing to pick.
+	local g3, row3 = group(list, 3, "🏎️", "Karts")
+	label(row3(52), "Steering", if TOUCH then "◀ ▶ pads to steer; the gas is automatic" else "WASD or arrows, Space or Shift to drift")
+
+	local g4, row4 = group(list, 4, "♿", "Accessibility")
+	r = row4(52)
+	label(r, "Reduce motion", "Calmer animations and effects")
+	switch(r, Prefs.reduceMotion(), function(on)
+		Prefs.set({ reduceMotion = on })
+	end)
+	r = row4(52)
+	label(r, "Reduce flashing", "Softer lightning, club and Rave lights")
+	switch(r, Prefs.calmFlash(), function(on)
+		Prefs.set({ calmFlash = on })
+	end)
+
+	local g5, row5 = group(list, 5, "✋", "Ask first")
+	r = row5(52)
+	label(r, "Leaving Rusty's", "Before your haul is left behind")
+	switch(r, prefs.askLeave, function(on)
+		Prefs.set({ askLeave = on })
+	end)
+	r = row5(48)
+	label(r, "Selling a car")
+	switch(r, prefs.askSell, function(on)
+		Prefs.set({ askSell = on })
+	end)
+	local h = 0
+	for _, g in { g1, g2, g3, g4, g5 } do
+		h += g.Size.Y.Offset + GAP
+	end
+	return h
 end
 
 local function accountTab(list: Instance): number
@@ -412,14 +507,54 @@ local TIPS = {
 	{ "🏁", "Race rivals. Shift in the green zone" },
 	{ "⭐", "Level up to unlock businesses and cars" },
 }
-local function helpTab(list: Instance): number
+-- A row that opens something (.set-link): its words, and a › at the end.
+local function link(row: Frame, text: string, onClick: () -> ())
+	local b = Ui.new("TextButton", { Name = "Link", Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = row })
+	Ui.text({ Text = text, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -48, 1, 0), Parent = b })
+	Ui.text({ Text = "›", TextSize = 22, TextColor3 = Color3.fromHex("#90a4ae"), AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.fromOffset(20, 44), Parent = b })
+	b.Activated:Connect(onClick)
+end
+
+local function helpTab(ctx: any, list: Instance): number
 	local g, row = group(list, 1, "🚗", "How to play")
 	local r = row(#TIPS * 26 + 12)
 	for i, t in TIPS do
 		Ui.text({ Text = t[1], TextSize = 16, Position = UDim2.fromOffset(12, 6 + (i - 1) * 26), Size = UDim2.fromOffset(24, 26), Parent = r })
 		Ui.text({ Text = t[2], Body = true, TextSize = 14, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(42, 6 + (i - 1) * 26), Size = UDim2.new(1, -54, 0, 26), Parent = r })
 	end
-	return g.Size.Y.Offset + GAP
+	-- Support (Settings.tsx HelpTab): the flashing warning again, the chat, inviting friends and the
+	-- version. (Mail, Discord and the legal pages stay on the web: Roblox has its own.)
+	local g2, row2 = group(list, 2, "💬", "Support")
+	link(row2(44), "⚡ Photosensitivity warning", function()
+		FlashWarning.show(ctx.gui)
+	end)
+	if Players.LocalPlayer and Players.LocalPlayer:GetAttribute("CanChat") == true then
+		link(row2(44), "🗨️ Ask other players in chat", function()
+			ctx.close()
+			pcall(function()
+				StarterGui:SetCore("ChatActive", true)
+			end)
+		end)
+	end
+	link(row2(44), "🔗 Invite friends", function()
+		local ok = pcall(function()
+			local opts = Instance.new("ExperienceInviteOptions")
+			opts.PromptMessage = "Build a town and race me in Cartopia 🏁"
+			SocialService:PromptGameInvite(Players.LocalPlayer, opts)
+		end)
+		if not ok then
+			ctx.toast("Invites aren't available here")
+		end
+	end)
+	local v = row2(44)
+	label(v, "Version")
+	local okVer, placeVersion = pcall(function()
+		return game.PlaceVersion
+	end)
+	local ver = if okVer and placeVersion then tostring(placeVersion) else "dev"
+	local chip = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(Ui.textWidth(ver, 13) + 16, 22), BackgroundColor3 = Color3.fromHex("#eceff1"), Parent = v }, { Ui.corner(6) })
+	Ui.text({ Text = ver, Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Color3.fromHex("#546e7a"), Size = UDim2.fromScale(1, 1), Parent = chip })
+	return g.Size.Y.Offset + g2.Size.Y.Offset + GAP * 2
 end
 
 local TABS = { { id = "town", label = "🏠 Town" }, { id = "settings", label = "⚙️ Settings" }, { id = "account", label = "👤 Account" }, { id = "help", label = "❓ Help" } }
@@ -432,7 +567,7 @@ function Menu.open(ctx: any): Instance
 	local function show()
 		clear(list)
 		local s = store.useGame.getState()
-		local h = if tab == "town" then townTab(ctx, list, s) elseif tab == "settings" then settingsTab(list, show) elseif tab == "account" then accountTab(list) else helpTab(list)
+		local h = if tab == "town" then townTab(ctx, list, s) elseif tab == "settings" then settingsTab(list, show) elseif tab == "account" then accountTab(list) else helpTab(ctx, list)
 		limit.MaxSize = Vector2.new(W, 61 + 64 + h + 22)
 	end
 	Ui.tabs(body, TABS, tab, function(id)
@@ -461,18 +596,18 @@ local ICON_BG = { coins = { "#ffe082", "#f9a825" }, parts = { "#bcaaa4", "#6d4c4
 
 type Source = { icon: string, title: string, detail: string, action: { label: string, run: () -> (), disabled: boolean? }? }
 
-function Menu.need(ctx: any, need: any?): Instance?
-	if not need or not LABEL[need.res] then
-		return nil
+-- The gem slice the daily wheel pays most from (Need.tsx WHEEL_TOP_GEMS).
+local WHEEL_TOP_GEMS = 0
+for _, w in wheel.WHEEL do
+	if w.gems and w.gems > WHEEL_TOP_GEMS then
+		WHEEL_TOP_GEMS = w.gems
 	end
+end
+
+-- What the sheet says for this town now: the summary line and the ways to get more.
+local function needSources(ctx: any, need: any): (string, { Source })
 	local s = store.useGame.getState()
 	local t = now()
-	local function soon(what: string): () -> ()
-		return function()
-			ctx.close()
-			ctx.toast(`{what} is coming to Roblox soon`)
-		end
-	end
 	local function owned(id: string): number
 		local n = 0
 		for _, b in s.buildings do
@@ -507,9 +642,13 @@ function Menu.need(ctx: any, need: any?): Instance?
 	end
 	local idle, ready = 0, 0
 	local hasJob = false
+	local jobDefs: { string } = {}
 	for _, b in s.buildings do
 		if isJob(b.def) then
 			hasJob = true
+			if not table.find(jobDefs, b.def) then
+				table.insert(jobDefs, b.def)
+			end
 			if b.jobEndsAt == nil and data.isOpen(data.buildingDef(b.def), t) then
 				idle += 1
 			elseif b.jobEndsAt ~= nil and t >= b.jobEndsAt then
@@ -517,14 +656,19 @@ function Menu.need(ctx: any, need: any?): Instance?
 			end
 		end
 	end
-	local function showJobs()
+	-- The web store's showMe: back to the town, the bubbles of those businesses flash, and a toast.
+	local function showMe(defs: { string }, text: string)
 		ctx.close()
-		ctx.toast(if ready > 0 then "Tap the $ bubbles to collect." else "Tap a ⛽ bubble to start a job.")
+		Placement.cancel()
+		Jobs.showMe(defs)
+		ctx.toast(text)
+	end
+	local function showJobs()
+		showMe(jobDefs, if ready > 0 then "Tap the flashing $ bubbles to collect." else "Tap a flashing ⛽ bubble to start a job.")
 	end
 	local function showParts(id: string): () -> ()
 		return function()
-			ctx.close()
-			ctx.toast(`Tap the bubble on your {data.buildingDef(id).name} to start a parts job.`)
+			showMe({ id }, `Tap the flashing bubble on your {data.buildingDef(id).name} to start a parts job.`)
 		end
 	end
 	local what = need.what
@@ -538,12 +682,13 @@ function Menu.need(ctx: any, need: any?): Instance?
 			{ icon = "🎁", title = "Open crates", detail = "Coin crates can pay big coin prizes.", action = { label = "Crates", run = function() ctx.open("crates") end } },
 		}
 		if hasJob and not (what and what:sub(1, 9) == "upgrading") then
-			table.insert(sources, { icon = "⬆️", title = "Upgrade your businesses", detail = "Upgraded businesses pay more coins per job and finish sooner. Find them under Upgrades in the Shop.", action = { label = "Upgrades", run = function() ctx.open("shop", "upgrades") end } })
+			table.insert(sources, { icon = "⬆", title = "Upgrade your businesses", detail = "Upgraded businesses pay more coins per job and finish sooner. Find them under Upgrades in the Shop.", action = { label = "Upgrades", run = function() ctx.open("shop", "upgrades") end } })
 		end
 		table.insert(sources, { icon = "🔍", title = "Search at Rusty's", detail = "Searches can turn up coin stashes along with cars.", action = if owned("rescue") > 0 then { label = "Rusty's", run = function() ctx.open("rescue") end } else build("rescue") })
 		table.insert(sources, { icon = "🏆", title = "Win drag races", detail = `Each race costs {data.RACE_FUEL} fuel and pays a few hundred coins.`, action = { label = "Race", run = function() ctx.open("race") end } })
 		table.insert(sources, { icon = "📋", title = "Finish goals", detail = "Goals pay coins, XP and sometimes gems.", action = { label = "Goals", run = function() ctx.open("goals") end } })
-		table.insert(sources, { icon = "👫", title = "Help other towns", detail = "Visit a town and tap its shops to help.", action = { label = "Social", run = soon("Visiting towns") } })
+		table.insert(sources, { icon = "👫", title = "Help other towns", detail = "Visit a town and tap its shops to help.", action = { label = "Social", run = function() ctx.open("friends") end } })
+		table.insert(sources, { icon = "📅", title = "Daily bonus", detail = "Come back every day for up to $1,200." })
 	elseif need.res == "parts" then
 		summary = (if missing > 0 then `You need {missing} more parts{if what then ` for {what}` else ""}.` else `You have {s.parts} parts.`) .. " Parts (the ⚙ gears) come from these businesses:"
 		local function partsRow(icon: string, title: string, id: string, detail: string): Source
@@ -555,6 +700,7 @@ function Menu.need(ctx: any, need: any?): Instance?
 			partsRow("🛢", "Lube & Go · 8 parts per job (level 4)", "lube", `You have {owned("lube")}.`),
 			partsRow("📦", "Parts Depot · 15 parts per job (level 5)", "parts", `You have {owned("parts")}.`),
 			partsRow("🏁", "Tuner Shop · 25 parts per job (level 7)", "tuner", `You have {owned("tuner")}.`),
+			{ icon = "📅", title = "Daily bonus day 4", detail = "+5 parts on the fourth day of your streak." },
 		}
 	elseif need.res == "fuel" then
 		local cap = store.fuelCap(s)
@@ -573,15 +719,16 @@ function Menu.need(ctx: any, need: any?): Instance?
 			table.insert(sources, { icon = "🏡", title = "Upgrade your homes", detail = "Every home level adds +1 to your max fuel. Find them under Upgrades in the Shop.", action = { label = "Upgrades", run = function() ctx.open("shop", "upgrades") end } })
 		end
 		table.insert(sources, { icon = "⭐", title = "Level up", detail = "Refills your tank and raises the max." .. (if step then ` {step.perMin}⛽/min at level {step.level}.` else "") })
+		table.insert(sources, { icon = "📅", title = "Daily bonus day 3", detail = "+5 fuel on the third day of your streak." })
 	elseif need.res == "bucks" then
 		summary = if missing > 0 then `You need {missing} more gems{if what then ` for {what}` else ""}.` else `You have {Ui.commas(s.bucks)} gems.`
-		sources = {
-			{ icon = "⭐", title = "Level up", detail = `Every new level gives +{data.LEVEL_GEMS} gems.` },
-			{ icon = "📋", title = "Finish goals", detail = "Bigger goals pay gems.", action = { label = "Goals", run = function() ctx.open("goals") end } },
-		}
+		sources = {}
 		if Bank.unlocked(s) then
 			table.insert(sources, { icon = "🏦", title = "Visit the Bank", detail = "Buy gems in packs. Bigger packs come with bonus gems, coins and parts.", action = { label = "Bank", run = function() ctx.open("bank") end } })
 		end
+		table.insert(sources, { icon = "⭐", title = "Level up", detail = `Every new level gives +{data.LEVEL_GEMS} gems.` })
+		table.insert(sources, { icon = "📋", title = "Finish goals", detail = "Bigger goals pay gems.", action = { label = "Goals", run = function() ctx.open("goals") end } })
+		table.insert(sources, { icon = "🎡", title = "Spin the daily wheel", detail = `Gem slices pay up to {WHEEL_TOP_GEMS} gems.` })
 	else
 		local toGo = data.xpToNext(s.level) - s.xp
 		summary = `{what or "This"} unlocks at level {missing}. You're level {s.level}, {Ui.commas(toGo)} XP from level {s.level + 1}.`
@@ -592,46 +739,85 @@ function Menu.need(ctx: any, need: any?): Instance?
 			{ icon = "📋", title = "Goals", detail = "Goals give big XP rewards.", action = { label = "Goals", run = function() ctx.open("goals") end } },
 		}
 	end
+	return summary, sources
+end
 
+-- The sheet's words as they stand, so it's only drawn again when something it says changed.
+local function needKey(summary: string, sources: { Source }): string
+	local parts = { summary }
+	for _, src in sources do
+		local a = src.action
+		table.insert(parts, `{src.title}|{src.detail}|{if a then a.label .. tostring(a.disabled) else ""}`)
+	end
+	return table.concat(parts, "\n")
+end
+
+function Menu.need(ctx: any, need: any?): Instance?
+	if not need or not LABEL[need.res] then
+		return nil
+	end
 	local overlay, sheet, body = Ui.panel(ctx.gui, `How to get {LABEL[need.res]}`, { width = W, onClose = ctx.close })
 	local limit = (sheet.Parent :: Instance):FindFirstChildOfClass("UISizeConstraint") :: UISizeConstraint
 	local list = column(body, 0)
-	local h = 0
-	-- The head: the resource's icon and what's short.
-	local headH = 48
-	h += headH + GAP
-	local head = Ui.new("Frame", { Name = "NeedHead", LayoutOrder = 0, Size = UDim2.new(1, 0, 0, headH), BackgroundTransparency = 1, Parent = list })
-	local bg = ICON_BG[need.res]
-	local ico = Ui.new("Frame", { Position = UDim2.new(0, 0, 0.5, -22), Size = UDim2.fromOffset(44, 44), BackgroundColor3 = Ui.WHITE, Parent = head }, {
-		if need.res == "fuel" then Ui.corner(10) else Ui.round(),
-		Ui.gradient(bg[1], bg[2]),
-	})
-	if need.res == "coins" then
-		Icons.draw("coin", ico, 44)
-	else
-		Ui.text({ Text = ICON[need.res], TextSize = 22, Size = UDim2.fromScale(1, 1), Parent = ico })
-	end
-	Ui.text({ Text = summary, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(56, 0), Size = UDim2.new(1, -56, 1, 0), Parent = head })
-	for i, src in sources do
-		-- Two lines of detail fit at this width; long ones get a third.
-		local lines = math.ceil((#src.detail * 6.4) / (W - 28 - 32 - 30 - (if src.action then 100 else 0)))
-		local rh = 26 + math.max(1, lines) * 16 + 10
-		h += rh + 6
-		local r = Ui.new("Frame", { Name = "Source", LayoutOrder = i, Size = UDim2.new(1, 0, 0, rh), BackgroundColor3 = Ui.WHITE, Parent = list }, {
-			Ui.corner(12),
-			Ui.stroke(2, Ui.EDGE),
-		})
-		Ui.text({ Text = src.icon, TextSize = 24, Position = UDim2.new(0, 10, 0.5, -16), Size = UDim2.fromOffset(32, 32), Parent = r })
-		local textW = if src.action then -52 - 110 else -62
-		Ui.text({ Text = src.title, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(52, 7), Size = UDim2.new(1, textW, 0, 20), Parent = r })
-		Ui.text({ Text = src.detail, Body = true, TextSize = 12, TextColor3 = Color3.fromHex("#546e7a"), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true, Position = UDim2.fromOffset(52, 28), Size = UDim2.new(1, textW, 1, -32), Parent = r })
-		local a = src.action
-		if a then
-			Ui.buy({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 1), Size = UDim2.fromOffset(math.clamp(#a.label * 8 + 22, 64, 110), 30), Parent = r }, a.label, if a.disabled then "grey" else "green", if a.disabled then nil else a.run, 14)
+	local drawn = ""
+	-- Drawn again as the town changes and the clock runs (the refill countdown, jobs coming ready),
+	-- as the web's sheet follows the store and the clock.
+	local function draw()
+		local summary, sources = needSources(ctx, need)
+		local key = needKey(summary, sources)
+		if key == drawn then
+			return
 		end
+		drawn = key
+		clear(list)
+		local h = 0
+		-- The head: the resource's icon and what's short.
+		local headH = 48
+		h += headH + GAP
+		local head = Ui.new("Frame", { Name = "NeedHead", LayoutOrder = 0, Size = UDim2.new(1, 0, 0, headH), BackgroundTransparency = 1, Parent = list })
+		local bg = ICON_BG[need.res]
+		local ico = Ui.new("Frame", { Position = UDim2.new(0, 0, 0.5, -22), Size = UDim2.fromOffset(44, 44), BackgroundColor3 = Ui.WHITE, Parent = head }, {
+			if need.res == "fuel" then Ui.corner(10) else Ui.round(),
+			Ui.gradient(bg[1], bg[2]),
+		})
+		if need.res == "coins" then
+			Icons.draw("coin", ico, 44)
+		else
+			Ui.text({ Text = ICON[need.res], TextSize = 22, Size = UDim2.fromScale(1, 1), Parent = ico })
+		end
+		Ui.text({ Text = summary, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(56, 0), Size = UDim2.new(1, -56, 1, 0), Parent = head })
+		for i, src in sources do
+			-- Two lines of detail fit at this width; long ones get a third.
+			local lines = math.ceil((#src.detail * 6.4) / (W - 28 - 32 - 30 - (if src.action then 100 else 0)))
+			local rh = 26 + math.max(1, lines) * 16 + 10
+			h += rh + 6
+			local r = Ui.new("Frame", { Name = "Source", LayoutOrder = i, Size = UDim2.new(1, 0, 0, rh), BackgroundColor3 = Ui.WHITE, Parent = list }, {
+				Ui.corner(12),
+				Ui.stroke(2, Ui.EDGE),
+			})
+			Ui.text({ Text = src.icon, TextSize = 24, Position = UDim2.new(0, 10, 0.5, -16), Size = UDim2.fromOffset(32, 32), Parent = r })
+			local textW = if src.action then -52 - 110 else -62
+			Ui.text({ Text = src.title, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(52, 7), Size = UDim2.new(1, textW, 0, 20), Parent = r })
+			Ui.text({ Text = src.detail, Body = true, TextSize = 12, TextColor3 = Color3.fromHex("#546e7a"), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true, Position = UDim2.fromOffset(52, 28), Size = UDim2.new(1, textW, 1, -32), Parent = r })
+			local a = src.action
+			if a then
+				Ui.buy({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 1), Size = UDim2.fromOffset(math.clamp(#a.label * 8 + 22, 64, 110), 30), Parent = r }, a.label, if a.disabled then "grey" else "green", if a.disabled then nil else a.run, 14)
+			end
+		end
+		(list:FindFirstChildOfClass("UIListLayout") :: UIListLayout).Padding = UDim.new(0, 6)
+		limit.MaxSize = Vector2.new(W, 61 + 10 + h + 24)
 	end
-	(list:FindFirstChildOfClass("UIListLayout") :: UIListLayout).Padding = UDim.new(0, 6)
-	limit.MaxSize = Vector2.new(W, 61 + 10 + h + 24)
+	draw()
+	local conn = Remote.changed:Connect(draw)
+	task.spawn(function()
+		while overlay.Parent do
+			task.wait(1)
+			if overlay.Parent then
+				draw()
+			end
+		end
+		conn:Disconnect()
+	end)
 	return overlay
 end
 

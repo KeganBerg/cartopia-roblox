@@ -8,6 +8,7 @@
 -- loop creates nothing; badges are capped and fade out past MaxDistance.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -19,6 +20,7 @@ local Remote = require(script.Parent.Remote)
 local Town = require(script.Parent.Town)
 local Ui = require(script.Parent.Ui)
 local Placement = require(script.Parent.Placement)
+local ShotMode = require(script.Parent.ShotMode)
 
 local Jobs = {}
 
@@ -39,9 +41,12 @@ type Badge = {
 	lvlText: TextLabel,
 	driver: TextLabel,
 	merged: TextLabel,
+	flash: Frame,
 	look: string,
 }
 local badges: { [string]: Badge } = {}
+-- The businesses whose bubbles flash after a "Show me", until when (os.clock).
+local highlight: { defs: { [string]: boolean }, untilT: number }? = nil
 
 local function now(): number
 	return workspace:GetServerTimeNow() * 1000
@@ -129,7 +134,16 @@ local function make(uid: string, model: Model, parent: Instance): Badge
 	local merged = Ui.text({ Name = "Merged", Text = "", TextSize = 11, TextColor3 = Color3.fromHex("#3e2723"), BackgroundTransparency = 0, BackgroundColor3 = Color3.fromHex("#ffb300"), Size = UDim2.fromOffset(36, 18), Visible = false, ZIndex = 4, Parent = gui })
 	Ui.round().Parent = merged
 	Ui.stroke(2, Ui.WHITE).Parent = merged
+	-- The flashing ring "Show me" puts round the bubble.
+	local flash = Ui.new("Frame", { Name = "ShowMe", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, -3), Size = UDim2.fromOffset(72, 38), BackgroundTransparency = 1, Visible = false, ZIndex = 6, Parent = gui }, {
+		Ui.corner(19),
+	})
+	local ring = Ui.new("UIStroke", { Thickness = 4, Color = Color3.fromHex("#ffca28"), Parent = flash })
+	pcall(function()
+		TweenService:Create(ring, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.85 }):Play()
+	end)
 	return {
+		flash = flash,
 		gui = gui,
 		tap = tap,
 		idle = idle,
@@ -193,8 +207,9 @@ local function update(holder: Instance)
 	local jobsDone = (s.stats and s.stats.jobs) or 0
 	local seen: { [string]: boolean } = {}
 	local count = 0
-	-- Edit mode clears the town of badges, as on the web.
-	local shown = not Placement.active()
+	-- Edit mode clears the town of badges, as on the web, and so does screenshot mode.
+	local shown = not Placement.active() and not ShotMode.hiding()
+	local lit = if highlight and os.clock() < highlight.untilT then highlight.defs else nil
 	for _, b in s.buildings do
 		local d = data.buildingDef(b.def)
 		if not d or not d.jobSeconds or count >= MAX_BADGES then
@@ -284,6 +299,15 @@ local function update(holder: Instance)
 			badge.look = ""
 			setLook(badge, if ready then "ready" elseif idle == 0 then "working" else "idle")
 		end
+		-- "Show me" (the web's showMe): the bubbles of the businesses asked about flash for a while.
+		local on = lit ~= nil and lit[b.def] == true
+		if on then
+			local f = if badge.look == "ready" then badge.ready elseif badge.look == "working" then badge.working else badge.idle
+			badge.flash.Size = UDim2.fromOffset(f.Size.X.Offset + 12, f.Size.Y.Offset + 12)
+		end
+		if badge.flash.Visible ~= on then
+			badge.flash.Visible = on
+		end
 		local lvl = data.buildingLevel(b)
 		badge.lvl.Visible = lvl > 1
 		Ui.setText(badge.lvlText, tostring(lvl))
@@ -327,6 +351,22 @@ function Jobs.refresh()
 	if holder then
 		update(holder)
 	end
+end
+
+-- The web store's showMe: the bubbles over these businesses flash for six seconds.
+function Jobs.showMe(defs: { string })
+	local set = {}
+	for _, d in defs do
+		set[d] = true
+	end
+	highlight = { defs = set, untilT = os.clock() + 6 }
+	Jobs.refresh()
+	task.delay(6.1, Jobs.refresh)
+end
+
+-- Whether a business's bubble is flashing now (the emulator checks it).
+function Jobs.flashing(def: string): boolean
+	return highlight ~= nil and os.clock() < highlight.untilT and highlight.defs[def] == true
 end
 
 -- How many jobs are done and waiting to be collected.

@@ -34,6 +34,8 @@ local TownCamera = require(script.Parent.TownCamera)
 local Jobs = require(script.Parent.Jobs)
 local RaceMenu = require(script.Parent.RaceMenu)
 local Bank = require(script.Parent.Bank)
+local TapTip = require(script.Parent.TapTip)
+local ShotMode = require(script.Parent.ShotMode)
 local Tutorial = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
 
 local Hud = {}
@@ -233,6 +235,10 @@ function Hud.start()
 	local parts = counter(3, "⚙️", function()
 		openPanel("need", { res = "parts", missing = 0 })
 	end)
+	-- What a one-time tip pulses (client/Popups/Tips), as the tutorial's hand finds its buttons.
+	;(gems.Parent :: Instance):SetAttribute("Tut", "gems")
+	-- Held, the speedometer says what it is (client/TapTip); the line follows the XP.
+	TapTip.hold(speedo, "Menu")
 	-- Where collected rewards fly to (Fly.from): the counters, and the XP box for XP.
 	local flyTo: { [string]: GuiObject } = { coins = coins.Parent :: GuiObject, bucks = gems.Parent :: GuiObject, parts = parts.Parent :: GuiObject, xp = xpBox }
 	ctx.flyTarget = function(res: string): GuiObject?
@@ -295,7 +301,9 @@ function Hud.start()
 	fuelButton.Activated:Connect(function()
 		openPanel("need", { res = "fuel", missing = 0 })
 	end)
+	fuelButton:SetAttribute("Tut", "fuel")
 	local fuelSub = Ui.text({ Name = "FuelSub", Text = "", TextSize = 13, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 28), Size = UDim2.fromOffset(260, 16), TextXAlignment = Enum.TextXAlignment.Right, Shadow = 2, Parent = right })
+	TapTip.mark(fuelSub, "Fuel refill rate: faster at levels 15, 30, 50 and 75")
 	local rightRow = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 50), Size = UDim2.fromOffset(300, 43), BackgroundTransparency = 1, Parent = right }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
@@ -309,6 +317,7 @@ function Hud.start()
 	trophyRow.Activated:Connect(function()
 		toast("Leaderboards are coming to Roblox soon")
 	end)
+	TapTip.hold(trophyRow, "Leaderboards")
 	-- Sound on/off: mutes the game's sounds (they play through the Cartopia sound group).
 	local soundGroup = SoundService:FindFirstChild("Cartopia") or Ui.new("SoundGroup", { Name = "Cartopia", Volume = 1, Parent = SoundService })
 	local soundSlot = Ui.new("Frame", { Size = UDim2.fromOffset(40, 43), BackgroundTransparency = 1, LayoutOrder = 10, Parent = rightRow })
@@ -430,6 +439,8 @@ function Hud.start()
 			end
 		end)
 	end
+	-- Screenshot mode and Save picture, above Drive (client/ShotMode).
+	local shotDock = ShotMode.dock(root, ctx)
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local touch = playerGui:FindFirstChild("TouchGui")
 	if touch then
@@ -446,6 +457,8 @@ function Hud.start()
 		openPanel("goals")
 	end, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
 	Icons.draw("goals", goalsFace, 34, Ui.BLUE, Color3.fromHex("#f3f7fc"), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	goalsFace:SetAttribute("Tut", "goals")
+	TapTip.hold(goalsFace, "Goals")
 	local goalBadge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 8, 0, -8), Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Color3.fromHex("#ff5252"), Visible = false, ZIndex = 3, Parent = goalsFace }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
 	local goalBadgeText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), Parent = goalBadge })
 	local collectShadow, collect = Ui.shadowed({ Name = "CollectAll", Position = UDim2.fromOffset(3, 76 + 4), Size = UDim2.fromOffset(54, 54), Parent = dock }, { radius = 27, stroke = 3, drop = 4, dark = 0.3, class = "TextButton", color = Color3.fromHex("#ffca28") })
@@ -455,6 +468,7 @@ function Hud.start()
 		Ui.new("UIGradient", { Rotation = 70, Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromHex("#fff3b0")), ColorSequenceKeypoint.new(0.6, Color3.fromHex("#ffc21a")), ColorSequenceKeypoint.new(1, Color3.fromHex("#f39b00")) }) }),
 	})
 	local bolt = Icons.draw("bolt", collect, 30, Color3.fromHex("#7a4a00"), nil, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	TapTip.hold(collect, "Do it all: fix, fuel, collect, restart")
 	local readyBadge = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 7, 0, -7), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Color3.fromHex("#e53935"), Visible = false, ZIndex = 3, Parent = collect }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
 	local readyText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), Parent = readyBadge })
 	local coolChip = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, -5), Size = UDim2.fromOffset(34, 16), BackgroundColor3 = Color3.fromHex("#263238"), Visible = false, ZIndex = 3, Parent = collect }, { Ui.corner(8) })
@@ -529,6 +543,7 @@ function Hud.start()
 			end
 			Ui.setText(levelText, tostring(s.level))
 			Ui.setText(xpText, `{Ui.commas(s.xp)} XP`)
+			speedo:SetAttribute("Tip", `Menu · {Ui.commas(s.xp)} / {Ui.commas(need)} XP to level {s.level + 1}`)
 		end
 		Ui.setText(coins, Ui.compact(s.coins))
 		Ui.setText(gems, Ui.compact(s.bucks))
@@ -623,6 +638,7 @@ function Hud.start()
 		race.Visible = not editing and not visiting and not picking and on("race")
 		dock.Visible = not editing and not visiting and not picking and on("gems")
 		walk.Visible = not editing and not picking and on("social")
+		shotDock.Visible = walk.Visible and not inTutorial
 		socialButton.Visible = on("social")
 		chatButton.Visible = on("social") and Players.LocalPlayer:GetAttribute("CanChat") == true
 	end

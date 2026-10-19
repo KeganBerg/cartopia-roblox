@@ -157,6 +157,23 @@ DRAW.goals = function(c)
 	bar(c, 11, 16.5, 16.5, 10, 2.2, c.cut)
 end
 
+-- Screenshot mode: a camera body with its lens (ShotMode).
+DRAW.shutter = function(c)
+	part(c, 8.6, 4, 6.8, 4, 1)
+	part(c, 2, 6.5, 20, 14, 2)
+	circle(c, 12, 13.2, 4.2, c.cut)
+	circle(c, 12, 13.2, 2, c.color)
+end
+
+-- Save a picture: an arrow down into a tray.
+DRAW.save = function(c)
+	part(c, 10.4, 3, 3.2, 8.5, 0)
+	part(c, 8.6, 7.6, 6.8, 6.8, 0.8, 45)
+	part(c, 3, 14.5, 2.6, 6, 0.8)
+	part(c, 18.4, 14.5, 2.6, 6, 0.8)
+	part(c, 3, 18.2, 18, 2.8, 1)
+end
+
 DRAW.bolt = function(c)
 	bar(c, 13.5, 2, 5.5, 12.5, 4.2)
 	part(c, 5, 10.8, 13, 3.6, 1)

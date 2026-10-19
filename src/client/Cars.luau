@@ -16,6 +16,8 @@ local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Thumb = require(script.Parent.Thumb)
+local TapTip = require(script.Parent.TapTip)
+local Confirm = require(script.Parent.Confirm)
 local Collection = require(script.Parent.Collection)
 local CrateDepot = require(script.Parent.Crates)
 local CallCards = require(script.Parent.CallCards)
@@ -103,7 +105,7 @@ local function glass(parent: Instance, name: string, props: { [string]: any }): 
 end
 
 -- A chip like the web's .skill-tag / .loves-tag / .body-chip.
-local function tag(parent: Instance, order: number, text: string, bg: string, fg: string, edge: string?)
+local function tag(parent: Instance, order: number, text: string, bg: string, fg: string, edge: string?): Frame
 	local f = Ui.new("Frame", { Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex(bg), LayoutOrder = order, ZIndex = 3, Parent = parent }, {
 		Ui.round(),
 		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }),
@@ -112,6 +114,7 @@ local function tag(parent: Instance, order: number, text: string, bg: string, fg
 		Ui.stroke(1.5, Color3.fromHex(edge)).Parent = f
 	end
 	Ui.text({ Text = text, Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Color3.fromHex(fg), Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 3, Parent = f })
+	return f
 end
 
 local function traits(parent: Instance, def: any, y: number, body: boolean): Frame
@@ -124,7 +127,8 @@ local function traits(parent: Instance, def: any, y: number, body: boolean): Fra
 	if def.skill then
 		local sk = data.SKILLS[def.skill]
 		if sk then
-			tag(row, 2, `{sk.icon} {sk.name}`, "#ede7f6", "#4527a0")
+			-- Tapped, the skill and the loves tags explain themselves (client/TapTip).
+			TapTip.skill(tag(row, 2, `{sk.icon} {sk.name}`, "#ede7f6", "#4527a0"), def.skill)
 		end
 	end
 	if def.likes and #def.likes > 0 then
@@ -132,7 +136,7 @@ local function traits(parent: Instance, def: any, y: number, body: boolean): Fra
 		for _, id in def.likes do
 			icons ..= BUILDING_ICONS[id] or "🏪"
 		end
-		tag(row, 3, icons, "#fde4ef", "#ad1457")
+		TapTip.loves(tag(row, 3, icons, "#fde4ef", "#ad1457"), def.likes, BUILDING_ICONS)
 	end
 	return row
 end
@@ -589,20 +593,28 @@ function Cars.open(ctx: any, tab: any): Instance
 			local sell = Ui.new("TextButton", { Text = "", AutoButtonColor = false, Position = UDim2.fromOffset(0, y + 14), Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, ZIndex = 3, Parent = pad })
 			Ui.text({ Text = `Sell for ${Ui.commas(value)}`, TextSize = 13, TextColor3 = Color3.fromHex("#c62828"), Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 3, Parent = sell })
 			Ui.new("Frame", { Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1.5), BackgroundColor3 = Color3.fromHex("#c62828"), BorderSizePixel = 0, ZIndex = 3, Parent = sell })
-			-- A second tap sells, as the web's "Sell this car?" check.
-			local armed = false
+			-- "Sell this car?" first (Confirm, Settings > Ask first > Selling a car), as the web.
 			sell.Activated:Connect(function()
-				if not armed then
-					armed = true
-					local label = sell:FindFirstChildOfClass("TextLabel")
-					if label then
-						label.Text = `Tap again to sell · ${Ui.commas(value)}`
-					end
-					return
-				end
-				Remote.act("sellCar", car.c.uid)
-				selected = nil
-				render()
+				local uid, c, d = car.c.uid, car.c, car.d
+				Confirm.ask(overlay, {
+					pref = "askSell",
+					icon = "💰",
+					title = "Sell this car?",
+					ok = `Sell · ${Ui.commas(value)}`,
+					bodyHeight = 64,
+					body = function(box: Frame)
+						local thumb = Thumb.car(c.model, UDim2.fromOffset(84, 44), { color = c.color, finish = c.finish, stripe = c.stripe }, nil, c.mods, c.panels)
+						thumb.Position = UDim2.fromOffset(0, 0)
+						thumb.ZIndex = 41
+						thumb.Parent = box
+						Ui.text({ Text = d.name, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = LINE, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(94, 0), Size = UDim2.new(1, -94, 1, 0), ZIndex = 41, Parent = box })
+					end,
+					onOk = function()
+						Remote.act("sellCar", uid)
+						selected = nil
+						render()
+					end,
+				})
 			end)
 		end
 	end
