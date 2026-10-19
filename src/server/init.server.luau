@@ -73,6 +73,7 @@ local Leaders = require(script.Leaders)
 local Meet = require(script.Meet)
 local Mail = require(script.Mail)
 local Duels = require(script.Duels)
+local Invites = require(script.Invites)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -680,6 +681,42 @@ local function save(player: Player, release: boolean?)
 	saveId(player.UserId, release)
 end
 
+-- Invite rewards (server/Invites): a new player who joined from a friend's game invite counts as
+-- theirs, and both get gems once the new player reaches level 10.
+local invites = Invites.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+})
+-- Players whose own reward has been looked at this session (at level 10 or more).
+local inviteChecked: { [number]: boolean } = {}
+local function payInvites(player: Player)
+	local userId = player.UserId
+	if not towns:isOpen(userId) then
+		return
+	end
+	local level = towns:save(userId).level or 1
+	local mine = 0
+	if level >= Invites.INVITE_LEVEL and not inviteChecked[userId] then
+		inviteChecked[userId] = true
+		mine = invites:reached(userId, level)
+	end
+	local theirs = invites:claim(userId)
+	if mine + theirs <= 0 or not towns:isOpen(userId) then
+		return
+	end
+	towns:_with(userId, function(s: any)
+		(require(Game.store) :: any).useGame.setState({ bucks = (s.bucks or 0) + mine + theirs })
+		if mine > 0 then
+			s.toast(`🎁 +{mine} Gems · invite reward for reaching level {Invites.INVITE_LEVEL}`)
+		end
+		if theirs > 0 then
+			s.toast(`🎁 +{theirs} Gems · a friend you invited reached level {Invites.INVITE_LEVEL}`)
+		end
+	end)
+	push(player)
+end
+
 Players.PlayerAdded:Connect(function(player)
 	task.spawn(policies.load, policies, player)
 	-- What friends left in the mail, checked now and then (other servers can't tell this one).
@@ -715,7 +752,19 @@ Players.PlayerAdded:Connect(function(player)
 		return
 	end
 	purchases:load(player.UserId, receipts)
+	local newPlayer = data == nil
 	towns:open(player.UserId, data)
+	-- Joined from a friend's invite with no town yet: theirs (server/Invites). Then any invite
+	-- gems waiting, now and every couple of minutes (other servers can't tell this one).
+	task.spawn(function()
+		local okJoin, join = pcall(player.GetJoinData, player)
+		local ref = if okJoin and type(join) == "table" then tonumber(join.ReferredByPlayerId) else nil
+		pcall(invites.arrive, invites, player.UserId, ref, newPlayer)
+		while player.Parent do
+			pcall(payInvites, player)
+			task.wait(120)
+		end
+	end)
 	-- How long they were away (since their save was last written): the welcome back shows it, and
 	-- two days or more turns on double pay for the next few races, as the web's noteAway.
 	local seen = saves:lastSeen(player.UserId)
@@ -768,6 +817,7 @@ Players.PlayerRemoving:Connect(function(player)
 	-- First, so a double-or-nothing rematch left half way is settled in the save.
 	races:close(player.UserId)
 	duels:leave(player.UserId)
+	inviteChecked[player.UserId] = nil
 	karts:close(player.UserId)
 	parties:forget(player.UserId)
 	arcade:close(player.UserId)
@@ -1375,6 +1425,9 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			player:SetAttribute("Mail", #box.notes)
 			mail:see(player.UserId)
 			return box, nil
+		elseif op == "invites" then
+			-- The Friends tab's invite line (server/Invites).
+			return invites:stats(player.UserId), nil
 		elseif op == "sent" then
 			return mail:sentToday(player.UserId), nil
 		elseif op == "claimMail" then

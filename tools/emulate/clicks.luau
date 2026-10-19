@@ -664,6 +664,8 @@ local function socialDesk(op, arg)
 			box.sent = mailDesk:sentToday(1)
 			mailDesk:see(1)
 			return box, nil
+		elseif op == "invites" then
+			return { joined = 2, reached = 1, gems = 100, waiting = 0 }, nil
 		elseif op == "sent" then
 			return mailDesk:sentToday(1), nil
 		elseif op == "claimMail" then
@@ -1770,6 +1772,19 @@ if SHOTS then
 	hud.openPanel("friends")
 	shot("panel-friends", nil)
 	hud.ctx.close()
+	-- Where Roblox allows sharing: the invite button and its reward.
+	player:SetAttribute("PolicyReady", true)
+	player:SetAttribute("PolicySharing", true)
+	hud.openPanel("friends")
+	Emu.resumeWaits()
+	if not hud.gui:FindFirstChild("InviteNote", true) then
+		bad += 1
+		print("INVITES: no invite reward line on the Friends tab")
+	end
+	shot("panel-friends-invite", nil)
+	hud.ctx.close()
+	player:SetAttribute("PolicyReady", nil)
+	player:SetAttribute("PolicySharing", nil)
 	-- The Leaderboards tab (the trophy pill and Top racers open it).
 	hud.openPanel("friends", "leaders")
 	local boardRows = 0
