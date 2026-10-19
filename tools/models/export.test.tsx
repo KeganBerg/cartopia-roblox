@@ -991,6 +991,67 @@ it('exports every building and car', async () => {
         }
       })
       if (!turbines.length) throw new Error('horizon: no wind turbine rotors found')
+      // The towns share one world (server/World): a square of ground reaching RBX_WORLD_REACH
+      // studs each way, where the web game has one town's meadow. The land is pushed out to start
+      // at its edge: each point moves out along its bearing, the terrain's inner edge (R0, flat
+      // and just under the meadow) onto the square's edge and R1 left where it is, so the slopes
+      // rise straight from the world's ground with nothing missing under the hills. Heights stay
+      // as they are; trees, towers and rotors move with the ground under them, unstretched.
+      const { R0, R1 } = await import('./scene/horizonLand')
+      const half = Number(process.env.RBX_WORLD_REACH ?? 0) / 10 - 2
+      if (half > 0) {
+        const out = (x: number, z: number): [number, number] => {
+          const r = Math.hypot(x, z)
+          if (r < 1e-6) return [x, z]
+          const c = Math.abs(x) / r, s = Math.abs(z) / r
+          const edge = half / Math.max(c, s)
+          const to = r <= R0 ? (r * edge) / R0 : edge + ((r - R0) * (R1 - edge)) / (R1 - R0)
+          return [(x * to) / r, (z * to) / r]
+        }
+        root.updateMatrixWorld(true)
+        const m = new Matrix4(), inv = new Matrix4(), v = new Vector3(), at = new Vector3(), q = new Quaternion(), sc = new Vector3()
+        root.traverse((o) => {
+          const mesh = o as InstancedMesh
+          if (!mesh.isMesh || !visible(o, root)) return
+          if (mesh.isInstancedMesh) {
+            for (let i = 0; i < mesh.count; i++) {
+              mesh.getMatrixAt(i, m)
+              v.setFromMatrixPosition(m).applyMatrix4(mesh.matrixWorld)
+              const [x, z] = out(v.x, v.z)
+              v.set(x, v.y, z).applyMatrix4(inv.copy(mesh.matrixWorld).invert())
+              m.decompose(at, q, sc)
+              m.compose(v, q, sc)
+              mesh.setMatrixAt(i, m)
+            }
+            mesh.instanceMatrix.needsUpdate = true
+            return
+          }
+          const g = mesh.geometry
+          if (!g.boundingSphere) g.computeBoundingSphere()
+          if ((g.boundingSphere?.radius ?? 0) > 30) {
+            // Ground-sized (the terrain, the water, the highway): every point moves.
+            const geo = (mesh.geometry = g.clone())
+            const pos = geo.getAttribute('position')
+            inv.copy(mesh.matrixWorld).invert()
+            for (let i = 0; i < pos.count; i++) {
+              v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld)
+              const [x, z] = out(v.x, v.z)
+              v.set(x, v.y, z).applyMatrix4(inv)
+              pos.setXYZ(i, v.x, v.y, v.z)
+            }
+            geo.computeBoundingSphere()
+          } else {
+            // A small thing (a mast, a beacon): the whole of it moves.
+            v.setFromMatrixPosition(mesh.matrixWorld)
+            const [x, z] = out(v.x, v.z)
+            const shift = new Vector3(x - v.x, 0, z - v.z)
+            if (mesh.parent) shift.transformDirection(inv.copy(mesh.parent.matrixWorld).invert()).multiplyScalar(Math.hypot(x - v.x, z - v.z))
+            mesh.position.add(shift)
+            mesh.updateMatrixWorld(true)
+          }
+        })
+        for (const t of turbines) [t[0], t[2]] = out(t[0], t[2]).map(r4) as [number, number]
+      }
       // The sky dome (a shader sphere): Roblox shows the baked skybox instead.
       const pieces = walk(root, geos, geoList).filter((p) => {
         const g = geoList[p.g]

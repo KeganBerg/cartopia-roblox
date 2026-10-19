@@ -194,7 +194,7 @@ return function(test)
 		assert(races:start(1, "row", "nobody") == nil, "unknown rival")
 	end)
 
-	test("races: the rival in town, then double or nothing", function()
+	test("races: the rival in town, with no double or nothing", function()
 		local races, towns, wait = setup()
 		local rivals = require(G .. "rivals")
 		local store = require(G .. "store")
@@ -211,19 +211,9 @@ return function(test)
 		wait(60)
 		local result = assert(races:finish(1, run.events))
 		assert(result.won == (mine < theirs), "same winner")
-		if not result.won then
-			assert(races:start(1, "bet") == nil, "no bet after a loss")
-			return
-		end
-		assert(result.bet == started.rival.prize, "double or nothing offered")
-		local fuel = towns:snapshot(1).save.fuel
-		local coins = towns:snapshot(1).save.coins
-		local again = assert(races:start(1, "bet"))
-		assert(again.stake == result.bet and towns:snapshot(1).save.fuel == fuel, "no fuel for the rematch")
-		-- Leaving it half way loses the stake.
-		races:close(1)
-		assert(towns:snapshot(1).save.coins == coins - result.bet, "stake lost")
-		assert(races:start(1, "bet") == nil, "only once")
+		-- No betting on Roblox: a win pays the prize and offers no double or nothing.
+		assert(result.bet == nil, "no double or nothing")
+		assert(races:start(1, "bet") == nil, "no bet mode")
 	end)
 
 	test("races: the World Tour opens at Street Racer and pays through worldTourResult", function()

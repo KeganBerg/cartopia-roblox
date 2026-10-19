@@ -63,6 +63,16 @@ const ERROR = 0.004
 // ---------------------------------------------------------------------------------------------
 // Rendering
 
+// How far (studs, each way from its middle) the shared world's ground reaches, as server/World
+// works it out: half a plot past the last ring, and 600 more. The far land starts there.
+function worldReach() {
+  const src = readFileSync(join(ROOT, 'src/server/World.luau'), 'utf8')
+  const pitch = Number(src.match(/World\.PITCH = (\d+)/)?.[1])
+  const rings = Number(src.match(/local RINGS = (\d+)/)?.[1])
+  if (!pitch || !rings) throw new Error('server/World.luau has no PITCH or RINGS')
+  return (rings + 0.5) * pitch + 600
+}
+
 function render(web) {
   const test = join(web, 'src/__rbx_export__.test.tsx')
   const out = join(ROOT, 'build/models.json')
@@ -72,7 +82,7 @@ function render(web) {
     execFileSync('npx', ['vitest', 'run', 'src/__rbx_export__.test.tsx'], {
       cwd: web,
       stdio: 'inherit',
-      env: { ...process.env, RBX_MODELS_OUT: out },
+      env: { ...process.env, RBX_MODELS_OUT: out, RBX_WORLD_REACH: String(worldReach()) },
     })
   } finally {
     rmSync(test, { force: true })

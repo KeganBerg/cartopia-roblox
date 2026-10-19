@@ -75,6 +75,10 @@ local Mail = require(script.Mail)
 local Duels = require(script.Duels)
 local Invites = require(script.Invites)
 local Crews = require(script.Crews)
+local CrewGoals = require(script.CrewGoals)
+local CrewBattles = require(script.CrewBattles)
+local CrewParts = require(script.CrewParts)
+local CrewChat = require(script.CrewChat)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -423,9 +427,9 @@ task.spawn(function()
 		Builder.sharpenRaces()
 		task.delay(120, Builder.sharpenRaces)
 	end)
-	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
-	Builder.loadLate()
-	-- A copy of every car and building for the client's shop pictures and placement ghost.
+	-- A copy of every car and building for the client's shop pictures and placement ghost. It's
+	-- built before the far land, and handed on as it goes (buildings first, the level-up's and
+	-- shop's pictures), so a new player's first level-ups have pictures.
 	local library = Instance.new("Folder")
 	library.Name = "ModelLibrary"
 	for _, kind in { "Cars", "Buildings", "Stripes" } do
@@ -433,7 +437,16 @@ task.spawn(function()
 		f.Name = kind
 		f.Parent = library
 	end
+	library.Parent = ReplicatedStorage
 	local data = require(Game.data) :: any
+	for _, def in data.BUILDINGS do
+		local name = Builder.buildingName(def.id, 1)
+		local m = if name then Builder.build(name) else nil
+		if m then
+			m.Name = def.id
+			m.Parent = library.Buildings
+		end
+	end
 	for _, car in data.CARS do
 		local m = Builder.build(car.id, Color3.fromHex(car.colors[1]))
 		if m then
@@ -446,14 +459,6 @@ task.spawn(function()
 			stripes.Parent = library.Stripes
 		end
 	end
-	for _, def in data.BUILDINGS do
-		local name = Builder.buildingName(def.id, 1)
-		local m = if name then Builder.build(name) else nil
-		if m then
-			m.Name = def.id
-			m.Parent = library.Buildings
-		end
-	end
 	-- The landmarks merged level 10 houses become, for the Upgrade sheet's picture.
 	for _, name in { "landmark:vanguard", "landmark:globe" } do
 		local m = Builder.build(name)
@@ -462,7 +467,9 @@ task.spawn(function()
 			m.Parent = library.Buildings
 		end
 	end
-	library.Parent = ReplicatedStorage
+	library:SetAttribute("Ready", true)
+	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
+	Builder.loadLate()
 end)
 
 local townsFolder = Instance.new("Folder")
@@ -671,6 +678,179 @@ local function crewWho(userId: number): Crews.Who
 	return { name = if player then player.DisplayName else "Driver", town = if type(town) == "string" then town else nil, level = st.level, power = st.power, wins = st.race_wins, trophies = st.trophies }
 end
 
+-- Crew weekly goals (server/CrewGoals): each save credits the jobs and races made since the last
+-- one to the player's crew, as the web game's crew_track_points trigger.
+local crewGoals = CrewGoals.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+	clock = os.time,
+})
+-- Crew battles (server/CrewBattles): a rival crew each week, scored by races and live wins.
+local crewBattles = CrewBattles.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+	clock = os.time,
+	crews = function(): { any }
+		return crews:browse()
+	end,
+	crew = function(id: string): any?
+		return crews:crew(id)
+	end,
+	emblems = (require(Game.data) :: any).CLAN_EMBLEMS,
+	colors = (require(Game.data) :: any).CLAN_COLORS,
+	ghost = function(userId: number): any?
+		local race = require(Game.race) :: any
+		local ok, g = pcall(ghosts.of, ghosts, userId, function(pi: number): number
+			return race.raceFloor(pi)
+		end)
+		return if ok then g else nil
+	end,
+})
+-- The war map's races (server/Modes/War) reach the crew war through Races' mods.
+races.mods.crewWar = {
+	battles = crewBattles,
+	crewOf = function(userId: number): string?
+		return crews:mineId(userId)
+	end,
+	nameOf = function(userId: number): string
+		local player = Players:GetPlayerByUserId(userId)
+		return if player then player.DisplayName else "Driver"
+	end,
+}
+-- The jobs, races and race wins each player's town had when last counted.
+local crewSeen: { [number]: { jobs: number, races: number, wins: number } } = {}
+-- now: counted before this returns (else in the background, as a save goes on).
+local function crewPoints(userId: number, now: boolean?)
+	local stats = towns:save(userId).stats or {}
+	local jobs, races, wins = tonumber(stats.jobs) or 0, tonumber(stats.races) or 0, tonumber(stats.racesWon) or 0
+	local seen = crewSeen[userId]
+	crewSeen[userId] = { jobs = jobs, races = races, wins = wins }
+	if not seen or (jobs <= seen.jobs and races <= seen.races) then
+		return
+	end
+	local function count()
+		local id = crews:mineId(userId)
+		local c = id and crews:crew(id)
+		if not c then
+			return
+		end
+		local members = 0
+		for _ in c.members do
+			members += 1
+		end
+		if races > seen.races then
+			local player = Players:GetPlayerByUserId(userId)
+			pcall(function()
+				if crewBattles:races(userId, c.id, if player then player.DisplayName else "Driver", races - seen.races, wins - seen.wins) > 0 then
+					crewBattles:scoredFor(userId, c.id)
+				end
+			end)
+		end
+		local _, reached = crewGoals:add(userId, c.id, members, jobs - seen.jobs, races - seen.races)
+		if not reached then
+			return
+		end
+		-- Everyone in the crew who's in this server hears it.
+		for uid in c.members do
+			local other = Players:GetPlayerByUserId(tonumber(uid) or 0)
+			if other and towns:isOpen(other.UserId) then
+				towns:_with(other.UserId, function(st: any)
+					st.toast("🧰 Your crew hit its weekly goal! Open your crew chest.")
+				end)
+				push(other)
+			end
+		end
+	end
+	if now then
+		pcall(count)
+	else
+		task.spawn(pcall, count)
+	end
+end
+-- Crew part requests (server/CrewParts): ask the crew for 10 parts a day, give crewmates one at a time.
+local crewParts = CrewParts.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+	clock = os.time,
+})
+-- Adds the parts crewmates have given to the player's asks.
+local function collectCrewParts(player: Player)
+	local n = crewParts:claim(player.UserId)
+	if n <= 0 or not towns:isOpen(player.UserId) then
+		return
+	end
+	towns:_with(player.UserId, function(st: any)
+		(require(Game.store) :: any).useGame.setState({ parts = (st.parts or 0) + n })
+		st.toast(`⚙ Collected {n} part{if n > 1 then "s" else ""} from your crew`)
+	end)
+	push(player)
+end
+
+-- Crew chat (server/CrewChat): a channel in Roblox's chat for each crew's members in this server.
+local crewChat = CrewChat.new({
+	parent = TextChatService,
+	newChannel = function(name: string): any
+		local ch = Instance.new("TextChannel")
+		ch.Name = name
+		return ch
+	end,
+})
+pcall(function()
+	-- A tab per channel in the chat window, so the crew's is one tap away.
+	(TextChatService :: any).ChannelTabsConfiguration.Enabled = true
+end)
+-- Puts a player in their crew's channel, or out of it (crews change on other servers too).
+local function syncCrewChat(player: Player)
+	local id = crews:mineId(player.UserId)
+	local c = id and crews:crew(id)
+	if player.Parent then
+		crewChat:set(player.UserId, if c then c.id else nil, if c then c.tag else nil)
+	end
+end
+
+-- Each player's crew badge for their leaderboard rows, kept a few minutes (crews change elsewhere too).
+local crewBadges: { [number]: { at: number, badge: any? } } = {}
+local function crewBadge(userId: number): any?
+	local c = crewBadges[userId]
+	if c and os.clock() - c.at < 300 then
+		return c.badge
+	end
+	local ok, badge = pcall(crews.badge, crews, userId)
+	if ok then
+		crewBadges[userId] = { at = os.clock(), badge = badge }
+	end
+	return if ok then badge else nil
+end
+
+-- The crew chests a player has opened (CrewGoals' keys: "<week>", "battle:<week>", "mvp:<week>").
+local function crewOpened(userId: number): { [string]: boolean }
+	local k = crewGoals:_get(`k:{userId}`) or {}
+	local out = {}
+	for key in (if type(k.opened) == "table" then k.opened else {}) :: { [string]: any } do
+		out[key] = true
+	end
+	return out
+end
+
+-- Pays the crew chests a player has opened that their town hasn't had yet (one per chest).
+local function payCrewChests(player: Player)
+	local userId = player.UserId
+	local total = crewGoals:chests(userId)
+	if not towns:isOpen(userId) or total <= (towns:save(userId).crewChests or 0) then
+		return
+	end
+	towns:_with(userId, function(st: any)
+		local useGame = (require(Game.store) :: any).useGame
+		for _ = (st.crewChests or 0) + 1, total do
+			useGame.getState().openCrewChest()
+		end
+	end)
+	push(player)
+end
+
 -- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
 local purchases
 local function saveId(userId: number, release: boolean?): boolean
@@ -684,12 +864,17 @@ local function saveId(userId: number, release: boolean?): boolean
 		local player = Players:GetPlayerByUserId(userId)
 		if wrote and player then
 			local town = towns:save(userId).townName
-			task.spawn(pcall, leaders.record, leaders, userId, player.DisplayName, if type(town) == "string" then town else "My Town", leaderStats(userId), release)
+			task.spawn(pcall, function()
+				leaders:record(userId, player.DisplayName, if type(town) == "string" then town else "My Town", leaderStats(userId), release, crewBadge(userId))
+			end)
 			task.spawn(pcall, meet.publish, meet, userId, player.DisplayName, if type(town) == "string" then town else "My Town", towns:save(userId).level or 1, showcase(userId))
 			task.spawn(pcall, function()
 				meet:saveCard(userId, player.DisplayName, cardOf(userId))
 			end)
 			task.spawn(pcall, crews.touch, crews, userId, crewWho(userId))
+		end
+		if wrote then
+			pcall(crewPoints, userId)
 		end
 		return wrote
 	end
@@ -698,6 +883,35 @@ end
 purchases = Purchases.new(towns, require(Game.store), require(Game.bucksPacks), function(userId)
 	return saveId(userId)
 end)
+
+-- Car packs' Game Passes: paid when bought in game, and when their owner joins after buying one on
+-- the game page (checkPasses). A pass whose save didn't write yet is tried again a little later.
+local GamePasses = require(ReplicatedStorage.Shared.GamePasses) :: { [string]: number }
+local function payPass(player: Player, pass: number)
+	for _ = 1, 10 do
+		if not player.Parent then
+			return
+		end
+		local ok, result = pcall(purchases.grantPass, purchases, player.UserId, pass)
+		if not ok then
+			warn(`[Cartopia] game pass {pass} for {player.Name}: {result}`)
+		elseif result ~= "later" then
+			if result == "granted" and towns:isOpen(player.UserId) then
+				push(player)
+			end
+			return
+		end
+		task.wait(30)
+	end
+end
+local function checkPasses(player: Player)
+	for _, pass in GamePasses do
+		local ok, has = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass)
+		if ok and has then
+			task.spawn(payPass, player, pass)
+		end
+	end
+end
 
 local function save(player: Player, release: boolean?)
 	saveId(player.UserId, release)
@@ -776,12 +990,22 @@ Players.PlayerAdded:Connect(function(player)
 	purchases:load(player.UserId, receipts)
 	local newPlayer = data == nil
 	towns:open(player.UserId, data)
+	pcall(crewPoints, player.UserId)
 	-- Joined from a friend's invite with no town yet: theirs (server/Invites). Then any invite
 	-- gems waiting, now and every couple of minutes (other servers can't tell this one).
 	task.spawn(function()
 		local okJoin, join = pcall(player.GetJoinData, player)
 		local ref = if okJoin and type(join) == "table" then tonumber(join.ReferredByPlayerId) else nil
 		pcall(invites.arrive, invites, player.UserId, ref, newPlayer)
+		pcall(payCrewChests, player)
+		pcall(checkPasses, player)
+		-- Their crew's chat channel, checked now and then (crews change on other servers too).
+		task.spawn(function()
+			while player.Parent do
+				pcall(syncCrewChat, player)
+				task.wait(60)
+			end
+		end)
 		while player.Parent do
 			pcall(payInvites, player)
 			task.wait(120)
@@ -840,6 +1064,12 @@ Players.PlayerRemoving:Connect(function(player)
 	races:close(player.UserId)
 	duels:leave(player.UserId)
 	inviteChecked[player.UserId] = nil
+	-- (After the last save, which counted their last crew points.)
+	task.defer(function()
+		crewSeen[player.UserId] = nil
+		crewBadges[player.UserId] = nil
+	end)
+	crewChat:forget(player.UserId)
 	karts:close(player.UserId)
 	parties:forget(player.UserId)
 	arcade:close(player.UserId)
@@ -931,7 +1161,17 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 		if DragRace.valid(arg) then
 			myTime = DragRace.times(DragRace.replay(live.spec, arg))
 		end
+		local _, vs = duels:racing(player.UserId)
 		live.extra.their = duels:finish(player.UserId, myTime)
+		-- A live win counts for the winner's crew battle (more against the rival crew).
+		if vs and myTime < live.extra.their then
+			task.spawn(pcall, function()
+				local id = crews:mineId(player.UserId)
+				if id and crewBattles:live(player.UserId, id, player.DisplayName, vs, crews:mineId(vs)) > 0 then
+					crewBattles:scoredFor(player.UserId, id)
+				end
+			end)
+		end
 	end
 	local ran, result, why = pcall(function(): (any, any)
 		if op == "rivals" then
@@ -944,9 +1184,6 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return races:list(player.UserId, arg.mode, arg.which), nil
 		elseif op == "act" and type(arg) == "table" then
 			return races:act(player.UserId, arg.mode, arg.which)
-		elseif op == "keep" then
-			races:keep(player.UserId)
-			return true, nil
 		elseif op == "start" and type(arg) == "table" then
 			return races:start(player.UserId, arg.mode, arg.which)
 		elseif op == "finish" then
@@ -1400,14 +1637,17 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			-- A leaderboard (Social's Leaderboards tab), with who on it is in this server.
 			local stats = leaderStats(player.UserId)
 			local town = towns:save(player.UserId).townName
-			pcall(leaders.record, leaders, player.UserId, player.DisplayName, if type(town) == "string" then town else "My Town", stats)
+			pcall(function()
+				leaders:record(player.UserId, player.DisplayName, if type(town) == "string" then town else "My Town", stats, nil, crewBadge(player.UserId))
+			end)
 			local rows, mine = leaders:board(arg.metric, arg.period, player.UserId, stats)
+			local myCrew = crewBadge(player.UserId)
 			local out = {}
 			for _, r in rows do
 				local here = Players:GetPlayerByUserId(r.id)
-				table.insert(out, { id = r.id, name = r.name, town = r.town, level = r.level, value = r.value, here = here ~= nil and here ~= player and views[here] ~= nil })
+				table.insert(out, { id = r.id, name = r.name, town = r.town, level = r.level, value = r.value, crew = r.crew, here = here ~= nil and here ~= player and views[here] ~= nil })
 			end
-			return { rows = out, mine = mine }, nil
+			return { rows = out, mine = mine, crew = myCrew }, nil
 		elseif op == "meet" then
 			-- The Car Meet (Social's Meet tab): drivers in this server first, then recent displays.
 			local out, seen = {}, {}
@@ -1504,11 +1744,138 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			-- The Crew tab: the player's crew (and its requests, for officers), or the browser.
 			local mine = crews:mine(player.UserId)
 			local house = Purchases.hasCrewHouse(towns:save(player.UserId))
+			-- Points made since the last save count straight away.
+			pcall(crewPoints, player.UserId, true)
+			pcall(payCrewChests, player)
 			if mine then
+				local members = 0
+				for _ in mine.crew.members do
+					members += 1
+				end
 				mine.house = house
+				mine.goal = crewGoals:goal(player.UserId, mine.crew.id, members)
+				-- What crewmates gave is collected on the way in, as the web game's crew home.
+				pcall(collectCrewParts, player)
+				mine.parts = crewParts:list(mine.crew.id, player.UserId)
+				local okB, b = pcall(crewBattles.battle, crewBattles, player.UserId, mine.crew.id, crewOpened(player.UserId))
+				mine.battle = if okB then b else nil
 				return mine, nil
 			end
-			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1 }, nil
+			local okB, b = pcall(crewBattles.battle, crewBattles, player.UserId, nil, crewOpened(player.UserId))
+			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1, goal = crewGoals:goal(player.UserId, nil, 0), battle = if okB then b else nil }, nil
+		elseif op == "crewLadder" then
+			-- The crew ladder (web CrewLadder): every crewmate's ghost, fastest real run first,
+			-- then pars, then no car yet. Racing one is a ghost race (Modes/Ghost).
+			local id = crews:mineId(player.UserId)
+			local c = id and crews:crew(id)
+			if not c then
+				return nil, "no crew"
+			end
+			pcall(ghostCard, player.UserId)
+			local race = require(Game.race) :: any
+			local rows = {}
+			for uid, m in c.members do
+				local userId = tonumber(uid) or 0
+				local ok, g = pcall(ghosts.of, ghosts, userId, function(pi: number): number
+					return race.raceFloor(pi)
+				end)
+				g = if ok then g else nil
+				table.insert(rows, { id = userId, name = m.name, level = m.level, t = g and g.t, par = g == nil or g.par, car = g and g.car, model = g and g.model, color = g and g.color, pi = g and g.pi })
+			end
+			table.sort(rows, function(a, b)
+				local function key(r: any): number
+					return if r.t == nil then 2 elseif r.par then 1 else 0
+				end
+				if key(a) ~= key(b) then
+					return key(a) < key(b)
+				end
+				return (a.t or 0) < (b.t or 0)
+			end)
+			return { rows = rows, fuel = (require(Game.data) :: any).RACE_FUEL }, nil
+		elseif op == "crewPartsAsk" then
+			local id = crews:mineId(player.UserId)
+			if not id then
+				return nil, "no crew"
+			end
+			local r = crewParts:ask(player.UserId, id, player.DisplayName)
+			if r ~= "asked" then
+				return nil, if r == "already" then "asked today" else r
+			end
+			towns:_with(player.UserId, function(st: any)
+				st.toast(`⚙ Asked your crew for {CrewParts.ASK} parts`)
+			end)
+			push(player)
+			return true, nil
+		elseif op == "crewPartGive" and type(arg) == "number" then
+			-- One of the player's own parts to a crewmate's request.
+			if (towns:save(player.UserId).parts or 0) < 1 then
+				return nil, "no parts"
+			end
+			local id = crews:mineId(player.UserId)
+			if not id then
+				return nil, "no crew"
+			end
+			local r = crewParts:give(player.UserId, id, arg)
+			if r ~= "given" then
+				return nil, if r == "full" then "part full" elseif r == "limit" then "part limit" else "try again"
+			end
+			towns:_with(player.UserId, function(st: any)
+				(require(Game.store) :: any).useGame.setState({ parts = math.max(0, (st.parts or 0) - 1) })
+				st.toast("⚙ Part given. Thanks for helping!")
+			end)
+			push(player)
+			-- The asker collects it straight away when they're in this server.
+			local asker = Players:GetPlayerByUserId(arg)
+			if asker then
+				task.spawn(pcall, collectCrewParts, asker)
+			end
+			return true, nil
+		elseif op == "crewPartsCollect" then
+			collectCrewParts(player)
+			return true, nil
+		elseif op == "crewBattleChest" and type(arg) == "string" then
+			-- A crew battle's victory or MVP chest (last week's), counted with the crew chests.
+			local id = crews:mineId(player.UserId)
+			local b = crewBattles:battle(player.UserId, id, crewOpened(player.UserId))
+			local last = b.last
+			if not last or not table.find(last.due, arg) then
+				return nil, "battle locked"
+			end
+			if not table.find(last.claimable, arg) then
+				return nil, "chest opened"
+			end
+			local total = crewGoals:addChest(player.UserId, `{arg}:{last.week}`, last.us.id or "")
+			if not total then
+				return nil, "chest opened"
+			end
+			payCrewChests(player)
+			return { chests = total }, nil
+		elseif op == "crewWarChest" and type(arg) == "table" and type(arg.week) == "string" and (arg.tier == 1 or arg.tier == 2) then
+			-- A war chest (40% and 100% of the crew's par), this week's or last week's.
+			local id = crews:mineId(player.UserId)
+			local b = crewBattles:battle(player.UserId, id, crewOpened(player.UserId))
+			local v = if b.current and b.current.week == arg.week then b.current elseif b.last and b.last.week == arg.week then b.last else nil
+			local t = v and v.tiers[arg.tier]
+			if not t or t.claimed then
+				return nil, if t then "chest opened" else "chest expired"
+			end
+			if not t.claimable then
+				return nil, if t.reached then "war points" else "war locked"
+			end
+			local total = crewGoals:addChest(player.UserId, `tier{arg.tier}:{arg.week}`, v.us.id or "")
+			if not total then
+				return nil, "chest opened"
+			end
+			payCrewChests(player)
+			return { chests = total }, nil
+		elseif op == "crewChest" and type(arg) == "string" then
+			-- Opening a crew chest: recorded first, then paid (data.CREW_CHEST, store.openCrewChest).
+			local total, no = crewGoals:open(player.UserId, arg)
+			if not total then
+				return nil, no
+			end
+			payCrewChests(player)
+			return { chests = total }, nil
 		elseif op == "crewCreate" and type(arg) == "table" then
 			-- Starting a crew: a Crew House and $2,000 (data.CLAN_COST), charged once it's made.
 			local data = require(Game.data) :: any
@@ -1597,6 +1964,16 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 	if result == nil then
 		return false, why
 	end
+	-- A crew joined, left or renamed: the crew chat channels follow (the other player's too).
+	if op == "crewCreate" or op == "crewAsk" or op == "crewLeave" or op == "crewSettings" or op == "crewRespond" or op == "crewKick" then
+		task.spawn(pcall, syncCrewChat, player)
+		crewBadges[player.UserId] = nil
+		local other = Players:GetPlayerByUserId(if type(arg) == "number" then arg elseif type(arg) == "table" and type(arg.id) == "number" then arg.id else 0)
+		if other then
+			task.spawn(pcall, syncCrewChat, other)
+			crewBadges[other.UserId] = nil
+		end
+	end
 	return true, result
 end
 
@@ -1611,13 +1988,17 @@ bankRemote.OnServerInvoke = function(player: Player, op: any, id: any)
 	if op == "shop" then
 		return true, purchases:shop(player.UserId)
 	elseif op == "buy" then
-		local product, why = purchases:canBuy(player.UserId, id)
+		local product, why, kind = purchases:canBuy(player.UserId, id)
 		if not product then
 			return false, why
 		end
 		-- The town is saved first, so whatever was just earned is safe before the prompt.
 		task.spawn(save, player)
-		MarketplaceService:PromptProductPurchase(player, product)
+		if kind == "pass" then
+			MarketplaceService:PromptGamePassPurchase(player, product)
+		else
+			MarketplaceService:PromptProductPurchase(player, product)
+		end
 		return true, nil
 	end
 	return false, "unknown"
@@ -1638,6 +2019,27 @@ MarketplaceService.ProcessReceipt = function(info: any)
 	end
 	return if result == "granted" then Enum.ProductPurchaseDecision.PurchaseGranted else Enum.ProductPurchaseDecision.NotProcessedYet
 end
+
+-- A car pack's Game Pass bought in game (payPass above).
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, pass: number, bought: boolean)
+	if bought then
+		payPass(player, pass)
+	end
+end)
+-- Their prices, looked up again every few minutes like the products below.
+task.spawn(function()
+	while true do
+		local list = {}
+		for id, pass in GamePasses do
+			-- No price (off sale, or not looked up) keeps it out of the Bank; its owners are still paid.
+			local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, pass, Enum.InfoType.GamePass)
+			local robux = if ok and type(info) == "table" and info.IsForSale ~= false then info.PriceInRobux else nil
+			table.insert(list, { id = id, pass = pass, robux = robux })
+		end
+		purchases:setPasses(list)
+		task.wait(600)
+	end
+end)
 
 -- The experience's Developer Products, matched to packs by name; looked up again every few minutes
 -- so a product made while servers run goes on sale in them too.

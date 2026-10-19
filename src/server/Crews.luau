@@ -147,6 +147,8 @@ function Crews.summary(c: Crew): any
 		wins = wins,
 		trophies = trophies,
 		levels = levels,
+		-- When a member last played (crew battles only match crews still playing).
+		seen = (c :: any).seen or c.at,
 	}
 end
 
@@ -719,10 +721,16 @@ function Crews.touch(self: Crews, userId: number, who: Who)
 		if not m then
 			return nil
 		end
-		if m.name == who.name and m.town == who.town and m.level == who.level and m.power == who.power and m.wins == who.wins and m.trophies == who.trophies then
+		-- (Seen is kept to the day, so a save doesn't always mean a write.)
+		local now = self.mods.clock()
+		local stale = (c.seen or c.at or 0) < now - 86400
+		if not stale and m.name == who.name and m.town == who.town and m.level == who.level and m.power == who.power and m.wins == who.wins and m.trophies == who.trophies then
 			return nil
 		end
 		m.name, m.town, m.level, m.power, m.wins, m.trophies = who.name, who.town, who.level, who.power, who.wins, who.trophies
+		if stale then
+			c.seen = now
+		end
 		kept = c
 		return c
 	end)

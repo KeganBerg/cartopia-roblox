@@ -327,6 +327,7 @@ end)
 remotes.Parent = RS
 local lib = Instance.new("Folder")
 lib.Name = "ModelLibrary"
+lib:SetAttribute("Ready", true)
 for _, kind in { "Cars", "Buildings", "Stripes" } do
 	local f = Instance.new("Folder")
 	f.Name = kind
@@ -461,9 +462,6 @@ local function raceDesk(op, arg)
 			return races:list(1, arg.mode, arg.which), nil
 		elseif op == "act" and type(arg) == "table" then
 			return races:act(1, arg.mode, arg.which)
-		elseif op == "keep" then
-			races:keep(1)
-			return true, nil
 		elseif op == "start" and type(arg) == "table" then
 			return races:start(1, arg.mode, arg.which)
 		elseif op == "finish" then
@@ -606,8 +604,8 @@ end, function()
 	return "2026-W42"
 end)
 for i, d in { { 2, "Rosa", "Rosaville", 640, 31, 52, 14 }, { 7, "Kai", "Kai Harbour", 910, 77, 120, 23 }, { 8, "Mina", "Mina Falls", 455, 12, 30, 9 } } do
-	leaders:record(d[1], d[2], d[3], { power = d[4], race_wins = d[5], trophies = d[6], level = d[7] })
-	local _ = i
+	-- (Kai's crew tag shows on his rows.)
+	leaders:record(d[1], d[2], d[3], { power = d[4], race_wins = d[5], trophies = d[6], level = d[7] }, nil, if i == 2 then { tag = "HK", emblem = "👑", color = "#1e88e5" } else nil)
 end
 -- The Car Meet (server/Meet, in memory): two displays, one already liked.
 local Meet = emu.require(SSS.Server.Meet)
@@ -638,6 +636,18 @@ mailDesk:postcard(7, "Kai", "Kai Harbour", 1, "sunset", 2)
 -- Crews (server/Crews, in memory): Rosa's open crew and Kai's, which takes requests.
 local crewHouse = false
 local crewN = 0
+-- Crew weekly goals, on the real clock (the week is today's).
+local goalDesk = emu.require(SSS.Server.CrewGoals).new({ clock = os.time })
+local partsDesk = emu.require(SSS.Server.CrewParts).new({ clock = os.time })
+-- Crew battles: their clock (moved on a week to end one), the desk and my opened chests.
+local battles: any = { now = os.time() }
+function battles.opened()
+	local out = {}
+	for k in (goalDesk:_get("k:1") or {}).opened or {} do
+		out[k] = true
+	end
+	return out
+end
 local crewDesk = emu.require(SSS.Server.Crews).new({
 	clock = function()
 		return raceClock
@@ -649,6 +659,29 @@ local crewDesk = emu.require(SSS.Server.Crews).new({
 	emblems = emu.require(G.data).CLAN_EMBLEMS,
 	colors = emu.require(G.data).CLAN_COLORS,
 })
+battles.desk = emu.require(SSS.Server.CrewBattles).new({
+	clock = function()
+		return battles.now
+	end,
+	crews = function()
+		return crewDesk:browse()
+	end,
+	crew = function(id)
+		return crewDesk:crew(id)
+	end,
+	emblems = emu.require(G.data).CLAN_EMBLEMS,
+	colors = emu.require(G.data).CLAN_COLORS,
+})
+-- War races (server/Modes/War) reach the crew war through the race desk's mods.
+races.mods.crewWar = {
+	battles = battles.desk,
+	crewOf = function(userId)
+		return crewDesk:mineId(userId)
+	end,
+	nameOf = function()
+		return "You"
+	end,
+}
 local function crewWho(userId)
 	local save = towns:save(1)
 	return { name = if userId == 1 then "You" else "Rosa", town = save.townName, level = save.level or 1, power = 120, wins = save.racesWon or 0, trophies = save.trophies or 0 }
@@ -703,10 +736,93 @@ local function socialDesk(op, arg)
 		elseif op == "crew" then
 			local mine = crewDesk:mine(1)
 			if mine then
+				local n = 0
+				for _ in mine.crew.members do
+					n += 1
+				end
 				mine.house = crewHouse
+				mine.goal = goalDesk:goal(1, mine.crew.id, n)
+				local got = partsDesk:claim(1)
+				if got > 0 then
+					towns:_with(1, function(st)
+						store.useGame.setState({ parts = (st.parts or 0) + got })
+					end)
+					signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+				end
+				mine.parts = partsDesk:list(mine.crew.id, 1)
+				mine.battle = battles.desk:battle(1, mine.crew.id, battles.opened())
 				return mine, nil
 			end
-			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1 }, nil
+			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1, goal = goalDesk:goal(1, nil, 0), battle = battles.desk:battle(1, nil, battles.opened()) }, nil
+		elseif op == "crewLadder" then
+			-- Rosa has a run, Mina a par, and I have no time yet.
+			local c = crewDesk:crew(crewDesk:mineId(1) or "")
+			if not c then
+				return nil, "no crew"
+			end
+			local rows = {}
+			for uid, m in c.members do
+				local id = tonumber(uid)
+				if id == 2 then
+					table.insert(rows, 1, { id = id, name = m.name, t = 9.512, par = false, car = "Comet GT", pi = 340 })
+				else
+					table.insert(rows, { id = id, name = m.name, t = if id == 1 then nil else 14.2, par = true, car = if id == 1 then nil else "Pip", pi = 120 })
+				end
+			end
+			return { rows = rows, fuel = 5 }, nil
+		elseif op == "crewPartsAsk" then
+			local r = partsDesk:ask(1, crewDesk:mineId(1), "You")
+			return if r == "asked" then true else nil, r
+		elseif op == "crewPartGive" then
+			local r = partsDesk:give(1, crewDesk:mineId(1), arg)
+			if r ~= "given" then
+				return nil, r
+			end
+			towns:_with(1, function(st)
+				store.useGame.setState({ parts = math.max(0, (st.parts or 0) - 1) })
+			end)
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+			return true, nil
+		elseif op == "crewBattleChest" then
+			local last = battles.desk:battle(1, crewDesk:mineId(1), battles.opened()).last
+			if not last or not table.find(last.claimable, arg) then
+				return nil, "battle locked"
+			end
+			local total = goalDesk:addChest(1, `{arg}:{last.week}`, last.us.id)
+			towns:_with(1, function(st)
+				for _ = (st.crewChests or 0) + 1, total do
+					store.useGame.getState().openCrewChest()
+				end
+			end)
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+			return { chests = total }, nil
+		elseif op == "crewWarChest" then
+			local b = battles.desk:battle(1, crewDesk:mineId(1), battles.opened())
+			local v = if b.current and b.current.week == arg.week then b.current else b.last
+			local t = v and v.tiers[arg.tier]
+			if not t or not t.claimable then
+				return nil, "war locked"
+			end
+			local total = goalDesk:addChest(1, `tier{arg.tier}:{arg.week}`, v.us.id)
+			towns:_with(1, function(st)
+				for _ = (st.crewChests or 0) + 1, total do
+					store.useGame.getState().openCrewChest()
+				end
+			end)
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+			return { chests = total }, nil
+		elseif op == "crewChest" then
+			local total, no = goalDesk:open(1, arg)
+			if not total then
+				return nil, no
+			end
+			towns:_with(1, function(st)
+				for _ = (st.crewChests or 0) + 1, total do
+					store.useGame.getState().openCrewChest()
+				end
+			end)
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+			return { chests = total }, nil
 		elseif op == "crewCreate" then
 			if not crewHouse then
 				return nil, "crew house"
@@ -1847,6 +1963,8 @@ if SHOTS then
 		end
 	end
 	assert(boardRows > 0, "the leaderboard shows no rows")
+	local kaiRow = hud.gui:FindFirstChild("Kai", true)
+	assert(kaiRow and kaiRow:FindFirstChild("CrewTag"), "Kai's leaderboard row has no crew tag")
 	shot("panel-leaders", nil)
 	hud.ctx.close()
 	-- The Car Meet tab: your display, then Rosa's and Kai's; like Rosa's.
@@ -1981,6 +2099,138 @@ if SHOTS then
 			table.insert(problems, "couldn't join Night Riders")
 		end
 		shot("crew-joined", nil)
+		-- The weekly goal: Rosa and I fill it, and the chest pays out.
+		local niteId = crewDesk:mineId(1)
+		if niteId then
+			goalDesk:add(2, niteId, 2, 240, 0)
+			-- Rosa asks for parts.
+			partsDesk:ask(2, niteId, "Rosa")
+			goalDesk:add(1, niteId, 2, 100, 10)
+			local before = towns:save(1).coins or 0
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			shot("crew-goal", nil)
+			if not hud.gui:FindFirstChild("OpenChat", true) then
+				table.insert(problems, "no crew chat row for a player who can chat")
+			end
+			local chest = hud.gui:FindFirstChild("Chest", true)
+			local open = chest and chest:FindFirstChild("Open", true)
+			local openButton = open and (if open:IsA("GuiButton") then open else open:FindFirstChildWhichIsA("GuiButton", true))
+			if openButton then
+				signalFor(openButton, "Activated"):Fire()
+				Emu.resumeWaits()
+			else
+				table.insert(problems, "no Open button on the crew chest")
+			end
+			local pay = emu.require(G.data).payAt(emu.require(G.data).CREW_CHEST, towns:save(1).level or 1)
+			if (towns:save(1).crewChests or 0) ~= 1 or (towns:save(1).coins or 0) < before + pay.coins then
+				table.insert(problems, `the crew chest didn't pay: {towns:save(1).crewChests} chests, coins {before} -> {towns:save(1).coins}`)
+			end
+			shot("crew-goal-opened", nil)
+			-- Part requests: ask, give Rosa one, and collect what she gives back.
+			press("AskParts")
+			if #partsDesk:list(niteId, 1) ~= 2 then
+				table.insert(problems, "asking for parts didn't add a request")
+			end
+			local partsBefore = towns:save(1).parts or 0
+			local rosa = hud.gui:FindFirstChild("PartAsk2", true)
+			local give = rosa and rosa:FindFirstChild("Give", true)
+			local giveButton = give and (if give:IsA("GuiButton") then give else give:FindFirstChildWhichIsA("GuiButton", true))
+			if giveButton then
+				signalFor(giveButton, "Activated"):Fire()
+				Emu.resumeWaits()
+			end
+			if (towns:save(1).parts or 0) ~= partsBefore - 1 then
+				table.insert(problems, `giving a part didn't take one: {partsBefore} -> {towns:save(1).parts}`)
+			end
+			partsDesk:give(2, niteId, 1)
+			partsDesk:give(2, niteId, 1)
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			if (towns:save(1).parts or 0) ~= partsBefore + 1 then
+				table.insert(problems, `the parts Rosa gave weren't collected: {partsBefore} -> {towns:save(1).parts}`)
+			end
+			shot("crew-parts", nil)
+			if not hud.gui:FindFirstChild("Rung2", true) or not (hud.gui:FindFirstChild("Rung2", true) :: any):FindFirstChild("Race", true) then
+				table.insert(problems, "the crew ladder doesn't list Rosa with a Race button")
+			end
+			-- Scrolled down to the ladder.
+			local scroll = hud.gui:FindFirstChild("Ladder", true)
+			local sf = scroll and scroll:FindFirstAncestorWhichIsA("ScrollingFrame")
+			if sf then
+				sf.CanvasPosition = roblox.Vector2.new(0, 600)
+			end
+			shot("crew-ladder", nil)
+			battles.crew = niteId
+		-- This week's crew battle: Rosa and I race; then the week ends and the chests open.
+			battles.desk:races(1, niteId, "You", 60, 20)
+			battles.desk:races(2, niteId, "Rosa", 12, 3)
+			battles.desk:live(1, niteId, "You", 7, "crew2")
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			local card = hud.gui:FindFirstChild("Battle", true)
+			if not card or not card:FindFirstChild("UsScore", true) or (card:FindFirstChild("UsScore", true) :: any).Text ~= tostring(battles.desk:score(niteId, (battles.desk.weeks(battles.now)))) then
+				table.insert(problems, "the crew battle card doesn't show our score")
+			end
+			local sf2 = card and card:FindFirstAncestorWhichIsA("ScrollingFrame")
+			if sf2 then
+				sf2.CanvasPosition = roblox.Vector2.new(0, 170)
+			end
+			shot("crew-battle", nil)
+			-- The first war chest, this week.
+			local warBefore = towns:save(1).crewChests or 0
+			press("WarChest1")
+			if (towns:save(1).crewChests or 0) ~= warBefore + 1 then
+				table.insert(problems, `the first war chest didn't pay: {warBefore} -> {towns:save(1).crewChests}`)
+			end
+			if sf2 then
+				local card2 = hud.gui:FindFirstChild("WarTrack", true)
+				local sf3 = card2 and card2:FindFirstAncestorWhichIsA("ScrollingFrame")
+				if sf3 then
+					sf3.CanvasPosition = roblox.Vector2.new(0, 330)
+				end
+			end
+			shot("crew-war-track", nil)
+			local root = hud.gui:FindFirstChild("Root")
+			root.Size = roblox.UDim2.fromOffset(1535, 709)
+			shot("crew-battle-phone", nil, 1535, 709)
+			root.Size = roblox.UDim2.fromOffset(1280, 800)
+			battles.now += 7 * 86400
+			local chestsBefore = towns:save(1).crewChests or 0
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			local won = battles.desk:battle(1, niteId, battles.opened()).last
+			shot("crew-battle-won", nil)
+			if won.result == "win" then
+				press("BattleChest")
+				press("MvpChest")
+				press("LastWarChest2")
+				if (towns:save(1).crewChests or 0) ~= chestsBefore + 3 then
+					table.insert(problems, `the battle chests didn't pay: {chestsBefore} -> {towns:save(1).crewChests}`)
+				end
+				if hud.gui:FindFirstChild("BattleChest", true) then
+					table.insert(problems, "the victory chest is still there after opening")
+				end
+			else
+				table.insert(problems, `the crew battle wasn't won: {won.us.score} to {won.them.score}`)
+			end
+			if not hud.gui:FindFirstChild("Battle", true) then
+				table.insert(problems, "no crew battle card in the new week")
+			end
+			if not hud.gui:FindFirstChild("War1", true) or not hud.gui:FindFirstChild("LeagueName", true) then
+				table.insert(problems, "no war log or league after a finished war")
+			end
+			local log = hud.gui:FindFirstChild("War1", true)
+			local sf4 = log and log:FindFirstAncestorWhichIsA("ScrollingFrame")
+			if sf4 then
+				sf4.CanvasPosition = roblox.Vector2.new(0, 360)
+			end
+			shot("crew-war-log", nil)
+		end
 		crewDesk:leave(1)
 		hud.ctx.close()
 		print(`crews: {#problems} problems {table.concat(problems, "; ")}`)
@@ -2973,7 +3223,7 @@ if SHOTS then
 	end
 end
 
--- The rival in town: race them from the front page, then double or nothing.
+-- The rival in town: race them from the front page (no double or nothing on Roblox).
 topUp()
 towns:_with(1, function()
 	store.useGame.setState({ level = math.max(store.useGame.getState().level, emu.require(G.rivals).RIVAL_LEVEL) })
@@ -2994,22 +3244,74 @@ end
 local tf, _, tres = runRace("rival", { [60] = true }, rivalStart)
 print(`town rival: {tf} frames; card: {cardText(tres)}`)
 print(`town rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
-local double = cardButton("Double or nothing")
-if double then
-	local coins = towns:snapshot(1).save.coins
-	signalFor(double, "Activated"):Fire()
-	Emu.resumeWaits()
-	local bf, _, bres = runRace("bet", { [60] = true }, false)
-	print(`double or nothing: {bf} frames, coins {coins} -> {towns:snapshot(1).save.coins}; card: {cardText(bres)}`)
-	local done = cardButton("Collect") or cardButton("Back")
-	if done then
-		signalFor(done, "Activated"):Fire()
+assert(cardButton("Double or nothing") == nil, "double or nothing offered")
+print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+
+-- A war race from the Crew tab's war map: back in Night Riders, race the street crew's first pick.
+if battles.crew then
+	local warProblems = {}
+	crewDesk:ask(1, crewWho(1), battles.crew)
+	towns:_with(1, function(s)
+		s.fuel = math.max(s.fuel, 50)
+	end)
+	local wf, _, wres = runRace("war", { [60] = true }, function()
+		hud.openPanel("friends", "clan")
+		Emu.resumeWaits()
+		-- (A prize pop-up left from an earlier race goes first.)
+		for _ = 1, 3 do
+			local nice = find(hud.gui, function(d)
+				return d:IsA("TextButton") and d.Visible and label(d) == "Nice!"
+			end)
+			if nice then
+				signalFor(nice, "Activated"):Fire()
+				Emu.resumeWaits()
+			end
+		end
+		local map = hud.gui:FindFirstChild("WarMap", true)
+		if not map or not map:FindFirstChild("Them", true) then
+			table.insert(warProblems, "no war map with their racers")
+		end
+		local sf = map and map:FindFirstAncestorWhichIsA("ScrollingFrame")
+		if sf then
+			sf.CanvasPosition = roblox.Vector2.new(0, 400)
+		end
+		shot("crew-war-map", nil)
+		local b = map and map:FindFirstChild("WarRace", true)
+		local face = b and (if b:IsA("GuiButton") then b else b:FindFirstChildWhichIsA("GuiButton", true))
+		if face then
+			signalFor(face, "Activated"):Fire()
+			Emu.resumeWaits()
+		else
+			table.insert(warProblems, "no Race button on the war map")
+		end
+	end)
+	local x = battles.desk:battleOf(battles.crew)
+	local raced = x and battles.desk:attacks(x, battles.crew)
+	if not wres or not raced or #raced ~= 1 then
+		table.insert(warProblems, `the war race wasn't recorded ({wf} frames): {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	end
+	if not (wres and wres:FindFirstChild("WarStars", true)) then
+		table.insert(warProblems, "no stars on the war race's result card")
+	end
+	local back = cardButton("Crew war")
+	if back then
+		signalFor(back, "Activated"):Fire()
 		Emu.resumeWaits()
 	end
-else
-	print("town rival: no double or nothing offered")
+	if not hud.gui:FindFirstChild("WarMap", true) or not hud.gui:FindFirstChild("Latest", true) then
+		table.insert(warProblems, "the war map doesn't show the race after Crew war")
+	end
+	local after = hud.gui:FindFirstChild("WarMap", true)
+	local sfa = after and after:FindFirstAncestorWhichIsA("ScrollingFrame")
+	if sfa then
+		sfa.CanvasPosition = roblox.Vector2.new(0, 400)
+	end
+	shot("crew-war-map-after", nil)
+	hud.ctx.close()
+	crewDesk:leave(1)
+	print(`war races: {#warProblems} problems {table.concat(warProblems, "; ")}`)
+	bad += #warProblems
 end
-print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
 
 -- A race from one of the other modes' pages (client/RacePages): opens the page from the front
 -- page's small button, presses the first button whose words match `go`, and races.
@@ -3713,7 +4015,9 @@ do
 	end
 end
 
--- The Star Pass: 45 stars, two tiers already claimed; Collect takes the other three.
+-- The Star Pass: 45 stars, two tiers already claimed. The street keeps its chips through the
+-- town clock's ticks; a chip moves the camera along the road; Collect takes the other three; then
+-- Earn goes to Goals.
 do
 	hud.ctx.close()
 	local data = emu.require(RS.Shared.Game.data)
@@ -3721,9 +4025,62 @@ do
 		store.useGame.setState({ season = { n = data.seasonNumber(NOW), stars = 45, claimed = { 0, 1 } } })
 	end)
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	-- (A race's prize card left over from earlier would sit on top of the pictures.)
+	for _ = 1, 10 do
+		local p = hud.root:FindFirstChild("Popup")
+		local b = p and find(p, function(d)
+			return d:IsA("TextButton") and d.Name == "Face" and (label(d) == "Nice!" or label(d) == "Continue" or label(d) == "Awesome!" or label(d) == "Later")
+		end)
+		if not b then
+			break
+		end
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
 	hud.openPanel("season")
+	local step = renderSteps.StarPass
+	assert(step, "the Star Pass isn't stepping its street")
+	for _ = 1, 30 do
+		step(1 / 30)
+	end
+	local street = find(hud.gui, function(d)
+		return d:IsA("ViewportFrame") and d.Name == "Street"
+	end)
+	local streetCam = street and street:FindFirstChildOfClass("Camera")
+	assert(streetCam, "no street on the Star Pass")
+	local signs = 0
+	for _, d in hud.gui:GetDescendants() do
+		if d.Name:match("^Sign%d+$") and d.Visible then
+			signs += 1
+		end
+	end
+	assert(signs >= 3, `only {signs} arch signs in view`)
+	local root = hud.gui:FindFirstChild("Root")
 	if SHOTS then
 		shot("season", nil)
+		root.Size = roblox.UDim2.fromOffset(1535, 709)
+		step(1)
+		shot("season-phone", nil, 1535, 709)
+		root.Size = roblox.UDim2.fromOffset(1280, 800)
+	end
+	-- A tick of the town clock with nothing new for the Star Pass leaves its chips be.
+	local chip = hud.gui:FindFirstChild("Tier12", true)
+	assert(chip, "no tier 12 chip")
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	assert(hud.gui:FindFirstChild("Tier12", true) == chip, "a clock tick rebuilt the Star Pass chips")
+	-- Tapping tier 12's chip looks further up the road.
+	local before = streetCam.CFrame.Position.Z
+	local face = find(chip, function(d)
+		return d:IsA("TextButton")
+	end) or chip
+	signalFor(face, "Activated"):Fire()
+	for _ = 1, 60 do
+		step(1 / 30)
+	end
+	local after = streetCam.CFrame.Position.Z
+	assert(after > before + 100, `tier 12's chip didn't move along the road ({before} -> {after})`)
+	if SHOTS then
+		shot("season-tier12", nil)
 	end
 	local collect = find(hud.gui, function(d)
 		return d:IsA("TextButton") and string.find(label(d), "Collect", 1, true) ~= nil
@@ -3734,9 +4091,27 @@ do
 	signalFor(collect, "Activated"):Fire()
 	local season = towns:snapshot(1).save.season
 	print(`star pass: claimed {table.concat(season.claimed, ",")}, coins {coins} -> {towns:snapshot(1).save.coins}; calls {table.concat(calls, ", ")}`)
+	assert(#season.claimed == 5, "Collect didn't take every tier reached")
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	step(1 / 30)
 	if SHOTS then
 		shot("season-collected", nil)
 	end
+	local earn = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "Earn", 1, true) ~= nil
+	end)
+	assert(earn, "no Earn button once everything's collected")
+	signalFor(earn, "Activated"):Fire()
+	assert(find(hud.gui, function(d)
+		return d:IsA("TextLabel") and d.Name == "Title" and d.Text == "Goals"
+	end), "Earn didn't open Goals")
+	-- (Lune's Destroy doesn't fire Destroying; the street's own step notices the panel's gone.)
+	if renderSteps.StarPass then
+		renderSteps.StarPass(1 / 30)
+	end
+	assert(renderSteps.StarPass == nil, "the Star Pass kept stepping after it closed")
+	assert(hud.gui:FindFirstChild("Street", true) == nil, "the Star Pass's street stayed")
+	print("star pass: chips move the road, collect, earn opens goals")
 	hud.ctx.close()
 end
 
@@ -3838,6 +4213,29 @@ do
 	assert(#handlerErrors == 0, table.concat(handlerErrors, "; "))
 	local s = store.useGame.getState()
 	assert(s.levelUp == nil and s.paintPrize == nil and s.cupPrize == nil, "a pop-up's news wasn't cleared")
+
+	-- The purchase splash: a gem pack and a car pack just paid.
+	towns:_with(1, function(s)
+		store.useGame.setState({ bought = { { seq = 1, pack = "bag", bucks = 1200, coins = 5000, parts = 40 }, { seq = 2, pack = "bag", bucks = 6500, coins = 0, parts = 0, car = s.cars[1].model } } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	do
+		local p = popup()
+		assert(p, "no purchase splash")
+		local title = find(p, function(d)
+			return d:IsA("TextLabel") and d.Name == "Title"
+		end)
+		assert(title and title.Text == "Purchase successful!", `the purchase splash says {title and title.Text}`)
+		shot("popup-bought", nil)
+		local b = closer(p)
+		assert(b, "the purchase splash has no Continue")
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+		assert(popup() == nil, "the purchase splash stayed")
+		assert(#store.useGame.getState().bought == 0, "the purchase splash's news wasn't cleared")
+		print("purchase splash: shown and closed")
+	end
 
 	-- A pop-up waits while the race screen hides the HUD.
 	local hudGui = hud.gui

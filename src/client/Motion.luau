@@ -44,6 +44,7 @@ end
 local function live(): boolean
 	return RunService:IsRunning() and not Motion.reduced()
 end
+Motion.live = live
 
 -- Plays a tween and returns it. style/dir: Enum names ("Quint", "Out").
 function Motion.tween(inst: Instance, time: number, goal: { [string]: any }, style: string?, dir: string?): Tween

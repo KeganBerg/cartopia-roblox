@@ -490,10 +490,19 @@ function picture(v, w, h) {
   vr.setPixelRatio(2)
   vr.setSize(w, h)
   const sc = new T.Scene()
-  sc.add(new T.HemisphereLight(0xffffff, '#' + (v.ambient || 'aaafb9'), 1.6))
-  const light = new T.DirectionalLight(0xffffff, 2)
-  light.position.set(1, 2, 1.2)
-  sc.add(light)
+  if (v.scene) {
+    // A scene on its own backdrop (not a shop card's picture), lit as Roblox lights a ViewportFrame:
+    // the Ambient everywhere, plus LightColor from LightDirection.
+    sc.add(new T.AmbientLight('#' + v.ambient, 2.2))
+    const light = new T.DirectionalLight('#' + v.light, 2.2)
+    light.position.set(-v.lightDir[0], -v.lightDir[1], -v.lightDir[2])
+    sc.add(light)
+  } else {
+    sc.add(new T.HemisphereLight(0xffffff, '#' + (v.ambient || 'aaafb9'), 1.6))
+    const light = new T.DirectionalLight(0xffffff, 2)
+    light.position.set(1, 2, 1.2)
+    sc.add(light)
+  }
   addParts(sc, v.parts)
   const [x, y, z, a, b, c, d, e, f, g, hh, i] = v.cam.cf
   const cam = new T.PerspectiveCamera(v.cam.fov, w / h, 0.1, 5000)
