@@ -71,6 +71,7 @@ local Splash = require(script.Splash)
 local Social = require(script.Social)
 local Leaders = require(script.Leaders)
 local Meet = require(script.Meet)
+local Mail = require(script.Mail)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -492,6 +493,26 @@ end
 local leaving: { [Player]: boolean } = {}
 
 -- Lending a hand at a business in the town a player is visiting (server/Social).
+-- Friends' mail (server/Mail): help notes, gifts and postcards, and the count waiting for each
+-- player (their "Mail" attribute, for the HUD's gift bell).
+local mail = Mail.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+}, os.time, function(): string
+	return os.date("!%Y-%m-%d") :: string
+end)
+local function mailCount(userId: number)
+	local player = Players:GetPlayerByUserId(userId)
+	if player then
+		player:SetAttribute("Mail", mail:count(userId))
+	end
+end
+local function townOf(userId: number): string
+	local town = if towns:isOpen(userId) then towns:save(userId).townName else nil
+	return if type(town) == "string" then town else "My Town"
+end
+
 local function helpAt(player: Player, uid: string): (any?, string?)
 	local host = player:GetAttribute("Visiting")
 	if type(host) ~= "number" or not towns:isOpen(player.UserId) or leaving[player] then
@@ -504,6 +525,14 @@ local function helpAt(player: Player, uid: string): (any?, string?)
 	end
 	if result then
 		player:SetAttribute("Helped", table.concat(result.helped, ","))
+		-- The first help in a town today leaves its owner a note worth a little fuel.
+		if #result.helped == 1 then
+			task.spawn(function()
+				if pcall(mail.help, mail, player.UserId, player.DisplayName, townOf(player.UserId), host) then
+					mailCount(host)
+				end
+			end)
+		end
 	end
 	push(player)
 	return result, why
@@ -605,6 +634,13 @@ end
 
 Players.PlayerAdded:Connect(function(player)
 	task.spawn(policies.load, policies, player)
+	-- What friends left in the mail, checked now and then (other servers can't tell this one).
+	task.spawn(function()
+		while player.Parent do
+			pcall(mailCount, player.UserId)
+			task.wait(120)
+		end
+	end)
 	-- Whether Roblox lets this player chat: the HUD's CHAT button only shows when it does.
 	task.spawn(function()
 		local ok, can = pcall(TextChatService.CanUserChatAsync, TextChatService, player.UserId)
@@ -1251,6 +1287,63 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 				return nil, if r == "limit" then "like limit" elseif r == "already" then "liked" else "no"
 			end
 			return { likes = meet:likes(arg) }, nil
+		elseif op == "mail" then
+			-- The gift bell's mail, and who they've sent a gift or postcard today.
+			local box = mail:inbox(player.UserId)
+			box.sent = mail:sentToday(player.UserId)
+			player:SetAttribute("Mail", #box.notes)
+			mail:see(player.UserId)
+			return box, nil
+		elseif op == "sent" then
+			return mail:sentToday(player.UserId), nil
+		elseif op == "claimMail" then
+			local got = mail:claim(player.UserId)
+			if got.count > 0 then
+				towns:_with(player.UserId, function(s)
+					s.receiveGifts(got.fuel, got.parts)
+				end)
+				saveId(player.UserId)
+			end
+			if got.left > 0 then
+				towns:_with(player.UserId, function(s)
+					s.toast(if got.count > 0 then `{got.left} more waiting. You can collect 10 a day.` else "You've collected 10 today. The rest wait for tomorrow.")
+				end)
+			end
+			push(player)
+			player:SetAttribute("Mail", got.left)
+			return got, nil
+		elseif (op == "gift" or op == "postcard") and type(arg) == "table" and type(arg.to) == "number" then
+			-- A gift (15 fuel or 5 parts) or a postcard, for a friend or a driver in this server.
+			local to = arg.to
+			local other = Players:GetPlayerByUserId(to)
+			if to == player.UserId or not (other or areFriends(player, to)) then
+				return nil, "not friends"
+			end
+			local r
+			if op == "gift" then
+				r = mail:gift(player.UserId, player.DisplayName, townOf(player.UserId), to, arg.item)
+			else
+				r = mail:postcard(player.UserId, player.DisplayName, townOf(player.UserId), to, arg.card, tonumber(arg.msg) or -1)
+			end
+			if r == "limit" then
+				return nil, if op == "gift" then "gift limit" else "card limit"
+			elseif r == "already" then
+				return nil, "sent today"
+			elseif r ~= "sent" then
+				return nil, "no"
+			end
+			local name = if type(arg.name) == "string" and #arg.name <= 40 then arg.name else nil
+			towns:_with(player.UserId, function(s)
+				s.befriend(tostring(to), op, name)
+				if op == "gift" then
+					s.toast(`Sent {if arg.item == "parts" then "⚙" else "⛽"} {Mail.GIFTS[arg.item]} {arg.item}!`)
+				else
+					s.toast("💌 Postcard sent!")
+				end
+			end)
+			push(player)
+			task.spawn(pcall, mailCount, to)
+			return { sent = true }, nil
 		elseif op == "card" and type(arg) == "number" then
 			-- Another player's card: from their town when they're in this server, else as last saved.
 			local other = Players:GetPlayerByUserId(arg)
