@@ -404,7 +404,7 @@ function Hud.start()
 	walkLabel = Ui.text({ Text = "DRIVE", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
 	TownCamera.onWalking(function(on: boolean)
 		setWalkIcon(if on then "town" else "car")
-		walkLabel.Text = if on then "MY TOWN" else "DRIVE"
+		Ui.setText(walkLabel, if on then "MY TOWN" else "DRIVE")
 		-- The server puts them in their car, or takes them out and back home.
 		if not on or Players.LocalPlayer:GetAttribute("Driving") ~= true then
 			task.spawn(Remote.social, if on then "drive" else "home", nil, true)
