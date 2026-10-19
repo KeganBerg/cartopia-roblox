@@ -72,6 +72,8 @@ local Social = require(script.Social)
 local Leaders = require(script.Leaders)
 local Meet = require(script.Meet)
 local Mail = require(script.Mail)
+local Duels = require(script.Duels)
+local Invites = require(script.Invites)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -139,6 +141,43 @@ local visitors = Visitors.new(towns, {
 		end,
 	},
 })
+-- Live drag races between players here (server/Duels, the race mode "live"). Messages go out on
+-- the Duel remote, made with the others below.
+local duelEvent: RemoteEvent? = nil
+-- What another racer sees of a player: their name, town, level and race car.
+local function liveCard(userId: number): any?
+	local player = Players:GetPlayerByUserId(userId)
+	if not player or not towns:isOpen(userId) then
+		return nil
+	end
+	local save = towns:save(userId)
+	local data = require(Game.data) :: any
+	local car = (require(Game.raceCar) :: any).raceCarOf(save.cars or {}, save.raceCar)
+	local out: any = { name = player.DisplayName, town = save.townName, level = save.level or 1, userId = userId }
+	if car then
+		out.carName = data.carDef(car.model).name
+		out.model, out.color = car.model, car.color
+		out.mods, out.panels, out.trim, out.skin, out.modSkin = car.mods, car.panels, car.trim, car.skin, car.modSkin
+		out.pi = data.performance(data.carDef(car.model), car.upgrades, car.mods)
+	end
+	return out
+end
+local duels = Duels.new({
+	clock = os.clock,
+	send = function(userId: number, event: string, payload: any)
+		local player = Players:GetPlayerByUserId(userId)
+		if player and duelEvent then
+			duelEvent:FireClient(player, event, payload)
+		end
+	end,
+	card = liveCard,
+	here = function(userId: number): boolean
+		return Players:GetPlayerByUserId(userId) ~= nil and towns:isOpen(userId)
+	end,
+	wait = function(s: number)
+		task.wait(s)
+	end,
+})
 local races = Races.new(towns, {
 	store = require(Game.store),
 	data = require(Game.data),
@@ -181,6 +220,8 @@ local races = Races.new(towns, {
 	},
 	ghosts = ghosts,
 	visitors = visitors,
+	duels = duels,
+	liveCard = liveCard,
 	-- Whose ghosts a player can race: everyone else in this server, then their friends.
 	people = function(userId: number): { any }
 		local out, seen = {}, { [userId] = true }
@@ -310,6 +351,14 @@ kartEvent.OnServerEvent:Connect(function(player: Player, event: any, payload: an
 		parties:ready(player.UserId)
 	else
 		parties:relay(player.UserId, event, payload)
+	end
+end)
+duelEvent = Instance.new("RemoteEvent")
+;(duelEvent :: RemoteEvent).Name = "Duel"
+;(duelEvent :: RemoteEvent).Parent = remotes
+;(duelEvent :: RemoteEvent).OnServerEvent:Connect(function(player: Player, event: any, payload: any)
+	if event == "pos" then
+		duels:relay(player.UserId, payload)
 	end
 end)
 local act = Instance.new("RemoteFunction")
@@ -632,6 +681,42 @@ local function save(player: Player, release: boolean?)
 	saveId(player.UserId, release)
 end
 
+-- Invite rewards (server/Invites): a new player who joined from a friend's game invite counts as
+-- theirs, and both get gems once the new player reaches level 10.
+local invites = Invites.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+})
+-- Players whose own reward has been looked at this session (at level 10 or more).
+local inviteChecked: { [number]: boolean } = {}
+local function payInvites(player: Player)
+	local userId = player.UserId
+	if not towns:isOpen(userId) then
+		return
+	end
+	local level = towns:save(userId).level or 1
+	local mine = 0
+	if level >= Invites.INVITE_LEVEL and not inviteChecked[userId] then
+		inviteChecked[userId] = true
+		mine = invites:reached(userId, level)
+	end
+	local theirs = invites:claim(userId)
+	if mine + theirs <= 0 or not towns:isOpen(userId) then
+		return
+	end
+	towns:_with(userId, function(s: any)
+		(require(Game.store) :: any).useGame.setState({ bucks = (s.bucks or 0) + mine + theirs })
+		if mine > 0 then
+			s.toast(`🎁 +{mine} Gems · invite reward for reaching level {Invites.INVITE_LEVEL}`)
+		end
+		if theirs > 0 then
+			s.toast(`🎁 +{theirs} Gems · a friend you invited reached level {Invites.INVITE_LEVEL}`)
+		end
+	end)
+	push(player)
+end
+
 Players.PlayerAdded:Connect(function(player)
 	task.spawn(policies.load, policies, player)
 	-- What friends left in the mail, checked now and then (other servers can't tell this one).
@@ -667,7 +752,19 @@ Players.PlayerAdded:Connect(function(player)
 		return
 	end
 	purchases:load(player.UserId, receipts)
+	local newPlayer = data == nil
 	towns:open(player.UserId, data)
+	-- Joined from a friend's invite with no town yet: theirs (server/Invites). Then any invite
+	-- gems waiting, now and every couple of minutes (other servers can't tell this one).
+	task.spawn(function()
+		local okJoin, join = pcall(player.GetJoinData, player)
+		local ref = if okJoin and type(join) == "table" then tonumber(join.ReferredByPlayerId) else nil
+		pcall(invites.arrive, invites, player.UserId, ref, newPlayer)
+		while player.Parent do
+			pcall(payInvites, player)
+			task.wait(120)
+		end
+	end)
 	-- How long they were away (since their save was last written): the welcome back shows it, and
 	-- two days or more turns on double pay for the next few races, as the web's noteAway.
 	local seen = saves:lastSeen(player.UserId)
@@ -719,6 +816,8 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	-- First, so a double-or-nothing rematch left half way is settled in the save.
 	races:close(player.UserId)
+	duels:leave(player.UserId)
+	inviteChecked[player.UserId] = nil
 	karts:close(player.UserId)
 	parties:forget(player.UserId)
 	arcade:close(player.UserId)
@@ -801,6 +900,17 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 	if not allow(player) then
 		return false, "slow down"
 	end
+	-- A live race's finish: the server's replay of this run, then the other racer's (waited for
+	-- here, outside the town), for the race mode "live" to call it.
+	local live = races.pending[player.UserId]
+	if op == "finish" and live and live.mode == "live" then
+		local DragRace = require(ReplicatedStorage.Shared.DragRace) :: any
+		local myTime = math.huge
+		if DragRace.valid(arg) then
+			myTime = DragRace.times(DragRace.replay(live.spec, arg))
+		end
+		live.extra.their = duels:finish(player.UserId, myTime)
+	end
 	local ran, result, why = pcall(function(): (any, any)
 		if op == "rivals" then
 			return races:quickRivals(player.UserId), nil
@@ -819,6 +929,27 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return races:start(player.UserId, arg.mode, arg.which)
 		elseif op == "finish" then
 			return races:finish(player.UserId, arg)
+		elseif op == "duel" and type(arg) == "number" then
+			-- Challenges another player here to a live drag race (server/Duels).
+			local id, why = duels:challenge(player.UserId, arg)
+			return if id then { id = id } else nil, why
+		elseif op == "duelAnswer" and type(arg) == "table" and type(arg.id) == "string" then
+			local id, why = duels:answer(player.UserId, arg.id, arg.yes == true)
+			return if id then { id = id } else nil, why
+		elseif op == "duelCancel" then
+			duels:cancel(player.UserId)
+			return true, nil
+		elseif op == "duelList" then
+			local ids = {}
+			for _, other in Players:GetPlayers() do
+				table.insert(ids, other.UserId)
+			end
+			return duels:others(player.UserId, ids), nil
+		elseif op == "duelInvites" then
+			return duels:invitesFor(player.UserId), nil
+		elseif op == "duelLeave" then
+			duels:leave(player.UserId)
+			return true, nil
 		elseif op == "kartStart" and type(arg) == "table" then
 			return karts:start(player.UserId, arg.kind, arg.which)
 		elseif op == "kartFinish" then
@@ -1294,6 +1425,9 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			player:SetAttribute("Mail", #box.notes)
 			mail:see(player.UserId)
 			return box, nil
+		elseif op == "invites" then
+			-- The Friends tab's invite line (server/Invites).
+			return invites:stats(player.UserId), nil
 		elseif op == "sent" then
 			return mail:sentToday(player.UserId), nil
 		elseif op == "claimMail" then
@@ -1317,7 +1451,7 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			local to = arg.to
 			local other = Players:GetPlayerByUserId(to)
 			if to == player.UserId or not (other or areFriends(player, to)) then
-				return nil, "not friends"
+				return nil, "not a friend"
 			end
 			local r
 			if op == "gift" then

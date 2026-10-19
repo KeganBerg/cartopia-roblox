@@ -22,6 +22,10 @@ local Card = require(script.Parent.Parent.Social.Card)
 local Postcards = require(script.Parent.Parent.Social.Postcards)
 
 local Friends = {}
+
+-- The invite reward (server/Invites): gems each, once the new player reaches the level.
+local INVITE_GEMS = 100
+local INVITE_LEVEL = 10
 Friends.id = "friends"
 
 local ROW_H = 52
@@ -168,7 +172,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 	end
 	-- A player's card over the menu (Social/Card).
 	local function card(userId: number, name: string, town: string?)
-		Card.open(overlay, userId, { name = name, town = town }, { visit = visit })
+		Card.open(overlay, userId, { name = name, town = town }, { visit = visit, ctx = ctx })
 	end
 	local function join(userId: number, name: string)
 		ctx.toast(`Joining {name}…`)
@@ -210,6 +214,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 			local friends = robloxFriends()
 			local okPlayers, here = Remote.social("players", nil, true)
 			local okSent, sent = Remote.social("sent", nil, true)
+			local okInvites, stats = Remote.social("invites", nil, true)
 			sent = if okSent then sent else { gifts = {}, cards = {} }
 			-- Today's gift and postcard for a player (Social/Postcards); ✔ once sent.
 			local function mailButtons(buttons: { Button }, id: number, name: string)
@@ -246,10 +251,14 @@ function Friends.open(ctx: any, arg: any?): Instance
 				return order
 			end
 			if canInvite then
+				-- Invite rewards (server/Invites, the web's lib/invite.ts): both get the gems once a
+				-- new player who joins from the invite reaches the level.
 				local holder = Ui.new("Frame", { Name = "Invite", LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 46), BackgroundTransparency = 1, Parent = list })
-				Ui.buy({ Position = UDim2.fromOffset(0, 2), Size = UDim2.new(1, 0, 0, 40), Parent = holder }, "🔗 Invite friends", "green", function()
+				Ui.buy({ Position = UDim2.fromOffset(0, 2), Size = UDim2.new(1, 0, 0, 40), Parent = holder }, `🔗 Invite friends · 💎{INVITE_GEMS} each`, "green", function()
 					pcall(SocialService.PromptGameInvite, SocialService, me)
 				end, 18)
+				local hint = if okInvites and stats.joined > 0 then `👥 {stats.joined} joined · ⭐ {stats.reached} reached level {INVITE_LEVEL} · 💎 {stats.gems} earned` else `You both get 💎{INVITE_GEMS} when a new player you invite reaches level {INVITE_LEVEL}`
+				Ui.text({ Name = "InviteNote", LayoutOrder = nextOrder(), Text = hint, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextWrapped = true, Size = UDim2.new(1, 0, 0, 20), Parent = list })
 			end
 
 			local byId: { [number]: any } = {}

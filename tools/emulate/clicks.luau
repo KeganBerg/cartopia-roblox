@@ -259,7 +259,45 @@ local parties = emu.require(SSS.Server.KartParty).new(towns, {
 		return if userId == 1 then "You" else "Rosa"
 	end,
 })
+-- Live drag races (server/Duels), as init.server.luau makes them: Rosa (player 2) has no game
+-- here, so what she's sent is kept in duelSent.
+local duelEvent = Instance.new("RemoteEvent")
+duelEvent.Name = "Duel"
+duelEvent.Parent = remotes
+local duelSent = {}
+local duels = emu.require(SSS.Server.Duels).new({
+	clock = function()
+		return raceClock
+	end,
+	send = function(userId, event, payload)
+		if partyCheck then
+			partyCheck(`duel {event}`, payload)
+		end
+		if userId == 1 then
+			signalFor(duelEvent, "OnClientEvent"):Fire(event, payload)
+		else
+			table.insert(duelSent, { to = userId, event = event, payload = payload })
+		end
+	end,
+	card = function(userId)
+		return { name = if userId == 1 then "You" else "Rosa", town = if userId == 1 then "Home" else "Rosaville", level = 6, carName = "Pip", model = "pip", color = "#8e24aa", pi = 14, userId = userId }
+	end,
+	here = function(userId)
+		return userId == 1 or userId == 2
+	end,
+	wait = function(sec)
+		raceClock += sec
+	end,
+})
+races.mods.duels = duels
+races.mods.liveCard = duels.mods.card
 roblox.implementMethod("RemoteEvent", "FireServer", function(remote, event, payload)
+	if remote.Name == "Duel" then
+		partyCheck(`duel {event} from the client`, payload)
+		if event == "pos" then
+			duels:relay(1, payload)
+		end
+	end
 	if remote.Name == "Kart" then
 		partyCheck(`kart {event} from the client`, payload)
 		if event == "ready" then
@@ -386,7 +424,33 @@ partyCheck = checkSend
 -- The server end of Cartopia.Act, as init.server.luau runs it.
 local calls = {}
 local function raceDesk(op, arg)
+	local live = races.pending[1]
+	if op == "finish" and live and live.mode == "live" then
+		local DragRace = emu.require(RS.Shared.DragRace)
+		local myTime = math.huge
+		if DragRace.valid(arg) then
+			myTime = DragRace.times(DragRace.replay(live.spec, arg))
+		end
+		live.extra.their = duels:finish(1, myTime)
+	end
 	local ran, result, why = pcall(function()
+		if op == "duel" and type(arg) == "number" then
+			local id, no = duels:challenge(1, arg)
+			return if id then { id = id } else nil, no
+		elseif op == "duelAnswer" and type(arg) == "table" then
+			local id, no = duels:answer(1, arg.id, arg.yes == true)
+			return if id then { id = id } else nil, no
+		elseif op == "duelCancel" then
+			duels:cancel(1)
+			return true, nil
+		elseif op == "duelInvites" then
+			return duels:invitesFor(1), nil
+		elseif op == "duelList" then
+			return duels:others(1, { 1, 2 }), nil
+		elseif op == "duelLeave" then
+			duels:leave(1)
+			return true, nil
+		end
 		if op == "rivals" then
 			return races:quickRivals(1), nil
 		elseif op == "campaign" then
@@ -600,6 +664,8 @@ local function socialDesk(op, arg)
 			box.sent = mailDesk:sentToday(1)
 			mailDesk:see(1)
 			return box, nil
+		elseif op == "invites" then
+			return { joined = 2, reached = 1, gems = 100, waiting = 0 }, nil
 		elseif op == "sent" then
 			return mailDesk:sentToday(1), nil
 		elseif op == "claimMail" then
@@ -1706,6 +1772,19 @@ if SHOTS then
 	hud.openPanel("friends")
 	shot("panel-friends", nil)
 	hud.ctx.close()
+	-- Where Roblox allows sharing: the invite button and its reward.
+	player:SetAttribute("PolicyReady", true)
+	player:SetAttribute("PolicySharing", true)
+	hud.openPanel("friends")
+	Emu.resumeWaits()
+	if not hud.gui:FindFirstChild("InviteNote", true) then
+		bad += 1
+		print("INVITES: no invite reward line on the Friends tab")
+	end
+	shot("panel-friends-invite", nil)
+	hud.ctx.close()
+	player:SetAttribute("PolicyReady", nil)
+	player:SetAttribute("PolicySharing", nil)
 	-- The Leaderboards tab (the trophy pill and Top racers open it).
 	hud.openPanel("friends", "leaders")
 	local boardRows = 0
@@ -2583,6 +2662,92 @@ do
 		bad += 1
 		print("CAMERA: the views didn't step Wide, Bumper, TV, Chase")
 	end
+end
+
+-- Live drag races: Rosa challenges you, the 🏁 bell rings, Race! takes you to the strip with her
+-- car drawn from where her game says it is; she crosses the line slower, and you win the live prize.
+do
+	topUp()
+	hud.ctx.close()
+	local problems = {}
+	local id = duels:challenge(2, 1)
+	assert(id, "Rosa's challenge didn't go")
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	local bell = hud.gui:FindFirstChild("RaceBell", true)
+	if not (bell and bell.Visible) then
+		table.insert(problems, "the 🏁 bell didn't show")
+	end
+	local rosaAt = 0
+	local coins = towns:snapshot(1).save.coins
+	local frames, _, result = runRace("live", { [200] = true, [420] = true }, function()
+		hud.openPanel("invites")
+		shot("panel-invites", nil)
+		local accept = find(hud.gui, function(d)
+			return d:IsA("TextButton") and string.find(label(d), "Race!", 1, true) ~= nil
+		end)
+		assert(accept, "no Race! button on the challenge")
+		signalFor(accept, "Activated"):Fire()
+		Emu.resumeWaits()
+	end, function(f, screen)
+		-- Rosa's game: a slower run, sent every few frames.
+		if f > 150 and f % 6 == 0 and duels:racing(2) then
+			rosaAt = math.min(402, rosaAt + 2.2)
+			signalFor(duelEvent, "OnClientEvent"):Fire("pos", { t = f / 60, dist = rosaAt, speed = 40, burning = false, done = false })
+		end
+		if f == 400 then
+			local title = find(screen, function(d)
+				return d:IsA("TextLabel") and string.find(d.Text, "Live race vs Rosa", 1, true) ~= nil
+			end)
+			if not title then
+				table.insert(problems, "no Live race title")
+			end
+		end
+		-- She finishes well behind (her game's finish: the server's replay of her run).
+		local race = duels.races[id]
+		if race and race.times[2] == nil and f > 300 then
+			duels:finish(2, 40)
+		end
+	end)
+	local text = cardText(result)
+	print(`live race: {frames} frames; {text}`)
+	if not result or not string.find(text, "YOU WIN", 1, true) then
+		table.insert(problems, `no win card ({table.concat(calls, ", ")})`)
+	end
+	if towns:snapshot(1).save.coins <= coins then
+		table.insert(problems, "the live prize wasn't paid")
+	end
+	local sentPos = 0
+	for _, m in duelSent do
+		if m.to == 2 and m.event == "pos" then
+			sentPos += 1
+		end
+	end
+	if sentPos < 10 then
+		table.insert(problems, `Rosa only heard where your car was {sentPos} times`)
+	end
+	closeRace()
+	-- The Live page lists Rosa to challenge; the ⚔️ button sends it.
+	hud.openPanel("race", "live")
+	Emu.resumeWaits()
+	local ask = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "⚔️", 1, true) ~= nil and d:FindFirstAncestor("Driver2") ~= nil
+	end)
+	shot("race-live", nil)
+	if ask then
+		signalFor(ask, "Activated"):Fire()
+		Emu.resumeWaits()
+		local waiting = duels:invitesFor(2)
+		if #waiting ~= 1 then
+			table.insert(problems, "the ⚔️ button didn't challenge Rosa")
+		end
+		duels:cancel(1)
+	else
+		table.insert(problems, "no ⚔️ button for Rosa on the Live page")
+	end
+	hud.ctx.close()
+	print(`live races: {#problems} problems {table.concat(problems, "; ")}`)
+	bad += #problems
 end
 
 -- Paint rivals: the roster page, a race over a half mile at the beach, and its colour won.

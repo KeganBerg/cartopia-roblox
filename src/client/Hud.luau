@@ -19,6 +19,8 @@ local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
 local data = require(Game.data) :: any
 local Remote = require(script.Parent.Remote)
+local LiveDuels = require(script.Parent.LiveDuels)
+local Sfx = require(script.Parent.Sounds.Sfx)
 local Ui = require(script.Parent.Ui)
 local Motion = require(script.Parent.Motion)
 local Icons = require(script.Parent.Icons)
@@ -471,6 +473,16 @@ function Hud.start()
 	local bellBadge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 8, 0, -8), Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 3, Parent = bellFace }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
 	local bellText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = bellBadge })
 	local mailShown = false
+	-- The challenge bell (web ChallengeBell): live drag races other players here have asked for
+	-- (client/LiveDuels). It sits beside the gift bell, or in its place when there's no mail.
+	local duelBell = Ui.new("Frame", { Name = "RaceBell", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -96, 1, -207), Size = UDim2.fromOffset(50, 50), BackgroundTransparency = 1, Visible = false, Parent = root })
+	local _, duelFace = Ui.button({ Name = "Bell", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(48, 48), Parent = duelBell }, "white", function()
+		openPanel("invites")
+	end, { radius = 14, stroke = 2.5, drop = 3, split = 0.5, flat = true })
+	Ui.text({ Text = "🏁", TextSize = 26, Size = UDim2.fromScale(1, 1), Parent = duelFace })
+	local duelBadge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 8, 0, -8), Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 3, Parent = duelFace }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
+	local duelText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = duelBadge })
+	local duelsSeen = 0
 	-- After the welcome-back and daily screens have had their turn.
 	local startedAt = os.clock()
 	local collectShadow, collect = Ui.shadowed({ Name = "CollectAll", Position = UDim2.fromOffset(3, 76 + 4), Size = UDim2.fromOffset(54, 54), Parent = dock }, { radius = 27, stroke = 3, drop = 4, dark = 0.3, class = "TextButton", color = Color3.fromHex("#ffca28") })
@@ -618,6 +630,15 @@ function Hud.start()
 		waiting = if type(waiting) == "number" then waiting else 0
 		bell.Visible = waiting > 0 and not visiting and not inTutorial and not Placement.active()
 		Ui.setText(bellText, tostring(waiting))
+		local challenges = #LiveDuels.waiting()
+		duelBell.Visible = challenges > 0 and not visiting and not inTutorial and not Placement.active()
+		duelBell.Position = UDim2.new(1, if bell.Visible then -152 else -96, 1, -207)
+		Ui.setText(duelText, tostring(challenges))
+		-- A new challenge rings once.
+		if challenges > duelsSeen then
+			Sfx.challenge()
+		end
+		duelsSeen = challenges
 		-- Pops the mail open once, when nothing else is on screen and the tutorial is done.
 		if waiting > 0 and not mailShown and not open and not visiting and not inTutorial and not Placement.active() and os.clock() - startedAt > 20 then
 			mailShown = true
