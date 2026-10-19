@@ -506,7 +506,7 @@ function TownView._roadModel(self: TownView, t: any): Model
 		part({
 			Name = "Grime",
 			Size = Vector3.new(TILE, 0.05, 0.32 * SCALE),
-			CFrame = here * rot * CFrame.new(0, 0.02 * SCALE + 0.18, (HALF - WALK - 0.16) * SCALE),
+			CFrame = here * rot * CFrame.new(0, PAINT_Y, (HALF - WALK - 0.16) * SCALE),
 			Color = GRIME,
 			Transparency = 0.55,
 			Material = Enum.Material.SmoothPlastic,
