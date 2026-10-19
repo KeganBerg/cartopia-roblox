@@ -36,9 +36,9 @@ local ORIGIN = KartWorld.ORIGIN
 
 -- Flat layers' tops, in web units. Roblox's depth buffer can't tell surfaces apart much closer than
 -- a quarter stud seen from across the track, so each layer sits 0.025 (a quarter stud) or more
--- over what it lies on: ground, verge and quay, road, kerbs and lines, and the kerb stripes and
--- the chequered line over those.
-local Y_GROUND, Y_VERGE, Y_ROAD, Y_KERB, Y_PAINT, Y_MARK = -0.035, -0.005, 0.02, 0.045, 0.045, 0.07
+-- over the one below: ground, verge and quay, road, lines, kerbs, and the kerb stripes and the
+-- chequered line.
+local Y_GROUND, Y_VERGE, Y_ROAD, Y_PAINT, Y_KERB, Y_MARK = -0.035, -0.005, 0.02, 0.045, 0.07, 0.095
 
 -- Each theme's ground, verge, kerbs, barrier and its cap (KartScene THEMES).
 local THEMES = {
