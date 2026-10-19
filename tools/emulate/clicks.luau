@@ -544,6 +544,21 @@ for i, d in { { 2, "Rosa", "Rosaville", 640, 31, 52, 14 }, { 7, "Kai", "Kai Harb
 	leaders:record(d[1], d[2], d[3], { power = d[4], race_wins = d[5], trophies = d[6], level = d[7] })
 	local _ = i
 end
+-- The Car Meet (server/Meet, in memory): two displays, one already liked.
+local Meet = emu.require(SSS.Server.Meet)
+local meetDesk = Meet.new(nil, function()
+	return 0
+end, function()
+	return "2026-10-19"
+end)
+do
+	local Gm = emu.require(G.meet)
+	local rosa = towns:save(2)
+	meetDesk:publish(2, "Rosa", "Rosaville", rosa.level, Gm.showcaseOf(rosa.cars, nil))
+	meetDesk:publish(7, "Kai", "Kai Harbour", 23, Gm.showcaseOf(towns:save(1).cars, nil))
+	meetDesk:like(7, 2)
+	meetDesk:like(1, 7)
+end
 local function socialDesk(op, arg)
 	local ran, result, why = pcall(function()
 		if op == "players" then
@@ -561,6 +576,19 @@ local function socialDesk(op, arg)
 				r.here = r.id == 2
 			end
 			return { rows = rows, mine = mine }, nil
+		elseif op == "meet" then
+			local out = {}
+			for _, d in meetDesk:displays() do
+				d.here = d.id == 2
+				table.insert(out, d)
+			end
+			return { displays = out, likes = meetDesk:likesFor(1, { 1, 2, 7 }) }, nil
+		elseif op == "like" then
+			local r = meetDesk:like(1, arg)
+			if r ~= "liked" then
+				return nil, r
+			end
+			return { likes = meetDesk:likes(arg) }, nil
 		elseif op == "home" then
 			player:SetAttribute("Driving", nil)
 			player:SetAttribute("Visiting", nil)
@@ -1636,6 +1664,21 @@ if SHOTS then
 	end
 	assert(boardRows > 0, "the leaderboard shows no rows")
 	shot("panel-leaders", nil)
+	hud.ctx.close()
+	-- The Car Meet tab: your display, then Rosa's and Kai's; like Rosa's.
+	hud.openPanel("friends", "meet")
+	local likeRosa
+	for _, d in hud.gui:GetDescendants() do
+		if d.Name == "Display2" then
+			likeRosa = d:FindFirstChild("Like", true)
+		end
+	end
+	assert(likeRosa, "no like button on Rosa's display")
+	shot("panel-meet", nil)
+	local likeButton = if likeRosa:IsA("GuiButton") then likeRosa else likeRosa:FindFirstChildWhichIsA("GuiButton", true)
+	signalFor(likeButton, "Activated"):Fire()
+	assert(meetDesk:likes(2) == 2, `liking Rosa's display left {meetDesk:likes(2)} likes`)
+	print("meet: displays, like")
 	hud.ctx.close()
 	local info = select(2, socialDesk("visit", 2))
 	hud.ctx.setVisit(info)

@@ -32,6 +32,8 @@ local failed = Instance.new("BindableEvent")
 Remote.failed = failed.Event
 
 local WHY = {
+	["like limit"] = "That's all 40 likes for today",
+	["liked"] = "You already liked this town",
 	["town not loaded"] = "Your town is still loading",
 	["slow down"] = "Slow down a little",
 	["need fuel"] = "Not enough fuel to race",

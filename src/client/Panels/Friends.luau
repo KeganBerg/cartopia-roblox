@@ -2,8 +2,8 @@
 -- The Social menu's Friends tab, as the web game's FriendsPanel (ui/Friends.tsx), with Roblox's
 -- own friends in place of the web's friend requests: Invite friends, your friends (in this server:
 -- Visit; playing Cartopia elsewhere: Join; online in another game or offline: greyed), then the
--- other drivers in this server to visit and help. Leaderboards: client/Social/Leaders. The Crew and
--- Meet tabs aren't on Roblox yet.
+-- other drivers in this server to visit and help. Leaderboards: client/Social/Leaders; the Car Meet:
+-- client/Social/Meet. The Crew tab isn't on Roblox yet.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,6 +17,7 @@ local Policy = require(ReplicatedStorage.Shared.Policy)
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local Leaders = require(script.Parent.Parent.Social.Leaders)
+local MeetTab = require(script.Parent.Parent.Social.Meet)
 
 local Friends = {}
 Friends.id = "friends"
@@ -129,8 +130,8 @@ end
 
 function Friends.open(ctx: any, arg: any?): Instance
 	local overlay, _sheet, body = Ui.panel(ctx.gui, "Social", { wide = true, onClose = ctx.close, bodyTop = 0 })
-	local soon = { clan = "Crews are", meet = "The Car Meet is" }
-	local first = if arg == "leaders" then "leaders" else "friends"
+	local soon = { clan = "Crews are" }
+	local first = if arg == "leaders" or arg == "meet" then arg else "friends"
 	local pick: (string) -> ()
 	local show: (string) -> ()
 	_, pick = Ui.tabs(body, {
@@ -176,7 +177,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 		end
 	end
 
-	local leaderState = {}
+	local leaderState, meetState = {}, {}
 	local shown = ""
 	local function clear()
 		for _, c in list:GetChildren() do
@@ -296,6 +297,8 @@ function Friends.open(ctx: any, arg: any?): Instance
 		clear()
 		if id == "leaders" then
 			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit }, leaderState)
+		elseif id == "meet" then
+			MeetTab.draw(list, { note = note, visit = visit, toast = ctx.toast }, meetState)
 		else
 			drawFriends()
 		end
