@@ -1,12 +1,13 @@
-# Makes the Bank's Robux products (one Developer Product per gem pack and car pack) at the prices
-# in tools/products/prices.json, whenever those prices change on main. Run it by hand with
-# "check only" to see what it would change.
+# Makes the Bank's Robux products (a Developer Product per gem pack, a Game Pass per car pack) at
+# the prices in tools/products/prices.json, whenever those prices change on main. The car packs'
+# pass ids go into src/shared/GamePasses.luau, committed to main, and the game is published again
+# so it sells them. Run it by hand with "check only" to see what it would change.
 name: Bank products
 
 on:
   push:
     branches: [main]
-    paths: ['tools/products/**', '.github/workflows/products.yml']
+    paths: ['tools/products/**', 'store/badges/**', '.github/workflows/products.yml']
   workflow_dispatch:
     inputs:
       check:
@@ -15,6 +16,10 @@ on:
         default: false
 
 concurrency: products
+
+permissions:
+  contents: write
+  actions: write
 
 jobs:
   sync:
@@ -28,3 +33,13 @@ jobs:
         env:
           API_KEY: ${{ secrets.ROBLOX_API_KEY }}
           UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}
+      - name: Save the game passes' ids
+        if: ${{ !inputs.check }}
+        run: |
+          git diff --quiet src/shared/GamePasses.luau && exit 0
+          git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com commit -qm "Bank: the car packs' Game Pass ids" src/shared/GamePasses.luau
+          git pull -q --rebase origin main
+          git push -q origin HEAD:main
+          gh workflow run publish.yml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
