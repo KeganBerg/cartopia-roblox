@@ -1115,6 +1115,7 @@ function TownView.render(self: TownView, save: any)
 end
 
 TownView.MEADOW = MEADOW
+TownView.GRASS = GRASS
 TownView.groundTexture = groundTexture
 
 return TownView

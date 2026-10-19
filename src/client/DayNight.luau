@@ -221,7 +221,13 @@ local function apply(now: number)
 	local air = effect("Atmosphere", "Air") :: Atmosphere
 	-- Light: the town camera stands several hundred studs back (TownCamera), and thick air would
 	-- wash the whole town out.
-	air.Density = 0.08
+	-- Thinner the further back the camera stands: the air's haze builds with distance, and from the
+	-- shared world's zoomed-out views (Popups/Claim stands back several thousand studs) the whole
+	-- map drowned in it. Scaling by the camera's height keeps the haze over any view about the
+	-- same as over a town.
+	local cam = workspace.CurrentCamera
+	local height = if cam then cam.CFrame.Position.Y else 0
+	air.Density = 0.08 * math.clamp(450 / math.max(height, 1), 0.08, 1)
 	air.Offset = 0
 	air.Color = haze or look.sky
 	air.Decay = haze or look.ground

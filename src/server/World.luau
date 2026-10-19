@@ -15,6 +15,9 @@ World.PITCH = 1400
 World.ROAD_W = 44
 local GROUND_TOP = -0.9 -- the towns' meadow level (TownView MEADOW_TOP)
 local RINGS = 2
+local HUB = 520 -- the hub's square, across
+local LOT = 480 -- a new town's land, across (START_LAND: 3 by 3 plots of 160 studs)
+local KERB = 3
 
 -- Grid cells (gx, gz) of the plots in claim order: nearest the hub first, then round each ring.
 local CELLS: { { number } } = {}
@@ -97,8 +100,17 @@ end
 
 -- Builds the shared ground, roads, hub and plot markers into Workspace.World. meadow: the
 -- ground's colour (the towns' own meadow colour, so the land between them matches); texture lays
--- the meadow's picture over a ground part (TownView.groundTexture).
-function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> ())?): Folder
+-- the meadow's picture over a ground part (TownView.groundTexture); grass: the towns' lawn colour,
+-- for the free plots and the hub's lawn.
+function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> ())?, grass: Color3?): Folder
+	local lawnColor = grass or Color3.fromHex("#a9b552")
+	local ROAD = Color3.fromHex("#8a9097") -- TownView's asphalt, a shade darker for the long roads
+	local KERB_COLOR = Color3.fromHex("#d6d2c8")
+	local EDGE = Color3.fromHex("#f5f5f0")
+	local LINE = Color3.fromHex("#f2c94c")
+	local PAVING = Color3.fromHex("#eadfc8") -- TownView's paving
+	local PAVING_DARK = Color3.fromHex("#d2c3a3")
+	local WOOD = Color3.fromHex("#8d6e63") -- Countryside's fence wood
 	local root = Instance.new("Folder")
 	root.Name = "World"
 	-- The road grid, for the clients' traffic and roadside (client/WorldLife).
@@ -124,13 +136,30 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 			end
 		end
 	end
-	-- Roads along every gap between plots, out to the last ring, and round the hub.
-	local asphalt = Color3.fromHex("#4a4f57")
-	local line = Color3.fromHex("#f2d24b")
+	-- Roads along every gap between plots, out to the last ring, and round the hub: the town's
+	-- asphalt (TownView ASPHALT) between pale kerbs, white edge lines and a yellow middle line.
+	-- (Matt paint, not Neon: from the zoomed-out view Neon glows into a smear.)
 	local roads = Instance.new("Model")
 	roads.Name = "Roads"
 	roads.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	roads.Parent = root
+	-- One straight piece of road from a to b (on the ground, along x or z).
+	local function road(mid: Vector3, length: number, alongX: boolean)
+		local function strip(name: string, across: number, offset: number, y: number, h: number, color: Color3)
+			local sz = if alongX then Vector3.new(length, h, across) else Vector3.new(across, h, length)
+			local at = mid + (if alongX then Vector3.new(0, y, offset) else Vector3.new(offset, y, 0))
+			local p = part(roads, name, sz, CFrame.new(at), color)
+			if name ~= "Road" then
+				p.CanCollide = false
+			end
+		end
+		strip("Road", World.ROAD_W, 0, GROUND_TOP + 0.2, 0.4, ROAD)
+		for _, side in { -1, 1 } do
+			strip("Kerb", KERB, side * (World.ROAD_W + KERB) / 2, GROUND_TOP + 0.15, 0.3, KERB_COLOR)
+			strip("Edge", 1, side * (World.ROAD_W / 2 - 2.5), GROUND_TOP + 0.6, 0.2, EDGE)
+		end
+		strip("Line", 1.2, 0, GROUND_TOP + 0.6, 0.2, LINE)
+	end
 	local length = (2 * RINGS + 1) * World.PITCH
 	for k = -RINGS, RINGS + 1 do
 		local at = (k - 0.5) * World.PITCH
@@ -140,34 +169,45 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 			local each = length / pieces
 			for j = 0, pieces - 1 do
 				local mid = -length / 2 + (j + 0.5) * each
-				local pos = if along == "x" then Vector3.new(mid, GROUND_TOP + 0.2, at) else Vector3.new(at, GROUND_TOP + 0.2, mid)
-				local sz = if along == "x" then Vector3.new(each, 0.4, World.ROAD_W) else Vector3.new(World.ROAD_W, 0.4, each)
-				part(roads, "Road", sz, CFrame.new(pos), asphalt)
-				local lsz = if along == "x" then Vector3.new(each, 0.1, 1.2) else Vector3.new(1.2, 0.1, each)
-				part(roads, "Line", lsz, CFrame.new(pos + Vector3.new(0, 0.25, 0)), line, Enum.Material.Neon).CanCollide = false
+				road(if along == "x" then Vector3.new(mid, 0, at) else Vector3.new(at, 0, mid), each, along == "x")
 			end
 		end
 	end
 
 	-- Four roads out of the hub's square to the ring road round it.
-	local spoke = World.PITCH / 2 - 260
+	local spoke = World.PITCH / 2 - HUB / 2
 	for _, d in { Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 0, -1) } do
-		local pos = d * (260 + spoke / 2) + Vector3.new(0, GROUND_TOP + 0.2, 0)
-		local sz = if d.X ~= 0 then Vector3.new(spoke, 0.4, World.ROAD_W) else Vector3.new(World.ROAD_W, 0.4, spoke)
-		part(roads, "Road", sz, CFrame.new(pos), asphalt)
-		local lsz = if d.X ~= 0 then Vector3.new(spoke, 0.1, 1.2) else Vector3.new(1.2, 0.1, spoke)
-		part(roads, "Line", lsz, CFrame.new(pos + Vector3.new(0, 0.25, 0)), line, Enum.Material.Neon).CanCollide = false
+		road(d * (HUB / 2 + spoke / 2), spoke, d.X ~= 0)
 	end
 
-	-- The hub: a paved square with the spawn, where everyone arrives and picks a plot.
+	-- The hub: a paved square where everyone arrives and picks a plot, with a round lawn and a
+	-- fountain in the middle. The clients dress it with the web game's own fountain, benches,
+	-- lamps, flowers and trees (client/WorldLife), which needs their meshes.
 	local hub = Instance.new("Model")
 	hub.Name = "Hub"
 	hub.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	hub.Parent = root
-	part(hub, "Square", Vector3.new(520, 0.6, 520), CFrame.new(0, GROUND_TOP + 0.3, 0), Color3.fromHex("#d9cbb0"))
-	part(hub, "Ring", Vector3.new(160, 1.2, 160), CFrame.new(0, GROUND_TOP + 0.6, 0), Color3.fromHex("#7cb342"), Enum.Material.Grass)
-	part(hub, "Fountain", Vector3.new(60, 6, 60), CFrame.new(0, GROUND_TOP + 3, 0) * CFrame.Angles(0, math.rad(45), 0), Color3.fromHex("#90caf9"), Enum.Material.Glass)
-	local sign = part(hub, "Sign", Vector3.new(80, 24, 2), CFrame.new(0, GROUND_TOP + 30, -110), Color3.fromHex("#2263d6"))
+	local flat = CFrame.Angles(0, 0, math.pi / 2) -- a cylinder standing up
+	part(hub, "Square", Vector3.new(HUB, 0.6, HUB), CFrame.new(0, GROUND_TOP + 0.3, 0), PAVING)
+	-- A darker band of paving round the edge, and a round path round the lawn.
+	for _, side in { -1, 1 } do
+		part(hub, "Border", Vector3.new(HUB, 0.9, 14), CFrame.new(0, GROUND_TOP + 0.45, side * (HUB / 2 - 7)), PAVING_DARK)
+		part(hub, "Border", Vector3.new(14, 0.9, HUB), CFrame.new(side * (HUB / 2 - 7), GROUND_TOP + 0.45, 0), PAVING_DARK)
+	end
+	local circle = part(hub, "Path", Vector3.new(1, 300, 300), CFrame.new(0, GROUND_TOP + 0.5, 0) * flat, PAVING_DARK)
+	circle.Shape = Enum.PartType.Cylinder
+	local lawn = part(hub, "Lawn", Vector3.new(1.4, 270, 270), CFrame.new(0, GROUND_TOP + 0.7, 0) * flat, lawnColor)
+	lawn.Shape = Enum.PartType.Cylinder
+	-- Paths across the lawn from each road to the fountain.
+	part(hub, "Path", Vector3.new(270, 1.8, 22), CFrame.new(0, GROUND_TOP + 0.9, 0), PAVING)
+	part(hub, "Path", Vector3.new(22, 1.8, 270), CFrame.new(0, GROUND_TOP + 0.9, 0), PAVING)
+	-- The fountain's pool (the web fountain stands in it on the clients).
+	local rim = part(hub, "Rim", Vector3.new(4, 110, 110), CFrame.new(0, GROUND_TOP + 2, 0) * flat, Color3.fromHex("#b9b2a6"))
+	rim.Shape = Enum.PartType.Cylinder
+	local water = part(hub, "Water", Vector3.new(0.4, 102, 102), CFrame.new(0, GROUND_TOP + 4.1, 0) * flat, Color3.fromHex("#4fb3e8"))
+	water.Shape = Enum.PartType.Cylinder
+	water.CanCollide = false
+	local sign = part(hub, "Sign", Vector3.new(80, 24, 2), CFrame.new(0, GROUND_TOP + 30, -200), Color3.fromHex("#2263d6"))
 	local gui = Instance.new("SurfaceGui")
 	gui.Face = Enum.NormalId.Back
 	gui.CanvasSize = Vector2.new(400, 120)
@@ -180,10 +220,12 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 	text.Font = Enum.Font.FredokaOne
 	text.TextColor3 = Color3.new(1, 1, 1)
 	text.Parent = gui
-	part(hub, "Post", Vector3.new(3, 30, 3), CFrame.new(-30, GROUND_TOP + 15, -110), Color3.fromHex("#5d4037"))
-	part(hub, "Post", Vector3.new(3, 30, 3), CFrame.new(30, GROUND_TOP + 15, -110), Color3.fromHex("#5d4037"))
+	part(hub, "Post", Vector3.new(3, 30, 3), CFrame.new(-30, GROUND_TOP + 15, -200), WOOD)
+	part(hub, "Post", Vector3.new(3, 30, 3), CFrame.new(30, GROUND_TOP + 15, -200), WOOD)
 
-	-- A marker on every plot: a sign while it's free, the town's name once claimed.
+	-- Every plot: while it's free, a mown lawn the size of a new town's land (the web game's
+	-- START_LAND, 3 by 3 plots), fenced, with a sign at the corner facing the camera. The lawn is
+	-- kept on every client for the claim screen; the fence streams in as players come near.
 	local plots = Instance.new("Folder")
 	plots.Name = "Plots"
 	plots.Parent = root
@@ -195,17 +237,40 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 		m:SetAttribute("Index", i)
 		m:SetAttribute("Free", true)
 		m:SetAttribute("Origin", o)
-		local pad = part(m, "Pad", Vector3.new(460, 0.3, 460), CFrame.new(o + Vector3.new(0, GROUND_TOP + 0.15, 0)), Color3.fromHex("#a5d6a7"))
+		local pad = part(m, "Pad", Vector3.new(LOT, 0.3, LOT), CFrame.new(o + Vector3.new(0, GROUND_TOP + 0.15, 0)), lawnColor)
 		pad.CanCollide = false
-		pad.Transparency = 0.3
 		m.PrimaryPart = pad
-		local board = part(m, "Board", Vector3.new(40, 16, 1.5), CFrame.new(o + Vector3.new(0, GROUND_TOP + 22, 0)), Color3.fromHex("#fff8e1"))
-		local post = part(m, "Post", Vector3.new(2, 22, 2), CFrame.new(o + Vector3.new(0, GROUND_TOP + 11, 0)), Color3.fromHex("#6d4c41"))
-		local _ = post
-		local face = Instance.new("SurfaceGui")
-		face.Face = Enum.NormalId.Front
-		face.CanvasSize = Vector2.new(300, 120)
-		face.Parent = board
+		local fence = Instance.new("Model")
+		fence.Name = "Fence"
+		fence.Parent = m
+		local half = LOT / 2
+		for _, side in { -1, 1 } do
+			for _, alongX in { true, false } do
+				-- Posts every 60 studs and two rails, as Countryside's split-rail town line.
+				local t = -half
+				while t <= half + 0.01 do
+					local at = if alongX then Vector3.new(t, 0, side * half) else Vector3.new(side * half, 0, t)
+					part(fence, "Post", Vector3.new(1.6, 9, 1.6), CFrame.new(o + at + Vector3.new(0, GROUND_TOP + 4.5, 0)), WOOD)
+					t += 60
+				end
+				for _, y in { 3.5, 7 } do
+					local at = if alongX then Vector3.new(0, 0, side * half) else Vector3.new(side * half, 0, 0)
+					local sz = if alongX then Vector3.new(LOT, 0.9, 0.7) else Vector3.new(0.7, 0.9, LOT)
+					part(fence, "Rail", sz, CFrame.new(o + at + Vector3.new(0, GROUND_TOP + y, 0)), WOOD)
+				end
+			end
+		end
+		-- The sign at the lawn's corner nearest the town camera (which looks from +x, +z).
+		local corner = o + Vector3.new(half - 40, 0, half - 40)
+		local face = CFrame.lookAt(corner, corner + Vector3.new(1, 0, 1))
+		local board = part(m, "Board", Vector3.new(60, 24, 1.5), face * CFrame.new(0, GROUND_TOP + 26, 0), Color3.fromHex("#fff8e1"))
+		for _, x in { -24, 24 } do
+			part(m, "Post", Vector3.new(2, 26, 2), face * CFrame.new(x, GROUND_TOP + 13, 0.8), WOOD)
+		end
+		local surface = Instance.new("SurfaceGui")
+		surface.Face = Enum.NormalId.Front
+		surface.CanvasSize = Vector2.new(300, 120)
+		surface.Parent = board
 		local label = Instance.new("TextLabel")
 		label.Name = "Label"
 		label.Size = UDim2.fromScale(1, 1)
@@ -214,7 +279,7 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 		label.TextScaled = true
 		label.Font = Enum.Font.FredokaOne
 		label.TextColor3 = Color3.fromHex("#2e7d32")
-		label.Parent = face
+		label.Parent = surface
 		m.Parent = plots
 	end
 	root.Parent = parent
@@ -232,7 +297,7 @@ function World.setOwner(root: Instance, i: number, userId: number?, name: string
 	m:SetAttribute("OwnerName", name)
 	for _, p in m:GetDescendants() do
 		if p:IsA("BasePart") then
-			p.Transparency = if userId then 1 else (if p.Name == "Pad" then 0.3 else 0)
+			p.Transparency = if userId then 1 else 0
 			p.CanCollide = userId == nil and p.Name ~= "Pad"
 		end
 	end
