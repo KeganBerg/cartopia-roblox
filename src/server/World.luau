@@ -142,6 +142,17 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 			part(ground, "Base", Vector3.new(size, 4, size), CFrame.new(-reach + (ix + 0.5) * size, BASE_TOP - 2, -reach + (iz + 0.5) * size), meadow)
 		end
 	end
+	-- Invisible walls round the ground's edge, so no one drives off the end of the world.
+	for side = 0, 3 do
+		for k = 0, n - 1 do
+			local along = -reach + (k + 0.5) * size
+			local out = if side < 2 then reach else -reach
+			local wall = part(ground, "Edge", if side % 2 == 0 then Vector3.new(10, 200, size) else Vector3.new(size, 200, 10), if side % 2 == 0 then CFrame.new(out, 90, along) else CFrame.new(along, 90, out), meadow)
+			wall.Transparency = 1
+			wall.CanQuery = false
+			wall.CanTouch = false
+		end
+	end
 	-- A textured piece over x0..x1, z0..z1 (in pieces of at most TILE), top at the towns' meadow.
 	local function fill(into: Instance, x0: number, x1: number, z0: number, z1: number)
 		if x1 - x0 < 1 or z1 - z0 < 1 then
@@ -206,12 +217,14 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 				p.CanCollide = false
 			end
 		end
+		-- Flat layers at least 0.25 apart where they cross at a junction: kerbs (top -0.85) under
+		-- the crossing road (-0.5), white edges (-0.2) under the yellow middle line (0.1).
 		strip("Road", World.ROAD_W, 0, GROUND_TOP + 0.2, 0.4, ROAD)
 		for _, side in { -1, 1 } do
-			strip("Kerb", KERB, side * (World.ROAD_W + KERB) / 2, GROUND_TOP + 0.15, 0.3, KERB_COLOR)
+			strip("Kerb", KERB, side * (World.ROAD_W + KERB) / 2, GROUND_TOP - 0.1, 0.3, KERB_COLOR)
 			strip("Edge", 1, side * (World.ROAD_W / 2 - 2.5), GROUND_TOP + 0.6, 0.2, EDGE)
 		end
-		strip("Line", 1.2, 0, GROUND_TOP + 0.6, 0.2, LINE)
+		strip("Line", 1.2, 0, GROUND_TOP + 0.9, 0.2, LINE)
 	end
 	local length = (2 * RINGS + 1) * World.PITCH
 	for k = -RINGS, RINGS + 1 do
@@ -362,6 +375,9 @@ function World.setOwner(root: Instance, i: number, userId: number?, name: string
 		if p:IsA("BasePart") then
 			p.Transparency = if userId then 1 else 0
 			p.CanCollide = userId == nil and p.Name ~= "Pad"
+		elseif p:IsA("SurfaceGui") then
+			-- A see-through part still shows its SurfaceGui: the FREE PLOT words go too.
+			p.Enabled = userId == nil
 		end
 	end
 end

@@ -2,13 +2,16 @@
 -- Getting in any car on foot, and out again (server/GetIn). Out in the world and not in a car, a
 -- "Drive" prompt (E, or a tap on phones) shows over the nearest car, in town (TownLife), on the
 -- roads between the plots (WorldLife) or parked; the
--- car then drives like the DRIVE button's (server/Drive). E or the EXIT button gets out on foot,
--- and the car stays parked there until the player walks well away, then rejoins the traffic.
+-- car then drives like the DRIVE button's (server/Drive, with the feel in client/CarDrive). E or
+-- the EXIT button gets out on foot, and the car drives itself off slowly: in the player's town to
+-- the nearest road and on with the traffic; elsewhere to the verge of the nearest road, where it
+-- stays parked until the player walks well away, then rejoins the traffic.
 --
 -- Also Shift: a sprint on foot and a boost in a car, held (and the drag race's boost, DragStrip).
 -- Phones get a SPRINT/BOOST button for it: tap to sprint on foot, hold to boost. Shift lock is off
 -- (default.project.json EnableMouseLockOption) so Shift is free for this.
 
+local PathfindingService = game:GetService("PathfindingService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -21,6 +24,7 @@ local Ui = require(script.Parent.Ui) :: any
 local TownCamera = require(script.Parent.TownCamera) :: any
 local TownLife = require(script.Parent.TownLife) :: any
 local WorldLife = require(script.Parent.WorldLife) :: any
+local CarDrive = require(script.Parent.CarDrive) :: any
 
 -- Where the cars come from: the town's traffic, and the roads between the plots. Road cars'
 -- uids start "visitor:road:".
@@ -29,15 +33,18 @@ local function source(uid: string): any
 end
 
 local GetIn = {}
+-- How much faster than normal the player walks (the admin panel's speed, for testing).
+GetIn.speedScale = 1
 
 local player = Players.LocalPlayer
 
 local WALK = 16
 local SPRINT = 26
-local DRIVE = 110 -- server/Drive.SPEED
-local BOOST = 1.5 -- times the car's speed
 local REACH = 14 -- how close to a car the prompt shows
 local GIVE_BACK = 160 -- walk this far from a car you left and it rejoins the traffic
+local AWAY = 9 -- a car left out drives itself off this slowly (studs a second)...
+local AWAY_TURN = 1.3 -- ...turning at most this fast (radians a second)
+local AWAY_GIVE_UP = 45 -- seconds: still not there, it's simply put there
 
 local shiftHeld = false
 local buttonOn = false
@@ -45,6 +52,20 @@ local buttonOn = false
 local riding: string? = nil
 -- The car last got out of, left parked.
 local left: { uid: string, at: Vector3 }? = nil
+-- The car last got out of driving itself off: to the nearest road in town, where it rejoins the
+-- traffic, or out in the world to the verge of the nearest road, where it parks.
+type Away = {
+	uid: string,
+	model: Model,
+	pos: Vector3,
+	yaw: number, -- car models face +Z: the nose points (sin yaw, 0, cos yaw)
+	speed: number,
+	points: { Vector3 }?, -- the way there, once worked out
+	i: number,
+	park: CFrame?, -- where it parks (nil: it rejoins the town's traffic at the last point)
+	since: number,
+}
+local away: Away? = nil
 local busy = false
 
 local function boosting(): boolean
@@ -65,33 +86,150 @@ local function remote(): RemoteFunction?
 	return folder and folder:FindFirstChild("GetIn") :: RemoteFunction?
 end
 
--- Walking pace or driving speed, sped up while Shift or the button is down.
+-- Walking pace, sped up while Shift or the button is down. In a car, client/CarDrive sets the
+-- speed every step (and reads boosting()).
 local function applySpeed()
 	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then
+	if not humanoid or driving() then
 		return
 	end
-	if driving() then
-		humanoid.WalkSpeed = DRIVE * (if boosting() then BOOST else 1)
-	elseif TownCamera.isWalking() then
-		humanoid.WalkSpeed = if boosting() then SPRINT else WALK
+	if TownCamera.isWalking() then
+		humanoid.WalkSpeed = (if boosting() then SPRINT else WALK) * GetIn.speedScale
 	end
 end
 
 local function giveBack()
+	away = nil
 	if left then
 		source(left.uid).give(left.uid)
 		left = nil
 	end
 end
 
--- Leaves town car `uid` parked at `at` (nose along +Z) until the player walks away from it.
+-- Leaves car `uid` at `at` (nose along +Z), then sends it off on its own: in the player's town to
+-- the nearest road, where it carries on with the traffic; anywhere else to the verge of the
+-- nearest road between the plots, where it parks.
 local function park(uid: string, at: CFrame)
 	local m = source(uid).take(uid)
 	if m then
 		m:PivotTo(at)
 	end
 	left = { uid = uid, at = at.Position }
+	away = nil
+	if not m then
+		return
+	end
+	local road = TownLife.roadNear(at.Position)
+	local target: Vector3?, spot: CFrame? = nil, nil
+	if road then
+		target = road
+		-- A road car left in town parks at the roadside there; a town car rejoins its traffic.
+		spot = if source(uid) == WorldLife then CFrame.new(road) * at.Rotation else nil
+	else
+		spot = WorldLife.roadsideNear(at.Position)
+		target = spot and spot.Position
+	end
+	if not target then
+		return
+	end
+	local nose = at.ZVector
+	local trip: Away = {
+		uid = uid,
+		model = m,
+		pos = at.Position,
+		yaw = math.atan2(nose.X, nose.Z),
+		speed = 0,
+		points = nil,
+		i = 1,
+		park = spot,
+		since = os.clock(),
+	}
+	away = trip
+	-- The way round fences and buildings, worked out in the background; straight there if none.
+	task.spawn(function()
+		local points = { target :: Vector3 }
+		local ok, path = pcall(function()
+			local p = PathfindingService:CreatePath({ AgentRadius = 7, AgentHeight = 6, AgentCanJump = false, AgentCanClimb = false, WaypointSpacing = 14 })
+			p:ComputeAsync(at.Position + Vector3.new(0, 2, 0), (target :: Vector3) + Vector3.new(0, 2, 0))
+			return p
+		end)
+		if ok and path and path.Status == Enum.PathStatus.Success then
+			local list = {}
+			for _, w in path:GetWaypoints() do
+				table.insert(list, w.Position)
+			end
+			if #list > 0 then
+				points = list
+			end
+		end
+		if away == trip then
+			trip.points = points
+		end
+	end)
+end
+
+local function groundUnder(p: Vector3, skip: { Instance }): number?
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = skip
+	params.RespectCanCollide = true
+	local hit = workspace:Raycast(p + Vector3.new(0, 25, 0), Vector3.new(0, -80, 0), params)
+	return hit and hit.Position.Y
+end
+
+local function arrive(trip: Away)
+	away = nil
+	if trip.park then
+		trip.model:PivotTo(trip.park)
+		if left and left.uid == trip.uid then
+			left.at = trip.park.Position
+		end
+	else
+		-- Back on the town's roads: it carries on with the traffic.
+		giveBack()
+	end
+end
+
+-- Moves the car driving itself off on by dt: a slow, car-like drive along the way there.
+local function stepAway(dt: number)
+	local trip = away
+	if not trip or not trip.points then
+		return
+	end
+	if not trip.model.Parent or os.clock() - trip.since > AWAY_GIVE_UP then
+		arrive(trip)
+		return
+	end
+	local points = trip.points :: { Vector3 }
+	local goal = points[trip.i]
+	local to = Vector3.new(goal.X - trip.pos.X, 0, goal.Z - trip.pos.Z)
+	local last = trip.i >= #points
+	if to.Magnitude < (if last then 3 else 7) then
+		trip.i += 1
+		if trip.i > #points then
+			arrive(trip)
+			return
+		end
+		return
+	end
+	local want = math.atan2(to.X, to.Z)
+	local diff = (want - trip.yaw + math.pi) % (2 * math.pi) - math.pi
+	trip.yaw += math.clamp(diff, -AWAY_TURN * dt, AWAY_TURN * dt)
+	-- Pull away gently, slow for sharp turns and coming up to the end.
+	local cap = AWAY * math.max(0.35, math.cos(diff)) * (if last then math.clamp(to.Magnitude / 15, 0.3, 1) else 1)
+	trip.speed = math.min(trip.speed + 6 * dt, cap)
+	local nose = Vector3.new(math.sin(trip.yaw), 0, math.cos(trip.yaw))
+	local pos = trip.pos + nose * trip.speed * dt
+	local skip: { Instance } = { trip.model }
+	if player.Character then
+		table.insert(skip, player.Character)
+	end
+	local y = groundUnder(pos, skip)
+	trip.pos = Vector3.new(pos.X, y or pos.Y, pos.Z)
+	trip.model:PivotTo(CFrame.new(trip.pos) * CFrame.Angles(0, trip.yaw, 0))
+	if left and left.uid == trip.uid then
+		left.at = trip.pos
+	end
 end
 
 function GetIn.enter(uid: string, model: Model)
@@ -117,6 +255,7 @@ function GetIn.enter(uid: string, model: Model)
 	end
 	if left and left.uid == uid then
 		left = nil
+		away = nil
 	end
 	-- The town's copy hides while the player drives the real one.
 	model:PivotTo(CFrame.new(0, -10000, 0))
@@ -295,7 +434,13 @@ end
 
 ---------------------------------------------------------------------------------------------------
 
+-- Sets the walking pace again at once (after speedScale changes).
+function GetIn.applySpeed()
+	applySpeed()
+end
+
 function GetIn.start()
+	CarDrive.start(boosting)
 	makePrompt()
 	makeButtons()
 	TownCamera.onWalking(function(on: boolean)
@@ -339,10 +484,11 @@ function GetIn.start()
 			applySpeed()
 		end
 	end)
-	RunService.RenderStepped:Connect(function()
+	RunService.RenderStepped:Connect(function(dt: number)
 		stepPrompt()
+		stepAway(math.min(dt, 0.1))
 		local root = rootPart()
-		if left and not driving() and root and (root.Position - left.at).Magnitude > GIVE_BACK then
+		if left and not away and not driving() and root and (root.Position - left.at).Magnitude > GIVE_BACK then
 			giveBack()
 		end
 	end)

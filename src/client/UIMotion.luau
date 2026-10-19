@@ -44,7 +44,9 @@ UIMotion.Timing = {
 	shake = 0.3, -- pitShake: 5px left and right
 }
 UIMotion.Panel = { rise = 24, drop = 18, scaleIn = 0.94, scaleOut = 0.95 }
-UIMotion.Button = { pressDown = 2, pressScale = 0.96, hoverScale = 1.04 }
+-- maxGrow: the most a button grows past its edges under a mouse, in pixels a side. A 4% grow is
+-- a few pixels on a small button but sticks out of the menu (and over the next tab) on a wide one.
+UIMotion.Button = { pressDown = 2, pressScale = 0.96, hoverScale = 1.04, maxGrow = 3 }
 -- Phones get the bottom sheet: narrow screens, or touch screens short enough to be a phone.
 UIMotion.SheetWidth = 700
 UIMotion.SheetHeight = 500
@@ -297,11 +299,47 @@ function UIMotion.bindButton(button, sfxName)
 	local B, T = UIMotion.Button, UIMotion.Timing
 	local scale = scaleOf(button)
 	local hovering = false
+	-- The hover grow for this button's size, and whether the release may spring past it (Back
+	-- overshoots by about a tenth of the change, too much for a wide button).
+	local function grow(): number
+		local w = math.max(button.AbsoluteSize.X, button.AbsoluteSize.Y)
+		if w <= 0 then
+			return B.hoverScale
+		end
+		-- A button can set its own limit (attribute MaxGrow, pixels a side): tabs sit 6px apart and
+		-- don't grow at all, so the one under the mouse never covers its neighbour.
+		local cap = button:GetAttribute("MaxGrow")
+		local limit = if type(cap) == "number" then cap else B.maxGrow
+		-- In a row or column (a UIListLayout beside it or its shadow), never more than half the gap
+		-- left between the outlines, so it can't grow over the next one.
+		local holder = button.Parent
+		for _ = 1, 2 do
+			local list = holder and holder:FindFirstChildOfClass("UIListLayout")
+			if list then
+				limit = math.min(limit, math.max(0, (list.Padding.Offset - 4) / 2))
+				break
+			end
+			holder = holder and holder.Parent
+		end
+		return math.min(B.hoverScale, 1 + 2 * limit / w)
+	end
 	local function rest()
-		return hovering and B.hoverScale or 1
+		return if hovering then grow() else 1
+	end
+	local function springy(): boolean
+		return grow() >= B.hoverScale
+	end
+	-- Never a page or backdrop: anything covering most of its screen stays still.
+	local function huge(): boolean
+		local screen = button:FindFirstAncestorWhichIsA("LayerCollector")
+		if not screen then
+			return false
+		end
+		local a, b = button.AbsoluteSize, (screen :: any).AbsoluteSize
+		return b.X > 0 and b.Y > 0 and a.X >= b.X * 0.6 and a.Y >= b.Y * 0.6
 	end
 	button.MouseButton1Down:Connect(function()
-		if not button.Active or reducedMotion() then
+		if not button.Active or reducedMotion() or huge() then
 			return
 		end
 		local home = homeOf(button)
@@ -311,7 +349,7 @@ function UIMotion.bindButton(button, sfxName)
 	local function release()
 		local home = homeOf(button)
 		tween(button, T.release, Enum.EasingStyle.Back, OUT, { Position = home })
-		tween(scale, T.release, Enum.EasingStyle.Back, OUT, { Scale = rest() })
+		tween(scale, T.release, if springy() then Enum.EasingStyle.Back else Enum.EasingStyle.Quad, OUT, { Scale = rest() })
 	end
 	button.MouseButton1Up:Connect(release)
 	button.MouseLeave:Connect(function()
@@ -323,8 +361,8 @@ function UIMotion.bindButton(button, sfxName)
 			return
 		end
 		hovering = true
-		if not reducedMotion() then
-			tween(scale, T.release, Enum.EasingStyle.Quad, OUT, { Scale = B.hoverScale })
+		if not reducedMotion() and not huge() then
+			tween(scale, T.release, Enum.EasingStyle.Quad, OUT, { Scale = grow() })
 		end
 	end)
 	button.Activated:Connect(function()

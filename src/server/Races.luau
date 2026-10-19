@@ -614,6 +614,8 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 			store().rivalBet(won, p.stake)
 		elseif modeDef then
 			modeDef.finish(self, s, p, won, myTime, theirTime, result)
+			-- A mode can call the race itself (a ghost's kept time, a live rival's own run).
+			won = result.won
 		else
 			store().finishRace(won, p.rival.prize)
 		end

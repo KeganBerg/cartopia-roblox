@@ -15,6 +15,7 @@ local StarterGui = game:GetService("StarterGui")
 
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
+local TownCamera = require(script.Parent.Parent.TownCamera)
 local Countryside = require(script.Parent.Parent.Countryside)
 local Builder = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Builder"))
 
@@ -135,7 +136,11 @@ function Visit.start(ctx: any)
 			end, 15)
 		end
 		Ui.buy({ LayoutOrder = 3, Size = UDim2.fromOffset(96, 34), Parent = row }, "🏠 Home", "garage", function()
-			if Remote.social("home") then
+			-- Back to the town view over their own town (which takes them home), or just home.
+			if TownCamera.isWalking() then
+				TownCamera.setWalking(false)
+				setVisit(nil)
+			elseif Remote.social("home") then
 				setVisit(nil)
 			end
 		end, 15)

@@ -54,6 +54,7 @@ end
 local ACCEL = 1.6
 local BRAKE = 3.2
 local GAP = 0.22
+local HEADWAY = 0.7
 local PARKED_GAP = 1
 local TURN_V = 1.15
 local UTURN_V = 0.7
@@ -2114,6 +2115,10 @@ function Traffic.prototype.drive(self, a, dt)
         local o = self.agents:get(a.gapTo)
         local room = if o.parked > 0 and not a.ot then PARKED_GAP else GAP
         cap(a.gap - room)
+        limit = math.min(
+            limit,
+            math.max(0, a.gap - room) / HEADWAY
+        )
         if o.parked > 0 and not a.ot and a.v < 0.2 and a.gap < PARKED_GAP + 0.4 then
             self:tryOvertake(a, o)
             local at = o.parkedAt

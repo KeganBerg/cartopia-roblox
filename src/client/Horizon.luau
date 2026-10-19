@@ -24,6 +24,7 @@ local SkyImages = require(Models:WaitForChild("SkyImages")) :: any
 local Game = Shared:WaitForChild("Game")
 local clock = require(Game:WaitForChild("clock")) :: any
 local weather = require(Game:WaitForChild("weather")) :: any
+local ClockShift = require(script.Parent.ClockShift)
 
 local Horizon = {}
 
@@ -85,7 +86,9 @@ local function hideOthers(mine: Folder)
 	end
 	local towns = mine.Parent :: Instance
 	local function check(f: Instance)
-		if f ~= mine then
+		-- (In the shared world the far land stays past the world's ground, and the neighbours'
+		-- land is part of the world.)
+		if f ~= mine and not workspace:FindFirstChild("World") then
 			local meadow = f:WaitForChild("Meadow", 30)
 			if meadow then
 				hide(meadow)
@@ -104,11 +107,21 @@ local function hideOthers(mine: Folder)
 end
 
 -- In the shared world (server/World) the land round a town is the world's own ground, roads and
--- neighbours, out to the ground's edge. The far land is drawn round the world's middle instead, with
--- every piece that lies wholly on the world's ground left out, and the rest sunk SINK studs: its
--- flat land, a few studs either side of the world's ground, cut through it in patches that flickered
--- as the camera moved, and sunk it stays out of sight under it.
+-- neighbours, out to the ground's edge. The far land is drawn round the world's middle instead,
+-- without the patches that lie on the world's ground, and sunk SINK studs: its flat land, a few
+-- studs either side of the world's ground, cut through it in patches that flickered as the camera
+-- moved, and its hills stood on the outer towns. tools/models/build.mjs sorts the far land's
+-- triangles into PATCH-stud squares by their middles (HORIZON_CHUNK), cutting any longer than 450
+-- studs, so no corner lies more than OVERHANG past its patch: a piece that stays within OVERHANG
+-- of the first patch line past the ground's edge is one of the patches inside it, and is left out.
+-- The rest reach in at most OVERHANG past that line, which stays beyond the outer roads.
 local SINK = 5
+local PATCH = 1400
+local OVERHANG = 300
+-- Under the seam between the world's ground and the far land, a flat frame of meadow, well below
+-- both, so no sky shows between them.
+local APRON_TOP = -14
+local APRON_IN, APRON_OUT = 500, 900
 
 -- How far (studs, each way from its middle) the shared world's ground reaches, or nil outside it.
 -- As server/World works it out: half a plot past the last ring, and 600 more.
@@ -122,15 +135,65 @@ local function worldReach(): number?
 	return (rings + 0.5) * pitch + 600
 end
 
--- Whether a box (middle x, z and size sx, sz, studs from the land's middle) lies wholly within
--- clear of it each way.
-local function within(x: number, z: number, sx: number, sz: number, clear: number): boolean
-	return math.abs(x) + sx / 2 < clear and math.abs(z) + sz / 2 < clear
+-- The patch line the far land is cut back to, for ground reaching `reach` each way.
+local function cutLine(reach: number): number
+	return math.ceil(reach / PATCH) * PATCH
 end
 
--- Draws the far land round a town whose middle is at origin, into parent. clear: leave out the
--- pieces wholly within that many studs of origin each way, and sink the rest (the shared world).
-function Horizon.draw(origin: Vector3, parent: Instance, clear: number?): Model?
+-- Whether a piece (middle x, z and size sx, sz, studs from the land's middle) is one of the
+-- patches inside `line` each way.
+local function inside(x: number, z: number, sx: number, sz: number, line: number): boolean
+	return math.abs(x) + sx / 2 < line + OVERHANG and math.abs(z) + sz / 2 < line + OVERHANG
+end
+
+-- The frame of meadow under the seam, from APRON_IN inside the ground's edge to APRON_OUT past
+-- the cut line, in pieces of at most 2,000 studs.
+local function apron(parent: Instance, origin: Vector3, reach: number, line: number)
+	local inner, outer = reach - APRON_IN, line + APRON_OUT
+	local width = outer - inner
+	local world = workspace:FindFirstChild("World")
+	local color = Color3.fromHex("#8c9a43")
+	local ground = world and world:FindFirstChild("Meadow", true)
+	if ground and ground:IsA("BasePart") then
+		color = ground.Color
+	end
+	local function piece(cx: number, cz: number, sx: number, sz: number)
+		local p = Instance.new("Part")
+		p.Name = "Apron"
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanTouch = false
+		p.CanQuery = false
+		p.CastShadow = false
+		p.Material = Enum.Material.SmoothPlastic
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.Color = color
+		p.Size = Vector3.new(sx, 2, sz)
+		p.CFrame = CFrame.new(origin + Vector3.new(cx, APRON_TOP - 1, cz))
+		p.Parent = parent
+	end
+	-- Each side runs the frame's whole length on x (north and south) or between them on z.
+	local n = math.ceil(outer * 2 / 2000)
+	local each = outer * 2 / n
+	for i = 0, n - 1 do
+		local along = -outer + (i + 0.5) * each
+		for _, sd in { -1, 1 } do
+			piece(along, sd * (inner + width / 2), each, width)
+		end
+	end
+	local m = math.ceil(inner * 2 / 2000)
+	local step = inner * 2 / m
+	for i = 0, m - 1 do
+		local along = -inner + (i + 0.5) * step
+		for _, sd in { -1, 1 } do
+			piece(sd * (inner + width / 2), along, width, step)
+		end
+	end
+end
+
+-- Draws the far land round a town whose middle is at origin, into parent. reach: the shared
+-- world's ground reaches that far each way from origin; the far land starts past it.
+function Horizon.draw(origin: Vector3, parent: Instance, reach: number?): Model?
 	local land = Builder.build(LAND)
 	if not land then
 		return nil
@@ -143,17 +206,19 @@ function Horizon.draw(origin: Vector3, parent: Instance, clear: number?): Model?
 			d.CanQuery = false
 		end
 	end
-	land:PivotTo(CFrame.new(origin - Vector3.new(0, if clear then SINK else 0, 0)))
-	if clear then
+	land:PivotTo(CFrame.new(origin - Vector3.new(0, if reach then SINK else 0, 0)))
+	if reach then
+		local line = cutLine(reach)
 		for _, d in land:GetDescendants() do
 			if d:IsA("BasePart") then
 				local at = d.CFrame.Position - origin
 				local size = d.CFrame:VectorToWorldSpace(d.Size)
-				if within(at.X, at.Z, math.abs(size.X), math.abs(size.Z), clear) then
+				if inside(at.X, at.Z, math.abs(size.X), math.abs(size.Z), line) then
 					d:Destroy()
 				end
 			end
 		end
+		apron(land, origin, reach, line)
 	end
 	land.Parent = parent
 	return land
@@ -199,16 +264,17 @@ type Piece = { part: BasePart, at: CFrame }
 
 -- Builds the rotors and balloons round a town whose middle is at origin, into parent, and
 -- returns a function that moves them on: dt seconds since the last call, t since they appeared.
--- clear and the sinking as Horizon.draw: rotors whose tower it left out are left out too.
-function Horizon.movers(origin: Vector3, parent: Instance, clear: number?): (dt: number, t: number) -> ()
+-- reach as Horizon.draw: rotors on the patches it left out are left out too, the rest sunk with it.
+function Horizon.movers(origin: Vector3, parent: Instance, reach: number?): (dt: number, t: number) -> ()
 	local folder = Instance.new("Folder")
 	folder.Name = "HorizonMovers"
 	folder.Parent = parent
 	local turbines = Scenery.TURBINES or {}
-	if clear then
+	if reach then
+		local line = cutLine(reach)
 		local kept = {}
 		for _, tb in turbines do
-			if not within(tb[1], tb[3], 0, 0, clear) then
+			if not inside(tb[1], tb[3], 0, 0, line) then
 				table.insert(kept, { tb[1], tb[2] - SINK, tb[3], tb[4], tb[5] })
 			end
 		end
@@ -272,7 +338,7 @@ function Horizon.movers(origin: Vector3, parent: Instance, clear: number?): (dt:
 			place(rotors[i], CFrame.new(origin + Vector3.new(tb[1], tb[2], tb[3])) * CFrame.fromEulerAnglesYXZ(0, tb[4], spins[i]))
 		end
 		-- The balloons only fly in fair weather, by day.
-		local night = clock.nightAmount(clock.dayPhase(DateTime.now().UnixTimestampMillis))
+		local night = clock.nightAmount(clock.dayPhase(ClockShift.now()))
 		local fly = night < 0.5 and w.rain < 0.2 and w.snow < 0.2 and w.wind < 0.6
 		if fly ~= flying then
 			flying = fly
@@ -359,12 +425,11 @@ function Horizon.sky(phase: number): Color3?
 	if not best or best.faces.Up == 0 then
 		return nil
 	end
-	if best ~= current then
-		if current == nil or ready[best] then
-			current = best
-		elseif not loading[best] then
-			loading[best] = true
-			local step = best
+	-- The steps either side load ahead, so each change shows the moment its time comes.
+	local at = table.find(SkyImages.steps, best)
+	for _, step in { best, SkyImages.steps[(at or 0) - 1], SkyImages.steps[(at or 0) + 1] } do
+		if step and not ready[step] and not loading[step] and step.faces.Up ~= 0 then
+			loading[step] = true
 			task.spawn(function()
 				local list = {}
 				for _, face in FACES do
@@ -374,6 +439,9 @@ function Horizon.sky(phase: number): Color3?
 				ready[step] = true
 			end)
 		end
+	end
+	if best ~= current and (current == nil or ready[best]) then
+		current = best
 	end
 	best = current
 	local sky = Lighting:FindFirstChildWhichIsA("Sky")

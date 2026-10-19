@@ -19,6 +19,7 @@ local Builder = {}
 -- Written by the model build (tools/models/build.mjs); empty in a build from before mods.
 local MOD_DROPS: { [string]: any } = (Catalog :: any).MOD_DROPS or {}
 local WHEELS: { [string]: any } = (Catalog :: any).WHEELS or {}
+local SPINS: { [string]: any } = (Catalog :: any).SPINS or {}
 local PANEL_DROPS: { [string]: any } = (Catalog :: any).PANEL_DROPS or {}
 local TRIM: { [string]: any } = (Catalog :: any).TRIM or {}
 
@@ -39,6 +40,49 @@ end
 -- it can be tried again.
 local packState: { [number]: "loading" | "done" } = {}
 
+-- Whether a loaded mesh came in the shape it was made: its own size (MeshSize) in the same
+-- proportions as the converter recorded (Meshes.MESHES). A mesh Roblox imported turned on its side
+-- or squashed would be stretched by its part's size into long beams across the sky, so one that
+-- doesn't fit is treated as not loaded and left out. Only the countryside's meshes are checked,
+-- where a missing piece is simply not drawn (a town would show a box).
+local sceneryMeshes: { [string]: boolean }? = nil
+local function fits(d: MeshPart): boolean
+	if not sceneryMeshes then
+		local set = {}
+		for _, list in { Scenery.MODELS, RaceScenery.MODELS } do
+			for _, parts in list do
+				for _, p in parts do
+					if p[1] == "m" then
+						set[p[13]] = true
+					end
+				end
+			end
+		end
+		sceneryMeshes = set
+	end
+	if not (sceneryMeshes :: any)[d.Name] then
+		return true
+	end
+	local want = Meshes.MESHES[d.Name]
+	local ok, got = pcall(function()
+		return d.MeshSize
+	end)
+	if not want or not ok or typeof(got) ~= "Vector3" or got.Magnitude < 1e-6 then
+		return true
+	end
+	local lo, hi = math.huge, 0
+	for _, axis in { "X", "Y", "Z" } do
+		local w, g = (want.size :: any)[axis], (got :: any)[axis]
+		-- (Very thin sides are left out: the converter rounds them up.)
+		if w > 0.2 then
+			local r = math.max(g, 1e-6) / w
+			lo = math.min(lo, r)
+			hi = math.max(hi, r)
+		end
+	end
+	return hi == 0 or hi / lo < 1.5
+end
+
 -- Loads mesh packs (server only) and shares a copy of each mesh with the clients through
 -- ReplicatedStorage.MeshLibrary once that exists. Calls back after each pack.
 local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert.Priority?)
@@ -50,7 +94,7 @@ local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert
 			if model then
 				local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
 				for _, d in model:GetDescendants() do
-					if d:IsA("MeshPart") and not meshParts[d.Name] then
+					if d:IsA("MeshPart") and not meshParts[d.Name] and fits(d) then
 						meshParts[d.Name] = d
 						meshArrived()
 						if library then
@@ -69,14 +113,50 @@ local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert
 	end
 end
 
+-- The packs only the race venues (RaceScenery) and Rusty's rescue lot ("rescue:" models) use,
+-- found once: nobody sees them until a race starts or they go searching, so a new server doesn't
+-- hold its first players up for them (Builder.loadVenues).
+local venuePacks: { [number]: boolean }? = nil
+local function venueOnly(): { [number]: boolean }
+	if venuePacks then
+		return venuePacks
+	end
+	local function assetsOf(list: { [string]: { any } }, into: { [number]: boolean }, rescue: boolean?)
+		for name, parts in list do
+			if rescue ~= nil and (string.sub(name, 1, 7) == "rescue:") ~= rescue then
+				continue
+			end
+			for _, p in parts do
+				local m = p[1] == "m" and Meshes.MESHES[p[13]]
+				if m and m.asset ~= 0 then
+					into[m.asset] = true
+				end
+			end
+		end
+	end
+	local elsewhere: { [number]: boolean } = {}
+	assetsOf(Catalog.MODELS, elsewhere, false)
+	assetsOf(Scenery.MODELS, elsewhere)
+	local set: { [number]: boolean } = {}
+	assetsOf(RaceScenery.MODELS, set)
+	assetsOf(Catalog.MODELS, set, true)
+	for asset in elsewhere do
+		set[asset] = nil
+	end
+	venuePacks = set
+	return set
+end
+
 -- Loads every uploaded mesh pack (server only: InsertService). Waits for all of them, up to
 -- timeout seconds, calling progress(done, total) as each one finishes. Safe to call more than once.
 function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: number) -> ())?)
 	local byAsset: { [number]: boolean } = {}
+	local venues = venueOnly()
 	for _, m in Meshes.MESHES do
-		-- A car's mod pack waits until that car needs it (Builder.loadFor), the far land until the
-		-- rest is in (Builder.loadLate).
-		if m.asset ~= 0 and not (m :: any).lazy and not (m :: any).late then
+		-- A car's mod pack waits until that car needs it (Builder.loadFor), the race venues and the
+		-- rescue lot until the rest is in (Builder.loadVenues), and the far land behind them
+		-- (Builder.loadLate).
+		if m.asset ~= 0 and not (m :: any).lazy and not (m :: any).late and not venues[m.asset] then
 			byAsset[m.asset] = true
 		end
 	end
@@ -116,6 +196,26 @@ function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: n
 	end
 end
 
+-- Loads the race venues' and the rescue lot's own mesh packs (server only), after
+-- Builder.loadMeshes, waiting up to timeout seconds for them. One opened before they're in fills
+-- in as they arrive.
+function Builder.loadVenues(timeout: number?)
+	local list = {}
+	for asset in venueOnly() do
+		if not packState[asset] then
+			table.insert(list, asset)
+		end
+	end
+	local left = #list
+	loadPacks(list, function()
+		left -= 1
+	end)
+	local start = os.clock()
+	while left > 0 and os.clock() - start < (timeout or 60) do
+		task.wait(0.2)
+	end
+end
+
 -- On a client: takes the meshes the server shares (see loadMeshes), waiting up to timeout seconds
 -- for them. Returns whether they arrived.
 -- Loads the far land's mesh packs (server only), after Builder.loadMeshes: the clients draw it
@@ -132,22 +232,106 @@ function Builder.loadLate()
 	loadPacks(list, nil, "last")
 end
 
+-- Roblox draws a MeshPart in less detail the further its middle is from the camera (Automatic
+-- render fidelity). A race venue's meshes are merged over hundreds of studs of roadside, so their
+-- middles are far off even where they pass the car: the crowd came out as bare boxes and balls,
+-- the trees, fences and lift towers vanished and the mountains went flat. Swaps every race venue
+-- mesh for a copy drawn at full detail (server only, after Builder.loadMeshes), a few at a time
+-- in the background, and hands each one on to the clients through MeshLibrary as it's made.
+-- Call it again for meshes whose packs came in late; each mesh is only asked for once.
+local sharpening = false
+local sharpened: { [string]: boolean } = {}
+function Builder.sharpenRaces()
+	if sharpening then
+		return
+	end
+	local keys: { string } = {}
+	for _, parts in RaceScenery.MODELS do
+		for _, p in parts do
+			local key = p[13]
+			if p[1] == "m" and not sharpened[key] and meshParts[key] then
+				sharpened[key] = true
+				table.insert(keys, key)
+			end
+		end
+	end
+	if #keys == 0 then
+		return
+	end
+	local found, AssetService = pcall(game.GetService, game, "AssetService")
+	if not found then
+		return
+	end
+	sharpening = true
+	local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
+	local function sharpen(key: string)
+		local old = meshParts[key]
+		local ok, made = pcall(function()
+			return (AssetService :: any):CreateMeshPartAsync(old.MeshId, {
+				RenderFidelity = Enum.RenderFidelity.Precise,
+				CollisionFidelity = Enum.CollisionFidelity.Box,
+			})
+		end)
+		if not ok or not made then
+			return
+		end
+		made.Name = key
+		made.Anchored = true
+		made.CanCollide = false
+		meshParts[key] = made
+		if library then
+			local was = library:FindFirstChild(key)
+			made:Clone().Parent = library
+			if was then
+				was:Destroy()
+			end
+		end
+	end
+	local nextKey, running = 0, 6
+	for _ = 1, running do
+		task.spawn(function()
+			while nextKey < #keys do
+				nextKey += 1
+				sharpen(keys[nextKey])
+			end
+			running -= 1
+			if running == 0 then
+				sharpening = false
+			end
+		end)
+	end
+end
+
+-- Goes up each time a mesh reaches a client after Builder.useLibrary (late packs, a car's mods,
+-- Builder.sharpenRaces), so a model it keeps can be built again.
+Builder.meshVersion = 0
+
 function Builder.useLibrary(timeout: number?): boolean
 	local library = game:GetService("ReplicatedStorage"):WaitForChild("MeshLibrary", timeout or 60)
 	if not library then
 		return false
 	end
 	for _, d in library:GetChildren() do
-		if d:IsA("MeshPart") then
+		if d:IsA("MeshPart") and fits(d) then
 			meshParts[d.Name] = d
 		end
 	end
 	table.clear(templates)
-	-- Meshes the server loads later (a car's mods, Builder.loadFor) arrive one by one.
+	-- Meshes the server loads later (a car's mods, Builder.loadFor) arrive one by one. So do the
+	-- race venues' full-detail copies (Builder.sharpenRaces), replacing the ones already here: race
+	-- models built from then on use them.
 	library.ChildAdded:Connect(function(d: Instance)
-		if d:IsA("MeshPart") then
+		if d:IsA("MeshPart") and fits(d) then
+			if meshParts[d.Name] and meshParts[d.Name] ~= d then
+				for name in templates do
+					if name:sub(1, 5) == "race:" then
+						templates[name] = nil
+					end
+				end
+			end
 			meshParts[d.Name] = d
 			meshArrived()
+			Builder.meshVersion += 1
 		end
 	end)
 	return true
@@ -163,7 +347,7 @@ local function findMesh(key: string): MeshPart?
 	end
 	local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
 	local d = library and library:FindFirstChild(key)
-	if d and d:IsA("MeshPart") then
+	if d and d:IsA("MeshPart") and fits(d) then
 		meshParts[key] = d
 		meshArrived()
 		return d
@@ -415,10 +599,19 @@ function Builder.has(name: string): boolean
 	return Catalog.MODELS[name] ~= nil or Scenery.MODELS[name] ~= nil or RaceScenery.MODELS[name] ~= nil
 end
 
--- A building's model at a level, falling back to the nearest level converted.
-function Builder.buildingName(id: string, level: number?): string?
+-- More models to build from (a building's grown levels, server/Levels/<id>, which only the server
+-- draws), alongside Catalog's own.
+function Builder.addModels(models: { [string]: any })
+	for name, parts in models do
+		Catalog.MODELS[name] = parts
+	end
+end
+
+-- A building's model at a level, falling back to the nearest level converted. block: a merged
+-- block's scale ("2x1x1", "1x1x2", "2x2x2"), for the model drawn for that block ("id@level/block").
+function Builder.buildingName(id: string, level: number?, block: string?): string?
 	for l = math.clamp(level or 1, 1, 10), 1, -1 do
-		local name = `{id}@{l}`
+		local name = if block then `{id}@{l}/{block}` else `{id}@{l}`
 		if Catalog.MODELS[name] then
 			return name
 		end
@@ -446,8 +639,8 @@ local function template(name: string): Model?
 	local mod = name:sub(1, 4) == "mod:" or name:sub(1, 6) == "panel:"
 	local scenery = (merged ~= nil or mod or name:sub(1, 7) == "stripe:" or name:sub(1, 4) == "hat:") and not Builder.previewMeshes
 	-- A car's parts and its mods' are named by their place in the list, which Catalog.MOD_DROPS,
-	-- WHEELS, PANEL_DROPS and TRIM point at.
-	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil or PANEL_DROPS[name] ~= nil or TRIM[name] ~= nil
+	-- WHEELS, PANEL_DROPS, TRIM and SPINS point at.
+	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil or PANEL_DROPS[name] ~= nil or TRIM[name] ~= nil or SPINS[name] ~= nil
 	local missing = false
 	local stood = false
 	for i, p in parts do
