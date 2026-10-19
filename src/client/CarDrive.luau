@@ -58,6 +58,8 @@ local body: { car: Model, copy: Model, parts: { BasePart }, rel: { CFrame }, hid
 local stale = false
 local roll, rollV, pitch, pitchV = 0, 0, 0, 0
 
+local quietControls: (any) -> ()
+
 local function parts(): (Model?, Humanoid?, BasePart?, Model?)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -174,6 +176,25 @@ local function makeBody(root: BasePart, humanoid: Humanoid, car: Model)
 	roll, rollV, pitch, pitchV = 0, 0, 0, 0
 end
 
+-- Roblox's controls still read the keys and the phone stick (CarDrive reads them back with
+-- GetMoveVector), but while driving they don't walk the avatar themselves: their camera-relative
+-- move (forward + right = off to the side) would pull the car sideways in a turn.
+local quieted: any = nil
+local quietedMove: any = nil
+quietControls = function(controls: any)
+	if controls == quieted then
+		return
+	end
+	if quieted then
+		quieted.moveFunction = quietedMove
+	end
+	quieted, quietedMove = nil, nil
+	if controls and controls.moveFunction then
+		quieted, quietedMove = controls, controls.moveFunction
+		controls.moveFunction = function() end
+	end
+end
+
 local function begin()
 	local _, humanoid, root, car = parts()
 	if not (humanoid and root and car) then
@@ -194,6 +215,7 @@ end
 
 local function finish()
 	active = false
+	quietControls(nil)
 	dropBody()
 	orbitTouch = nil
 	orbitHeld = false
@@ -232,6 +254,7 @@ local function physicsStep(dt: number)
 		pcall(makeBody, root, humanoid, car)
 	end
 	local controls = TownCamera.controls()
+	quietControls(controls)
 	local move: Vector3 = if controls then controls:GetMoveVector() else Vector3.zero
 	if UserInputService:GetFocusedTextBox() then
 		move = Vector3.zero
@@ -243,11 +266,16 @@ local function physicsStep(dt: number)
 	root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, yaw, 0)
 	root.AssemblyAngularVelocity = Vector3.zero
 	humanoid.WalkSpeed = math.abs(state.speed)
+	local nose = forwardOf(yaw)
 	if math.abs(state.speed) > 0.05 then
-		humanoid:Move(forwardOf(yaw) * math.sign(state.speed), false)
+		humanoid:Move(nose * math.sign(state.speed), false)
 	else
 		humanoid:Move(Vector3.zero, false)
 	end
+	-- The car goes exactly where its nose points: no sideways slide while the avatar's own
+	-- walking catches up with a turn (the fall and bumps stay the physics').
+	local v = root.AssemblyLinearVelocity
+	root.AssemblyLinearVelocity = nose * state.speed + Vector3.new(0, v.Y, 0)
 end
 
 local function spring(x: number, v: number, target: number, dt: number): (number, number)
