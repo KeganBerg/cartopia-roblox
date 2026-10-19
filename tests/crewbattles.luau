@@ -24,7 +24,10 @@ local function make(list)
 			return w.list
 		end,
 		crew = function(id)
-			return { id = id, name = "Crew " .. id, tag = id:upper(), emblem = "🏁", color = "#ffffff" }
+			return { id = id, name = "Crew " .. id, tag = id:upper(), emblem = "🏁", color = "#ffffff", members = (w.members or {})[id] or {} }
+		end,
+		ghost = function(uid)
+			return (w.ghosts or {})[uid]
 		end,
 		emblems = { "🏁", "🔥" },
 		colors = { "#ff0000", "#00ff00" },
@@ -162,5 +165,41 @@ return function(test)
 		expectEq(b.league.name, "Bronze", "league (1045)")
 		expectEq(b.league.next.name, "Silver", "next league")
 		expectEq(#w.b:battle(1, "a").log, 3, "results kept")
+	end)
+
+	test("crew battles: war races on the map, stars and the daily limit", function()
+		local w = make({ row("a", 1000, 3), row("b", 1000, 3), row("c", 99999, 3) })
+		w.members = { b = { ["5"] = { name = "Cy" } } }
+		w.ghosts = { [5] = { t = 8.0, car = "Fast", model = "pip", color = "#000000", pi = 100, town = "Cy Town" } }
+		expectEq(CrewBattles.stars(8.1, 8), 0, "slower: no stars")
+		expectEq(CrewBattles.stars(7.95, 8), 1, "a win")
+		expectEq(CrewBattles.stars(7.9, 8), 2, "by 1%")
+		expectEq(CrewBattles.stars(7.7, 8), 3, "by 3%")
+		expectEq(select(2, w.b:attackStart(1, "a", "6", 7)), "not rival", "only the rival crew's members")
+		local spot = w.b:attackStart(1, "a", "5", 7)
+		expectEq(spot.their, 8.0, "their ghost's time")
+		expectEq(spot.left, R.attacksPerDay - 1, "one used")
+		local r = w.b:attackFinish(1, "a", "Ann", spot, 7.7, true)
+		expectEq(r.stars, 3, "three stars")
+		expectEq((w.b:score("a", "2026-10-19")), 3 * R.starPoints, "war points")
+		local lost = w.b:attackFinish(1, "a", "Ann", w.b:attackStart(1, "a", "5", 7), math.huge, true)
+		expectEq(lost.won, false, "an unfinished run is a loss")
+		w.b:attackStart(1, "a", "5", 7)
+		expectEq(select(2, w.b:attackStart(1, "a", "5", 7)), "no war races", "three a day")
+		expectEq(w.b:attacksLeft(1), 0, "none left")
+		-- Both crews see the races, each from its own side.
+		local mine = w.b:battle(1, "a").current
+		expectEq(#mine.attacks, 2, "two finished")
+		expectEq(mine.attacks[2].side, "us", "ours")
+		expectEq(mine.them.roster[1].t, 8.0, "their roster with times")
+		w.members.b["9"] = { name = "Di" }
+		expectEq(w.b:view(w.b:battleOf("b"), "b", 9).attacks[1].side, "them", "theirs from the other side")
+		w.now += DAY
+		expectEq(w.b:attacksLeft(1), R.attacksPerDay, "back the next day")
+		-- A street crew's drivers race a par for the racer's car, tougher for stronger drivers.
+		local x = w.b:battleOf("c")
+		local bot = w.b:attackStart(2, "c", "bot1", 7)
+		expectEq(bot.their, CrewBattles.streetTime(7, x.bot.members[1].w), "street par")
+		expectEq(select(2, w.b:attackStart(2, "c", "bot99", 7)), "not rival", "no such driver")
 	end)
 end

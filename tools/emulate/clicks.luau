@@ -675,6 +675,16 @@ battles.desk = emu.require(SSS.Server.CrewBattles).new({
 	emblems = emu.require(G.data).CLAN_EMBLEMS,
 	colors = emu.require(G.data).CLAN_COLORS,
 })
+-- War races (server/Modes/War) reach the crew war through the race desk's mods.
+races.mods.crewWar = {
+	battles = battles.desk,
+	crewOf = function(userId)
+		return crewDesk:mineId(userId)
+	end,
+	nameOf = function()
+		return "You"
+	end,
+}
 local function crewWho(userId)
 	local save = towns:save(1)
 	return { name = if userId == 1 then "You" else "Rosa", town = save.townName, level = save.level or 1, power = 120, wins = save.racesWon or 0, trophies = save.trophies or 0 }
@@ -2156,7 +2166,8 @@ if SHOTS then
 				sf.CanvasPosition = roblox.Vector2.new(0, 600)
 			end
 			shot("crew-ladder", nil)
-			-- This week's crew battle: Rosa and I race; then the week ends and the chests open.
+			battles.crew = niteId
+		-- This week's crew battle: Rosa and I race; then the week ends and the chests open.
 			battles.desk:races(1, niteId, "You", 60, 20)
 			battles.desk:races(2, niteId, "Rosa", 12, 3)
 			battles.desk:live(1, niteId, "You", 7, "crew2")
@@ -3252,6 +3263,72 @@ else
 	print("town rival: no double or nothing offered")
 end
 print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+
+-- A war race from the Crew tab's war map: back in Night Riders, race the street crew's first pick.
+if battles.crew then
+	local warProblems = {}
+	crewDesk:ask(1, crewWho(1), battles.crew)
+	towns:_with(1, function(s)
+		s.fuel = math.max(s.fuel, 50)
+	end)
+	local wf, _, wres = runRace("war", { [60] = true }, function()
+		hud.openPanel("friends", "clan")
+		Emu.resumeWaits()
+		-- (A prize pop-up left from an earlier race goes first.)
+		for _ = 1, 3 do
+			local nice = find(hud.gui, function(d)
+				return d:IsA("TextButton") and d.Visible and label(d) == "Nice!"
+			end)
+			if nice then
+				signalFor(nice, "Activated"):Fire()
+				Emu.resumeWaits()
+			end
+		end
+		local map = hud.gui:FindFirstChild("WarMap", true)
+		if not map or not map:FindFirstChild("Them", true) then
+			table.insert(warProblems, "no war map with their racers")
+		end
+		local sf = map and map:FindFirstAncestorWhichIsA("ScrollingFrame")
+		if sf then
+			sf.CanvasPosition = roblox.Vector2.new(0, 400)
+		end
+		shot("crew-war-map", nil)
+		local b = map and map:FindFirstChild("WarRace", true)
+		local face = b and (if b:IsA("GuiButton") then b else b:FindFirstChildWhichIsA("GuiButton", true))
+		if face then
+			signalFor(face, "Activated"):Fire()
+			Emu.resumeWaits()
+		else
+			table.insert(warProblems, "no Race button on the war map")
+		end
+	end)
+	local x = battles.desk:battleOf(battles.crew)
+	local raced = x and battles.desk:attacks(x, battles.crew)
+	if not wres or not raced or #raced ~= 1 then
+		table.insert(warProblems, `the war race wasn't recorded ({wf} frames): {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	end
+	if not (wres and wres:FindFirstChild("WarStars", true)) then
+		table.insert(warProblems, "no stars on the war race's result card")
+	end
+	local back = cardButton("Crew war")
+	if back then
+		signalFor(back, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	if not hud.gui:FindFirstChild("WarMap", true) or not hud.gui:FindFirstChild("Latest", true) then
+		table.insert(warProblems, "the war map doesn't show the race after Crew war")
+	end
+	local after = hud.gui:FindFirstChild("WarMap", true)
+	local sfa = after and after:FindFirstAncestorWhichIsA("ScrollingFrame")
+	if sfa then
+		sfa.CanvasPosition = roblox.Vector2.new(0, 400)
+	end
+	shot("crew-war-map-after", nil)
+	hud.ctx.close()
+	crewDesk:leave(1)
+	print(`war races: {#warProblems} problems {table.concat(warProblems, "; ")}`)
+	bad += #warProblems
+end
 
 -- A race from one of the other modes' pages (client/RacePages): opens the page from the front
 -- page's small button, presses the first button whose words match `go`, and races.

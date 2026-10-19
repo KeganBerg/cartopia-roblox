@@ -700,7 +700,25 @@ local crewBattles = CrewBattles.new({
 	end,
 	emblems = (require(Game.data) :: any).CLAN_EMBLEMS,
 	colors = (require(Game.data) :: any).CLAN_COLORS,
+	ghost = function(userId: number): any?
+		local race = require(Game.race) :: any
+		local ok, g = pcall(ghosts.of, ghosts, userId, function(pi: number): number
+			return race.raceFloor(pi)
+		end)
+		return if ok then g else nil
+	end,
 })
+-- The war map's races (server/Modes/War) reach the crew war through Races' mods.
+races.mods.crewWar = {
+	battles = crewBattles,
+	crewOf = function(userId: number): string?
+		return crews:mineId(userId)
+	end,
+	nameOf = function(userId: number): string
+		local player = Players:GetPlayerByUserId(userId)
+		return if player then player.DisplayName else "Driver"
+	end,
+}
 -- The jobs, races and race wins each player's town had when last counted.
 local crewSeen: { [number]: { jobs: number, races: number, wins: number } } = {}
 -- now: counted before this returns (else in the background, as a save goes on).

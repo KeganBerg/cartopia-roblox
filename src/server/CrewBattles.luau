@@ -20,6 +20,11 @@
 -- keeps its last wars ("h:<crewId>", results filled in once a week is over) for its record, its
 -- league and the log.
 --
+-- The war map (web 0114): a member races a rival crew member's ghost (their best run, or a par
+-- for their best car), or a street crew driver's par for the racer's own car (tougher for its
+-- stronger drivers). A win takes 1 star, 2 by 1% or more, 3 by 3% or more, each 5 war points; 3
+-- war races a player a UTC day, counted when they start. Both crews see every race ("a:<battle>").
+--
 -- In Roblox it's one DataStore, "CrewBattles_v1", changed with UpdateAsync: "m:<week>" the week's
 -- battles ({ of = { [crewId] = battleId }, b = { [battleId] = battle } }), "p:<crewId>:<week>" a
 -- crew's points ({ [userId] = { p, r, w, l, h, name } }) and "k:<userId>" a player's bank and live
@@ -28,7 +33,7 @@
 local CrewBattles = {}
 CrewBattles.__index = CrewBattles
 
-CrewBattles.RULES = { race = 1, win = 3, live = 10, h2h = 25, livePerRival = 3, memberCap = 500, minPoints = 20, bankMax = 300, bankSeconds = 3, botPerMember = 45, botMinMembers = 2, par = 45, tiers = { 0.4, 1 } }
+CrewBattles.RULES = { race = 1, win = 3, live = 10, h2h = 25, livePerRival = 3, memberCap = 500, minPoints = 20, bankMax = 300, bankSeconds = 3, botPerMember = 45, botMinMembers = 2, par = 45, tiers = { 0.4, 1 }, attacksPerDay = 3, starPoints = 5, star2 = 0.01, star3 = 0.03 }
 -- The war league (web lib/battles LEAGUES): a rating from the crew's record.
 CrewBattles.LEAGUES = {
 	{ id = "bronze", icon = "🥉", name = "Bronze", min = 0 },
@@ -71,6 +76,8 @@ export type Mods = {
 	crew: (id: string) -> any?,
 	emblems: { string },
 	colors: { string },
+	-- A player's ghost for the war map ({ t, car, model, color, pi, town }), or nil.
+	ghost: ((userId: number) -> any?)?,
 }
 
 export type CrewBattles = typeof(setmetatable(
@@ -501,7 +508,7 @@ function CrewBattles._side(self: CrewBattles, x: any, crewId: string?, isBot: bo
 		end
 		local members = {}
 		for i, m in x.bot.members do
-			table.insert(members, { id = `bot{i}`, name = m.name, points = math.floor(score * m.w / math.max(wsum, 0.01)) })
+			table.insert(members, { id = `bot{i}`, name = m.name, points = math.floor(score * m.w / math.max(wsum, 0.01)), w = m.w })
 		end
 		table.sort(members, function(a, b)
 			return a.points > b.points
@@ -567,7 +574,16 @@ function CrewBattles.view(self: CrewBattles, x: any, crewId: string, userId: num
 		local got = claimed ~= nil and claimed[`tier{i}:{x.week}`] == true
 		table.insert(tiers, { tier = i, need = need, reached = reached, claimed = got, claimable = reached and not got and mine >= RULES.minPoints })
 	end
-	return { week = x.week, venue = x.venue, result = result, mine = mine, mvp = mvp, us = us, them = them, due = due, claimable = claimable, par = par, tiers = tiers }
+	-- The war map, while the war is on.
+	local attacks = nil
+	if not result then
+		attacks = self:attacks(x, crewId)
+		us.roster = self:roster(crewId)
+		if not them.bot then
+			them.roster = self:roster(them.id)
+		end
+	end
+	return { week = x.week, venue = x.venue, result = result, mine = mine, mvp = mvp, us = us, them = them, due = due, claimable = claimable, par = par, tiers = tiers, attacks = attacks }
 end
 
 -- The player's crew battle: this week's (when they're in a crew) and last week's, for its result and
@@ -602,7 +618,7 @@ function CrewBattles.battle(self: CrewBattles, userId: number, crewId: string?, 
 	for i = 1, math.min(#wars, 8) do
 		table.insert(log, wars[i])
 	end
-	return { week = this, rules = RULES, left = (weekDay(now) + 7) * DAY - now, current = current, last = lastView, record = record, league = league, log = log }
+	return { week = this, rules = RULES, left = (weekDay(now) + 7) * DAY - now, current = current, last = lastView, record = record, league = league, log = log, attacksLeft = self:attacksLeft(userId), dayLeft = (math.floor(now / DAY) + 1) * DAY - now }
 end
 
 -- Notes which crew a player scored for this week (for last week's chest after changing crews).
@@ -623,6 +639,121 @@ function CrewBattles.scoredFor(self: CrewBattles, userId: number, crewId: string
 		r.scored = scored
 		return r
 	end)
+end
+
+-- Stars a time earns against a ghost: 1 for a win, 2 by 1%, 3 by 3% (0114's war_attack_submit).
+function CrewBattles.stars(t: number, their: number): number
+	if not (t < their) then
+		return 0
+	end
+	return 1 + (if t <= their * (1 - RULES.star2) then 1 else 0) + (if t <= their * (1 - RULES.star3) then 1 else 0)
+end
+
+-- The time a street crew driver runs against a car (0114: tighter for stronger drivers).
+function CrewBattles.streetTime(floor: number, w: number): number
+	return math.round(floor * (1.34 - 0.05 * math.clamp(w, 0.4, 1.6)) * 100) / 100
+end
+
+-- War races a player has left today.
+function CrewBattles.attacksLeft(self: CrewBattles, userId: number): number
+	local k = self:_get(`k:{userId}`) or {}
+	local day = os.date("!%Y-%m-%d", self.mods.clock()) :: string
+	local n = if type(k.war) == "table" and k.war.day == day then k.war.n or 0 else 0
+	return math.max(0, RULES.attacksPerDay - n)
+end
+
+-- Starts a war race against a rival: target is a rival member's UserId, or "bot1".. for a street
+-- crew's drivers; floor is the referee's fastest time for the racer's car. Counts one of the day's
+-- war races. Returns { battle, target, their, name, car, model, color, pi, par } or nil and why.
+function CrewBattles.attackStart(self: CrewBattles, userId: number, crewId: string, target: any, floor: number): (any?, string?)
+	local x = self:battleOf(crewId)
+	if not x then
+		return nil, "no war"
+	end
+	local spot: any = nil
+	if x.bot then
+		local i = if type(target) == "string" then tonumber(target:match("^bot(%d+)$")) else nil
+		local m = i and x.bot.members[i]
+		if not m then
+			return nil, "not rival"
+		end
+		spot = { target = `bot{i}`, their = CrewBattles.streetTime(floor, m.w), name = m.name, par = true, color = x.bot.color }
+	else
+		local rival = if crewId == x.a then x.b else x.a
+		local c = rival and self.mods.crew(rival)
+		local uid = tonumber(target)
+		if not c or not uid or not c.members[tostring(uid)] then
+			return nil, "not rival"
+		end
+		local g = self.mods.ghost and self.mods.ghost(uid)
+		if not g or not g.t then
+			return nil, "no ghost"
+		end
+		spot = { target = tostring(uid), their = g.t, name = c.members[tostring(uid)].name or g.town, par = g.par, car = g.car, model = g.model, color = g.color, pi = g.pi }
+	end
+	local day = os.date("!%Y-%m-%d", self.mods.clock()) :: string
+	local left: number? = nil
+	self:_update(`k:{userId}`, function(k: any): any
+		left = nil
+		local n = if type(k.war) == "table" and k.war.day == day then k.war.n or 0 else 0
+		if n >= RULES.attacksPerDay then
+			return nil
+		end
+		k.war = { day = day, n = n + 1 }
+		left = RULES.attacksPerDay - n - 1
+		return k
+	end)
+	if left == nil then
+		return nil, "no war races"
+	end
+	spot.battle, spot.left = x.id, left
+	return spot, nil
+end
+
+-- Finishes a war race (start: what attackStart gave; kept: the server's time, raised to the floor,
+-- or math.huge for a run that never finished). Adds the race to the map and, for a win, war points
+-- to the crew (scores: the racer is still in it). Returns { won, stars, points }.
+function CrewBattles.attackFinish(self: CrewBattles, userId: number, crewId: string, name: string, start: any, kept: number, scores: boolean): any
+	local won = kept < start.their
+	local stars = if won then CrewBattles.stars(kept, start.their) else 0
+	local points = stars * RULES.starPoints
+	self:_update(`a:{start.battle}`, function(a: any): any
+		local list = a.list or {}
+		table.insert(list, 1, { crew = crewId, by = userId, byName = name, target = start.target, won = won, stars = stars, points = points, at = self.mods.clock() })
+		while #list > 60 do
+			table.remove(list)
+		end
+		a.list = list
+		return a
+	end)
+	if points > 0 and scores then
+		self:_add(userId, crewId, name, {}, points)
+	end
+	return { won = won, stars = stars, points = points, kept = kept, their = start.their }
+end
+
+-- This war's races from one crew's side (newest first): side "us" for its members' races.
+function CrewBattles.attacks(self: CrewBattles, x: any, crewId: string): { any }
+	local out = {}
+	for _, a in (self:_get(`a:{x.id}`) or {}).list or {} do
+		table.insert(out, { side = if a.crew == crewId then "us" else "them", by = a.by, byName = a.byName, target = a.target, won = a.won, stars = a.stars, points = a.points, at = a.at })
+	end
+	return out
+end
+
+-- Every member of a real crew with their ghost's car and time, for the war map.
+function CrewBattles.roster(self: CrewBattles, crewId: string?): { any }
+	local c = crewId and self.mods.crew(crewId)
+	local out = {}
+	for uid, m in (c and c.members) or {} do
+		local id = tonumber(uid) or 0
+		local g = self.mods.ghost and self.mods.ghost(id)
+		table.insert(out, { id = tostring(id), name = m.name or "Driver", car = g and g.car, model = g and g.model, color = g and g.color, pi = g and g.pi, t = g and g.t, at = m.at or 0 })
+	end
+	table.sort(out, function(a, b)
+		return a.at < b.at
+	end)
+	return out
 end
 
 return CrewBattles
