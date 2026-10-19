@@ -1682,6 +1682,18 @@ local function __TS__MathSign(val)
     return 1
 end
 
+local function __TS__NumberIsInteger(value)
+    return __TS__NumberIsFinite(value) and math.floor(value) == value
+end
+
+local function __TS__ArrayAt(self, relativeIndex)
+    local absoluteIndex = relativeIndex < 0 and #self + relativeIndex or relativeIndex
+    if absoluteIndex >= 0 and absoluteIndex < #self then
+        return self[absoluteIndex + 1]
+    end
+    return nil
+end
+
 return {
   __TS__Obj = __TS__Obj,
   __TS__SPREAD = __TS__SPREAD,
@@ -1750,5 +1762,7 @@ return {
   __TS__ArrayPushArray = __TS__ArrayPushArray,
   __TS__ArrayReverse = __TS__ArrayReverse,
   __TS__MathSign = __TS__MathSign,
-  __TS__ClassExtends = __TS__ClassExtends
+  __TS__ClassExtends = __TS__ClassExtends,
+  __TS__NumberIsInteger = __TS__NumberIsInteger,
+  __TS__ArrayAt = __TS__ArrayAt
 }

@@ -815,6 +815,7 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			{ "🏁", "Quick race", function()
 				show("quick")
 			end },
+			{ "🟢", "Live", soon("Live races") },
 			{ "💥", "Bumper Blast", soon("Bumper Blast") },
 			{ "🛠️", "Custom race", soon("Custom races") },
 			{ "🔧", "Tuner Trials", soon("Tuner Trials") },

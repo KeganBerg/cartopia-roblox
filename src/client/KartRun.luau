@@ -29,6 +29,7 @@ local Thumb = require(script.Parent.Thumb)
 local TownCamera = require(script.Parent.TownCamera)
 local DayNight = require(script.Parent.DayNight)
 local KartWorld = require(script.Parent.KartWorld)
+local kartNet = require(Game.lib_kartNet) :: any
 local Sfx = require(script.Parent.Sounds.Sfx)
 
 local KartRun = {}
@@ -151,6 +152,9 @@ end
 
 -- Opens the race. started: what Remote.race("kartStart") answered; onExit: back to the menu;
 -- again(kind, which): races the next one (the result card's ▶ or ↻).
+-- A kart party's race (started.live, dealt by server/KartParty) is kept in step with the other
+-- players' games (Shared.Game.lib_kartNet's KartLink, its messages passed on by the server's
+-- Kart remote): the lights wait for the server's go, and the podium shows the server's places.
 function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, any) -> ())
 	local def = K.TRACKS[started.track + 1]
 	local t = K.buildTrack(def, started.reverse)
@@ -161,6 +165,10 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 		if not f.ai then
 			me = i
 		end
+	end
+	local live = started.live
+	if live then
+		me = live.me + 1
 	end
 	local meId = me - 1
 
@@ -251,6 +259,56 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 		cam.FieldOfView = oldFov
 		TownCamera.setPaused(false)
 		onExit()
+	end
+	-- A kart party: the link to the others' games, the go, and the server's verdict.
+	local link: any = nil
+	local dropped: string? = nil -- a player gone quiet, for the callout
+	local liveGo = not live
+	local verdict: any = nil
+	local onVerdict: (() -> ())? = nil
+	if live then
+		local kartEvent = ReplicatedStorage:WaitForChild("Cartopia"):WaitForChild("Kart") :: RemoteEvent
+		local handlers = {}
+		local ch = {
+			send = function(event: string, payload: any)
+				kartEvent:FireServer(event, payload)
+			end,
+			on = function(event: string, cb: (any) -> ())
+				handlers[event] = cb
+			end,
+		}
+		link = L.__TS__New(kartNet.KartLink, race, live.mine, live.owners, ch)
+		link.onGone = function(p: string)
+			local name = "A racer"
+			for i = #live.owners, 1, -1 do
+				if live.owners[i] == p then
+					name = field[i].name
+					break
+				end
+			end
+			dropped = `{name} dropped out. An AI driver takes over.`
+		end
+		table.insert(conns, kartEvent.OnClientEvent:Connect(function(event: string, payload: any)
+			if event == "go" then
+				liveGo = true
+			elseif event == "verdict" then
+				verdict = payload
+				if onVerdict then
+					onVerdict()
+				end
+			elseif handlers[event] then
+				handlers[event](payload)
+			end
+		end))
+		kartEvent:FireServer("ready")
+		-- Leaving before the places are settled hands the kart to an AI driver.
+		local exit = onExit
+		onExit = function()
+			if not verdict then
+				task.spawn(Remote.race, "partyLeave", nil, true)
+			end
+			exit()
+		end
 	end
 	-- Closes the race screen and does `go` instead of going back to the menu.
 	local function leave(go: () -> ())
@@ -550,7 +608,7 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 	local finishPlace = 0
 	local podium: Frame? = nil
 	local function nextButton(): { text: string, go: () -> () }?
-		if refused then
+		if refused or live then
 			return nil
 		end
 		if started.kind == "gp" then
@@ -631,6 +689,13 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 		if refused then
 			Ui.text({ Text = refused, Body = true, Weight = "heavy", TextSize = 14, TextWrapped = true, TextColor3 = hex("#c62828"), Position = UDim2.fromOffset(18, y), Size = UDim2.new(1, -36, 0, 36), ZIndex = 41, Parent = card })
 			y += 42
+		elseif live then
+			-- The server's places among the players (LiveKartParty.tsx kt-verdict), once settled.
+			local text = if verdict then `{if verdict.place == 1 then "🏆 " else ""}{ord(verdict.place)} / {verdict.of}   🪙 +${Ui.commas(verdict.coins or 0)}` else "⏳ 🏁"
+			local w = math.ceil(Ui.textWidth(text, 18)) + 26
+			local pill = Ui.new("Frame", { Name = "Verdict", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, y), Size = UDim2.fromOffset(w, 28), BackgroundColor3 = hex(if verdict and verdict.place == 1 then "#fff3c4" else "#e8eef4"), ZIndex = 41, Parent = card }, { Ui.round() })
+			Ui.text({ Text = text, TextSize = 18, TextColor3 = INK, Size = UDim2.fromScale(1, 1), ZIndex = 41, Parent = pill })
+			y += 38
 		else
 			-- The prize: all of it for a win, the place's share otherwise (Kart.tsx's pay line).
 			local prize = started.prize
@@ -667,6 +732,18 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 	-- ── The loop ──────────────────────────────────────────────────────────────────────────────
 	local clock = 0 -- seconds since the screen opened
 	local goAt = 0.6 + 6 * 0.6 + math.random() * 0.4
+	-- When the lights start: at once, or for a kart party when the server says go (and then
+	-- without the random hold, so every player's game goes together).
+	local lightsAt = 0
+	if live then
+		lightsAt = math.huge
+		goAt = math.huge
+		onVerdict = function()
+			if podium and not closed then
+				drawPodium()
+			end
+		end
+	end
 	local running = false
 	local litLamps = 0 -- the start lights heard so far
 	local acc = 0
@@ -714,6 +791,17 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 			Sfx.lose()
 		end
 		task.spawn(function()
+			if live then
+				-- The places come from the server once everyone is in (the verdict above).
+				local ok, res = Remote.race("partyFinish", time, true)
+				if not ok then
+					refused = if res == "too quick" then "That race finished too fast to count." else "The race server couldn't check that race."
+				end
+				if podium and not closed then
+					drawPodium()
+				end
+				return
+			end
 			local ok, res = Remote.race("kartFinish", { place = finishPlace, time = time }, true)
 			if ok then
 				result = res
@@ -741,8 +829,12 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 		clock += dt
 		-- Five lights, one every 0.6 s, then all out: GO.
 		local n = 0
+		if live and liveGo and lightsAt == math.huge then
+			lightsAt = clock
+			goAt = clock + 0.6 + 6 * 0.6 + 0.2
+		end
 		if not running then
-			n = math.clamp(math.floor((clock - 0.6) / 0.6), 0, 5)
+			n = if clock < lightsAt then 0 else math.clamp(math.floor((clock - lightsAt - 0.6) / 0.6), 0, 5)
 			if clock >= goAt then
 				running = true
 				n = 0
@@ -788,6 +880,15 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 			race:step(STEP, inputs, running)
 			for _, e in race.events do
 				table.insert(events, e)
+			end
+		end
+		if link then
+			-- After the steps: our karts out to the others, theirs put where their games had them
+			-- (which can add their finishes to the race's events).
+			local seen = #race.events
+			link:tick()
+			for i = seen + 1, #race.events do
+				table.insert(events, race.events[i])
 			end
 		end
 		local alpha = math.min(1, acc / STEP)
@@ -869,6 +970,11 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 		if running and mine.done == nil and nearMiss.stepNearMiss(near, mine, ks, race.t) then
 			Ui.setText(callout, "Near miss!")
 			callUntil = clock + 0.9
+		end
+		if dropped then
+			Ui.setText(callout, dropped)
+			callUntil = clock + 3
+			dropped = nil
 		end
 		if clock > callUntil and callout.Text ~= "" then
 			Ui.setText(callout, "")

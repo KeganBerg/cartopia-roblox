@@ -47,6 +47,10 @@ local WHY = {
 	["town done"] = "That's all 5 helps here today",
 	["day done"] = "You've helped plenty of towns today. Come back tomorrow!",
 	["not a business"] = "Only businesses need a hand",
+	["already in a party"] = "You're already in a kart party",
+	["The party has already started"] = "That kart party has already started",
+	["The party is full"] = "That kart party is full",
+	["Wait for someone to join"] = "Wait for someone to join your party",
 }
 
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
