@@ -117,11 +117,31 @@ const PACKS = {
   'car-firebolt': { car: 'firebolt', paint: '#d50000', super: true }, 'car-kaze': { car: 'kaze', paint: '#ffd600', super: true },
   'car-sturm': { car: 'sturm', paint: '#ff6d00', super: true }, 'car-vanta': { car: 'vanta', paint: '#00e5ff', super: true },
 }
+// Two sparkles, kept inside the inner circle so a round crop never cuts them.
+const SPARKLES = star(330, 112, 46) + star(132, 150, 28)
+// A picture's size, from its WebP header (VP8X, lossy VP8 or lossless VP8L).
+function webpSize(file) {
+  const b = readFileSync(file)
+  const kind = b.toString('ascii', 12, 16)
+  if (kind === 'VP8X') return [1 + b.readUIntLE(24, 3), 1 + b.readUIntLE(27, 3)]
+  if (kind === 'VP8 ') return [b.readUInt16LE(26) & 0x3fff, b.readUInt16LE(28) & 0x3fff]
+  const bits = b.readUInt32LE(21)
+  return [1 + (bits & 0x3fff), 1 + ((bits >> 14) & 0x3fff)]
+}
+// A car sized so its picture's corners stay inside the badge's inner circle (radius 198, less its
+// 8px ring) and centred on it, a little low so the car sits on the circle's middle.
+function badgeCar(id, paint) {
+  const [w, h] = webpSize(join(web, 'public/splash', `hero-${id}.webp`))
+  const R = 186
+  const width = Math.round((2 * R * w) / Math.hypot(w, h))
+  const height = (width * h) / w
+  return car(id, paint, `left:${Math.round(256 - width / 2)}px;top:${Math.round(266 - height / 2)}px;width:${width}px`)
+}
 for (const [id, p] of Object.entries(PACKS)) {
   if (p.car) {
     const rim = p.super ? ['#ffd54f', '#ff6f00'] : ['#64b5f6', '#1565c0']
     const inner = p.super ? ['#fff3c4', '#ff8a3d'] : ['#d6f0ff', '#4aa3f0']
-    PAGES[`badges/${id}`] = badge(rim, inner, car(p.car, p.paint, 'left:44px;top:150px;width:424px') + (p.super ? star(380, 70, 60) + star(90, 110, 34) : ''))
+    PAGES[`badges/${id}`] = badge(rim, inner, badgeCar(p.car, p.paint) + (p.super ? SPARKLES : ''))
   } else {
     const rim = p.gold ? ['#ffe082', '#ff8f00'] : ['#80deea', '#00838f']
     const n = p.gems
@@ -134,8 +154,13 @@ for (const [id, p] of Object.entries(PACKS)) {
       [[70, 250, 120], [180, 262, 120], [290, 250, 120], [124, 150, 130], [240, 150, 130]],
       [[70, 260, 112], [174, 272, 112], [282, 260, 112], [118, 170, 120], [230, 170, 120], [174, 82, 128]],
     ][n - 1]
-    const gems = spots.map(([x, y, s]) => gem(x, y, s, '#00e5ff', '#b2ffff')).join('')
-    const extra = n > 3 ? star(380, 90, 56) + star(90, 110, 36) : ''
+    // The pile, shrunk to fit the inner circle and centred on it (a gem is s wide, 0.9 s tall).
+    const x0 = Math.min(...spots.map((g) => g[0])), x1 = Math.max(...spots.map((g) => g[0] + g[2]))
+    const y0 = Math.min(...spots.map((g) => g[1])), y1 = Math.max(...spots.map((g) => g[1] + 0.9 * g[2]))
+    const k = Math.min(1, 300 / Math.max(x1 - x0, y1 - y0))
+    const at = (v, from, to, mid) => mid + (v - (from + to) / 2) * k
+    const gems = spots.map(([x, y, s]) => gem(at(x, x0, x1, 256), at(y, y0, y1, 262), s * k, '#00e5ff', '#b2ffff')).join('')
+    const extra = n > 3 ? SPARKLES : ''
     PAGES[`badges/${id}`] = badge(rim, p.gold ? ['#fff8e1', '#ffb300'] : ['#e0fbff', '#26c6da'], gems + extra)
   }
 }
