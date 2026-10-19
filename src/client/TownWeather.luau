@@ -12,7 +12,7 @@
 --   - a rainbow over the town after a shower, while the streets are still wet;
 --   - the ground: roads dark and wet in the rain, lawns and lots white and roads slushy in snow.
 --
--- DayNight owns the light and sets it a few times a second; this nudges what it set, every frame,
+-- DayNight owns the light and sets it every frame; this nudges what it set, every frame,
 -- from what DayNight last wrote (see `nudge`), so the two never fight or compound. The skybox and
 -- horizon are not touched. During a race (DayNight.raceFog) the town's weather stands down.
 --

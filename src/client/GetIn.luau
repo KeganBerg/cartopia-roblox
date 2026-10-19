@@ -21,6 +21,7 @@ local Ui = require(script.Parent.Ui) :: any
 local TownCamera = require(script.Parent.TownCamera) :: any
 local TownLife = require(script.Parent.TownLife) :: any
 local WorldLife = require(script.Parent.WorldLife) :: any
+local CarDrive = require(script.Parent.CarDrive) :: any
 
 -- Where the cars come from: the town's traffic, and the roads between the plots. Road cars'
 -- uids start "visitor:road:".
@@ -34,8 +35,6 @@ local player = Players.LocalPlayer
 
 local WALK = 16
 local SPRINT = 26
-local DRIVE = 110 -- server/Drive.SPEED
-local BOOST = 1.5 -- times the car's speed
 local REACH = 14 -- how close to a car the prompt shows
 local GIVE_BACK = 160 -- walk this far from a car you left and it rejoins the traffic
 
@@ -65,15 +64,14 @@ local function remote(): RemoteFunction?
 	return folder and folder:FindFirstChild("GetIn") :: RemoteFunction?
 end
 
--- Walking pace or driving speed, sped up while Shift or the button is down.
+-- Walking pace, sped up while Shift or the button is down. In a car, client/CarDrive sets the
+-- speed every step (and reads boosting()).
 local function applySpeed()
 	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then
+	if not humanoid or driving() then
 		return
 	end
-	if driving() then
-		humanoid.WalkSpeed = DRIVE * (if boosting() then BOOST else 1)
-	elseif TownCamera.isWalking() then
+	if TownCamera.isWalking() then
 		humanoid.WalkSpeed = if boosting() then SPRINT else WALK
 	end
 end
@@ -296,6 +294,7 @@ end
 ---------------------------------------------------------------------------------------------------
 
 function GetIn.start()
+	CarDrive.start(boosting)
 	makePrompt()
 	makeButtons()
 	TownCamera.onWalking(function(on: boolean)
