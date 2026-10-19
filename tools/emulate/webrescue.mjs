@@ -30,7 +30,17 @@ for (const size of sizes.length ? sizes : ['1280x800', '844x390']) {
     const tab = await browser.newPage({ viewport: { width, height } })
     tab.on('pageerror', (e) => console.error(e.message))
     // Midday, so the lot is lit as the Roblox previews are (the web's sky follows the clock).
-    await tab.clock.setFixedTime(new Date('2026-10-18T13:00:00'))
+    // (The clock still runs: it's only moved, so animations keep going.)
+    await tab.addInitScript(() => {
+      const off = new Date('2026-10-18T13:00:00').getTime() - Date.now()
+      const Real = Date
+      const now = () => Real.now() + off
+      class Shifted extends Real {
+        constructor(...a) { super(...(a.length ? a : [now()])) }
+        static now() { return now() }
+      }
+      window.Date = Shifted
+    })
     await tab.goto(`http://127.0.0.1:${port}/`)
     await tab.waitForFunction(() => !!window.__game, null, { timeout: 60000 })
     await tab.waitForTimeout(2500)
