@@ -3836,7 +3836,9 @@ do
 	end
 end
 
--- The Star Pass: 45 stars, two tiers already claimed; Collect takes the other three.
+-- The Star Pass: 45 stars, two tiers already claimed. The street keeps its chips through the
+-- town clock's ticks; a chip moves the camera along the road; Collect takes the other three; then
+-- Earn goes to Goals.
 do
 	hud.ctx.close()
 	local data = emu.require(RS.Shared.Game.data)
@@ -3844,9 +3846,62 @@ do
 		store.useGame.setState({ season = { n = data.seasonNumber(NOW), stars = 45, claimed = { 0, 1 } } })
 	end)
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	-- (A race's prize card left over from earlier would sit on top of the pictures.)
+	for _ = 1, 10 do
+		local p = hud.root:FindFirstChild("Popup")
+		local b = p and find(p, function(d)
+			return d:IsA("TextButton") and d.Name == "Face" and (label(d) == "Nice!" or label(d) == "Continue" or label(d) == "Awesome!" or label(d) == "Later")
+		end)
+		if not b then
+			break
+		end
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
 	hud.openPanel("season")
+	local step = renderSteps.StarPass
+	assert(step, "the Star Pass isn't stepping its street")
+	for _ = 1, 30 do
+		step(1 / 30)
+	end
+	local street = find(hud.gui, function(d)
+		return d:IsA("ViewportFrame") and d.Name == "Street"
+	end)
+	local streetCam = street and street:FindFirstChildOfClass("Camera")
+	assert(streetCam, "no street on the Star Pass")
+	local signs = 0
+	for _, d in hud.gui:GetDescendants() do
+		if d.Name:match("^Sign%d+$") and d.Visible then
+			signs += 1
+		end
+	end
+	assert(signs >= 3, `only {signs} arch signs in view`)
+	local root = hud.gui:FindFirstChild("Root")
 	if SHOTS then
 		shot("season", nil)
+		root.Size = roblox.UDim2.fromOffset(1535, 709)
+		step(1)
+		shot("season-phone", nil, 1535, 709)
+		root.Size = roblox.UDim2.fromOffset(1280, 800)
+	end
+	-- A tick of the town clock with nothing new for the Star Pass leaves its chips be.
+	local chip = hud.gui:FindFirstChild("Tier12", true)
+	assert(chip, "no tier 12 chip")
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	assert(hud.gui:FindFirstChild("Tier12", true) == chip, "a clock tick rebuilt the Star Pass chips")
+	-- Tapping tier 12's chip looks further up the road.
+	local before = streetCam.CFrame.Position.Z
+	local face = find(chip, function(d)
+		return d:IsA("TextButton")
+	end) or chip
+	signalFor(face, "Activated"):Fire()
+	for _ = 1, 60 do
+		step(1 / 30)
+	end
+	local after = streetCam.CFrame.Position.Z
+	assert(after > before + 100, `tier 12's chip didn't move along the road ({before} -> {after})`)
+	if SHOTS then
+		shot("season-tier12", nil)
 	end
 	local collect = find(hud.gui, function(d)
 		return d:IsA("TextButton") and string.find(label(d), "Collect", 1, true) ~= nil
@@ -3857,9 +3912,27 @@ do
 	signalFor(collect, "Activated"):Fire()
 	local season = towns:snapshot(1).save.season
 	print(`star pass: claimed {table.concat(season.claimed, ",")}, coins {coins} -> {towns:snapshot(1).save.coins}; calls {table.concat(calls, ", ")}`)
+	assert(#season.claimed == 5, "Collect didn't take every tier reached")
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	step(1 / 30)
 	if SHOTS then
 		shot("season-collected", nil)
 	end
+	local earn = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "Earn", 1, true) ~= nil
+	end)
+	assert(earn, "no Earn button once everything's collected")
+	signalFor(earn, "Activated"):Fire()
+	assert(find(hud.gui, function(d)
+		return d:IsA("TextLabel") and d.Name == "Title" and d.Text == "Goals"
+	end), "Earn didn't open Goals")
+	-- (Lune's Destroy doesn't fire Destroying; the street's own step notices the panel's gone.)
+	if renderSteps.StarPass then
+		renderSteps.StarPass(1 / 30)
+	end
+	assert(renderSteps.StarPass == nil, "the Star Pass kept stepping after it closed")
+	assert(hud.gui:FindFirstChild("Street", true) == nil, "the Star Pass's street stayed")
+	print("star pass: chips move the road, collect, earn opens goals")
 	hud.ctx.close()
 end
 
@@ -3961,6 +4034,29 @@ do
 	assert(#handlerErrors == 0, table.concat(handlerErrors, "; "))
 	local s = store.useGame.getState()
 	assert(s.levelUp == nil and s.paintPrize == nil and s.cupPrize == nil, "a pop-up's news wasn't cleared")
+
+	-- The purchase splash: a gem pack and a car pack just paid.
+	towns:_with(1, function(s)
+		store.useGame.setState({ bought = { { seq = 1, pack = "bag", bucks = 1200, coins = 5000, parts = 40 }, { seq = 2, pack = "bag", bucks = 6500, coins = 0, parts = 0, car = s.cars[1].model } } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	do
+		local p = popup()
+		assert(p, "no purchase splash")
+		local title = find(p, function(d)
+			return d:IsA("TextLabel") and d.Name == "Title"
+		end)
+		assert(title and title.Text == "Purchase successful!", `the purchase splash says {title and title.Text}`)
+		shot("popup-bought", nil)
+		local b = closer(p)
+		assert(b, "the purchase splash has no Continue")
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+		assert(popup() == nil, "the purchase splash stayed")
+		assert(#store.useGame.getState().bought == 0, "the purchase splash's news wasn't cleared")
+		print("purchase splash: shown and closed")
+	end
 
 	-- A pop-up waits while the race screen hides the HUD.
 	local hudGui = hud.gui

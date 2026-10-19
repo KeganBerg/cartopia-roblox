@@ -7,7 +7,8 @@
 --
 -- Prices come from the server (server/Purchases): Developer Products for gems, Game Passes for car
 -- packs, in Robux. A pack whose product or pass isn't made yet shows "Soon". Paying happens in
--- Roblox's own prompt; the server adds the pack and the menu redraws with the new gems.
+-- Roblox's own prompt; the server adds the pack, the menu redraws with the new gems and the
+-- purchase splash shows (client/Popups/Bought).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 

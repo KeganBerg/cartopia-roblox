@@ -231,18 +231,11 @@ local function grant(self: Purchases, userId: number, p: any, receipt: string)
 			row.car = p.car
 		end
 		s.applyPurchases({ row })
-		local get = self.store.useGame.getState
-		local bits = { `💎 +{g.bucks}` }
-		if g.coins > 0 then
-			table.insert(bits, `$ +{g.coins}`)
-		end
-		if g.parts > 0 then
-			table.insert(bits, `⚙ +{g.parts}`)
-		end
-		if row.car then
-			table.insert(bits, "🚗 new car in your garage")
-		end
-		get().toast(`Thanks! {table.concat(bits, "  ")}`)
+		-- The purchase splash (client/Popups/Bought): every pack paid since it last showed.
+		local game = self.store.useGame
+		local shown = table.clone(game.getState().bought or {})
+		table.insert(shown, row)
+		game.setState({ bought = shown })
 	end)
 	local r = self.receipts[userId]
 	table.insert(r.list, receipt)

@@ -251,7 +251,7 @@ end
 -- progress, which isn't part of the save (leaving mid-search forfeits it, as on the web).
 -- The web store's one-off news the game shows as pop-ups (level-up splash, prize cards). Each goes
 -- out once, with the snapshot after it happened.
-Towns.POPUPS = { "levelUp", "gpPrize", "campaignPrize", "tourPrize", "eventPrize", "paintPrize", "tunerPrize", "masteryPrize", "cupPrize" }
+Towns.POPUPS = { "levelUp", "gpPrize", "campaignPrize", "tourPrize", "eventPrize", "paintPrize", "tunerPrize", "masteryPrize", "cupPrize", "bought" }
 
 function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string }, search: any, popups: { [string]: any }, sounds: { any } }
 	local state = assert(self.states[userId], "town not open")
