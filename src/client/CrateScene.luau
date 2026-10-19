@@ -739,7 +739,7 @@ local function CoinBurst(folder: Instance, gems: boolean, big: boolean, style: s
 		}
 		parts[i] = part(folder, Vector3.new(H, R * 2, R * 2), HIDE, if gems
 			then { shape = "Cylinder", color = "#35a8ff", material = Enum.Material.Glass, reflect = 0.3 }
-			else { shape = "Cylinder", color = "#ffc107", material = Enum.Material.Foil, reflect = 0.2 })
+			else { shape = "Cylinder", color = "#f2b400", material = Enum.Material.Metal })
 	end
 	-- A big win always heaps up a pile; otherwise the shower's pattern is picked at random.
 	local pattern = if big then "pile" else BURST_PATTERNS[math.random(1, #BURST_PATTERNS)]
@@ -958,7 +958,7 @@ end
 
 -- A stack of gold coins with a big coin standing on top (a coin prize).
 local function CoinPile(folder: Instance, n: Node)
-	local coin: Look = { color = "#ffc107", material = Enum.Material.Foil, reflect = 0.25 }
+	local coin: Look = { color = "#f2b400", material = Enum.Material.Metal }
 	for k = 0, 3 do
 		for i = 0, 5 - k do
 			local a = (i / (6 - k)) * math.pi * 2 + k
@@ -967,20 +967,20 @@ local function CoinPile(folder: Instance, n: Node)
 		end
 	end
 	-- The big coin stands on top facing the camera, a $ stamped on it.
-	local face = cyl(folder, n, 0.42, 0.08, 0, 0.62, 0, { color = "#ffca28", material = Enum.Material.Foil, reflect = 0.3 }, CFrame.Angles(math.pi / 2, 0, 0))
+	local face = cyl(folder, n, 0.42, 0.08, 0, 0.62, 0, { color = "#ffc107", material = Enum.Material.Metal }, CFrame.Angles(math.pi / 2, 0, 0))
 	for _, f in { Enum.NormalId.Left, Enum.NormalId.Right } do
 		local g = Instance.new("SurfaceGui")
 		g.Face = f
 		g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 		g.PixelsPerStud = 50
-		g.LightInfluence = 0.4
+		g.LightInfluence = 1
 		local t = Instance.new("TextLabel")
 		t.BackgroundTransparency = 1
 		t.Size = UDim2.fromScale(1, 1)
 		t.Text = "$"
 		t.TextScaled = true
 		t.Font = Enum.Font.GothamBlack
-		t.TextColor3 = hex("#e65100")
+		t.TextColor3 = hex("#b23c00")
 		t.Parent = g
 		g.Parent = face
 	end
@@ -1242,7 +1242,7 @@ function CrateScene.run(def: any, pace: Pace?)
 	-- A slowly turning ring of light under the prize.
 	ring(folder, prizeNode, 1.05, 1.2, 0.02, 40, { glow }, { material = Enum.Material.Neon })
 	local beam = part(folder, Vector3.new(8, 1.45, 1.45), HIDE, { shape = "Cylinder", color = glow, material = Enum.Material.Neon, transparency = 1, shadow = false })
-	local floorGlow = part(folder, Vector3.new(0.02, 3.2, 3.2), CFrame.new(ORIGIN + P(0, LIFT + 0.012, 0)) * UPRIGHT, { shape = "Cylinder", color = glow, material = Enum.Material.Neon, transparency = 0.82, shadow = false })
+	local floorGlow = part(folder, Vector3.new(0.02, 3.2, 3.2), CFrame.new(ORIGIN + P(0, LIFT + 0.012, 0)) * UPRIGHT, { shape = "Cylinder", color = glow, material = Enum.Material.Neon, transparency = 0.9, shadow = false })
 	local flashPart = part(folder, Vector3.new(0.1, 0.1, 0.1), CFrame.new(ORIGIN + P(0, 2.2, 0.6)), { transparency = 1, shadow = false })
 	local lamps = part(folder, Vector3.new(0.1, 0.1, 0.1), HIDE, { transparency = 1, shadow = false })
 	local keyPart = part(folder, Vector3.new(0.1, 0.1, 0.1), HIDE, { transparency = 1, shadow = false })
@@ -1476,8 +1476,8 @@ local function tick(dt: number)
 	local after = if s.burstAt then now - s.burstAt else -1
 	local core = s.crate.core
 	core.Transparency = 1 - (if after >= 0 then math.max(0, 1 - after * 1.5) else charge * 0.95) * 0.85
-	s.crate.coreLight.Brightness = (if after >= 0 then 6 + math.max(0, 30 * (1 - after * 2)) else charge * 14) / 9
-	s.flash.Brightness = if after >= 0 then math.max(0, drama.flash * (1 - after * 3)) / 12 else 0
+	s.crate.coreLight.Brightness = (if after >= 0 then 6 + math.max(0, 30 * (1 - after * 2)) else charge * 14) / 14
+	s.flash.Brightness = if after >= 0 then math.max(0, drama.flash * (1 - after * 3)) / 20 else 0
 
 	-- Burst: the crate opens its own way and the bands snap away.
 	if after >= 0 then
@@ -1559,9 +1559,10 @@ local function tick(dt: number)
 						m:ScaleTo(want)
 					end
 				end)
-				-- The car stands on the prize's floor (the model's pivot is at its middle).
-				local _, size = m:GetBoundingBox()
-				m:PivotTo(at * CFrame.new(0, size.Y / 2, 0))
+				-- The car stands on the prize's floor: its wheels' bottom, wherever the model's pivot is.
+				local box, size = m:GetBoundingBox()
+				local up = m:GetPivot().Position.Y - (box.Position.Y - size.Y / 2)
+				m:PivotTo(at * CFrame.new(0, up, 0))
 			else
 				m:PivotTo(HIDE)
 			end
@@ -1571,7 +1572,7 @@ local function tick(dt: number)
 		keyPart.CFrame = at * CF(0.8, 2.6, 3.2)
 		rimPart.CFrame = at * CF(0, 2.4, -2.4)
 		s.key.Brightness = ease * 1
-		s.rim.Brightness = ease * 1.4
+		s.rim.Brightness = ease * 0.8
 		if not st.revealed and after > Pc.settle - Pc.charge then
 			st.revealed = true
 			if s.onReveal then
@@ -1658,9 +1659,9 @@ function CrateScene.enter(area: { x: number, y: number, w: number, h: number }, 
 	DayNight.setIndoor({
 		ambient = hex("#3d4060"),
 		brightness = 0,
-		exposure = 0.25,
-		bloom = 0.9,
-		threshold = 0.9,
+		exposure = -0.1,
+		bloom = 0.45,
+		threshold = 1.6,
 		saturation = 0.1,
 		contrast = 0.08,
 		fog = hex("#120c1c"),

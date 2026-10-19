@@ -1274,6 +1274,19 @@ do
 	end
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Custom, "walking didn't hand the camera to the avatar")
+	-- The label under the button reads MY TOWN, in its letters and its shadow alike.
+	local function walkWords(): { string }
+		local out = {}
+		for _, d in walkShadow.Parent:GetDescendants() do
+			if d:IsA("TextLabel") and (d.Text == "DRIVE" or d.Text == "MY TOWN") then
+				table.insert(out, d.Text)
+			end
+		end
+		return out
+	end
+	for _, w in walkWords() do
+		assert(w == "MY TOWN", `the Drive button shows "{w}" while driving`)
+	end
 	-- Their town on a plot out in the shared world (a stand-in folder, as TownView marks it).
 	local made = game.Workspace:FindFirstChild("Towns") == nil
 	local towns = game.Workspace:FindFirstChild("Towns") or Instance.new("Folder")
