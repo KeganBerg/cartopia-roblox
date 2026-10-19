@@ -13,6 +13,7 @@ local store = require(Game.store) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local RaceMenu = require(script.Parent.Parent.RaceMenu)
+local Thumb = require(script.Parent.Parent.Thumb)
 
 local Crew = {}
 
@@ -156,7 +157,7 @@ end
 
 -- This week's crew battle (web CrewBattle): both crews and their scores, the tug bar, how points
 -- are made, the player's points towards a victory chest, and each side's top drivers.
-function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me: number, heading: (Instance, number, string) -> (), claim: ((string, any) -> ())?)
+function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me: number, heading: (Instance, number, string) -> (), claim: ((string, any) -> ())?, map: (() -> ())?)
 	local x = battle and battle.current
 	if not x then
 		return
@@ -193,6 +194,10 @@ function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me:
 	local mine = if x.mine >= min then `Your points: {Ui.commas(x.mine)} ✔ chest if you win` else `Your points: {Ui.commas(x.mine)} · score {min - x.mine} more for a chest`
 	Ui.text({ Name = "Mine", Text = mine, Body = true, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 110), Size = UDim2.new(1, -24, 0, 17), Parent = card })
 	Ui.text({ Text = `🏁 +{rules.race or 1} a race, +{rules.win or 3} a win · ⚔️ live win +{rules.live or 10}, +{rules.h2h or 25} vs {them.tag}`, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(12, 130), Size = UDim2.new(1, -24, 0, 34), Parent = card })
+	-- The war map, under the score.
+	if map then
+		map()
+	end
 	-- The top drivers on each side.
 	local shown = math.max(math.min(#us.members, 5), math.min(#them.members, 5))
 	if shown > 0 then
@@ -237,6 +242,240 @@ function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me:
 			Ui.text({ Text = `{Ui.commas(w.us)} – {Ui.commas(w.them)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = if w.result == "win" then Color3.fromHex("#2e7d32") elseif w.result == "loss" then Color3.fromHex("#c62828") else Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.fromOffset(110, 40), Parent = row })
 		end
 	end
+end
+
+
+-- ── The war map (web WarMap, lib/warMap.ts) ───────────────────────────────────────────────────
+-- Cars for street crew drivers: picked from the crew's tag so they stay put.
+local STREET_BODIES = { sedan = true, sports = true, muscle = true, coupe = true, rally = true, wedge = true, super = true }
+local streetPicks: { any }? = nil
+local function streetCar(tag: string, i: number): any
+	if not streetPicks then
+		local picks = {}
+		for _, c in data.CARS do
+			if c.price > 0 and not c.rescueOnly and not c.season and not c.secret and not c.pack and STREET_BODIES[c.body] then
+				table.insert(picks, c)
+			end
+		end
+		streetPicks = picks
+	end
+	local picks = streetPicks :: { any }
+	local h = i * 7919
+	for k = 1, #tag do
+		h = (h * 31 + string.byte(tag, k)) % 4294967296
+	end
+	return picks[1 + h % math.max(1, #picks)] or data.CARS[1]
+end
+
+-- The player's race car's performance, and the time a street crew driver runs against it.
+local function myWarPi(): number
+	local s = store.useGame.getState()
+	local car = (require(Game.raceCar) :: any).raceCarOf(s.cars or {}, s.raceCar)
+	return if car then data.performance(data.carDef(car.model), car.upgrades, car.mods) else 0
+end
+local function streetTime(myPi: number, w: number): number
+	local floor = (require(Game.race) :: any).raceFloor(myPi)
+	return math.round(floor * (1.34 - 0.05 * math.clamp(w, 0.4, 1.6)) * 100) / 100
+end
+
+-- One crew's spots on the map, with the most stars the other crew took off each (by: whose races).
+local function spots(side: any, x: any, by: string, me: number): { any }
+	local function tally(id: string): (number, number)
+		local stars, hits = 0, 0
+		for _, a in x.attacks or {} do
+			if a.side == by and a.target == id then
+				stars = math.max(stars, a.stars)
+				hits += 1
+			end
+		end
+		return stars, hits
+	end
+	local out = {}
+	if side.bot then
+		for i, m in side.members do
+			local c = streetCar(side.tag, i)
+			local stars, hits = tally(m.id)
+			table.insert(out, { id = m.id, name = m.name, car = c.name, model = c.id, color = side.color, w = m.w or 1, stars = stars, hits = hits })
+		end
+		return out
+	end
+	for _, m in side.roster or {} do
+		local stars, hits = tally(m.id)
+		-- Rivals who took stars off you: race them back first.
+		local revenge = false
+		if by == "us" then
+			for _, a in x.attacks or {} do
+				if a.side == "them" and a.target == tostring(me) and tostring(a.by) == m.id and a.stars > 0 then
+					revenge = true
+				end
+			end
+		end
+		table.insert(out, { id = m.id, name = m.name, car = m.car or "No car yet", model = m.model, color = m.color or side.color, pi = m.pi, t = m.t, me = m.id == tostring(me), revenge = revenge, stars = stars, hits = hits })
+	end
+	return out
+end
+
+-- The next rival worth racing (web nextTarget): revenge first, then the fewest stars taken, then
+-- the slowest time; once all are beaten, a rematch.
+local function nextTarget(list: { any }, myPi: number): any?
+	local open = {}
+	for _, sp in list do
+		if sp.stars < 3 and (sp.t or sp.w) then
+			table.insert(open, sp)
+		end
+	end
+	if #open == 0 then
+		for _, sp in list do
+			if sp.t or sp.w then
+				table.insert(open, sp)
+			end
+		end
+	end
+	local function time(sp: any): number
+		return sp.t or streetTime(myPi, sp.w or 1)
+	end
+	table.sort(open, function(a, b)
+		if (a.revenge == true) ~= (b.revenge == true) then
+			return a.revenge == true
+		end
+		if a.stars ~= b.stars then
+			return a.stars < b.stars
+		end
+		return time(a) > time(b)
+	end)
+	return open[1]
+end
+
+-- Three stars in a row: the ones taken gold, the rest grey (a font's ☆ can look filled).
+local function starRow(parent: Instance, n: number, pos: UDim2, size: number): Frame
+	local f = Ui.new("Frame", { Name = "Stars", Position = pos, Size = UDim2.fromOffset(size * 3, size + 2), BackgroundTransparency = 1, Parent = parent })
+	for i = 1, 3 do
+		Ui.text({ Name = if i <= n then "On" else "Off", Text = "★", TextSize = size, TextColor3 = if i <= n then Color3.fromHex("#ffb300") else Color3.fromHex("#cfd8dc"), Position = UDim2.fromOffset((i - 1) * size, 0), Size = UDim2.fromOffset(size, size + 2), Parent = f })
+	end
+	return f
+end
+
+-- A row of one crew's spots: car, stars taken and name; their spots can be picked.
+local function spotRow(parent: Instance, y: number, list: { any }, name: string, pickedId: string?, onPick: ((any) -> ())?)
+	local row = Ui.new("ScrollingFrame", { Name = name, Position = UDim2.fromOffset(8, y), Size = UDim2.new(1, -16, 0, 96), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4, ScrollingDirection = Enum.ScrollingDirection.X, CanvasSize = UDim2.fromOffset(#list * 92, 0), Parent = parent }, {
+		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+	for i, sp in list do
+		local picked = pickedId == sp.id
+		local cell = Ui.new(if onPick then "TextButton" else "Frame", { Name = `Spot{sp.id}`, LayoutOrder = i, Size = UDim2.fromOffset(86, 90), BackgroundColor3 = if picked then Color3.fromHex("#fff3e0") elseif sp.stars == 3 then Color3.fromHex("#eceff1") else Ui.WHITE, Parent = row }, {
+			Ui.corner(10),
+			Ui.stroke(if picked then 3 else 2, if picked then Color3.fromHex("#ff9800") else Color3.fromHex("#e0e0e0")),
+		})
+		if onPick then
+			local b = cell :: TextButton
+			b.Text = ""
+			b.AutoButtonColor = true
+			b.Activated:Connect(function()
+				onPick(sp)
+			end)
+		end
+		if sp.model then
+			local pic = Thumb.new("Cars", sp.model, UDim2.fromOffset(70, 40), hex(sp.color or "#eceff1"))
+			pic.Position = UDim2.fromOffset(8, 4)
+			pic.Parent = cell
+		else
+			Ui.text({ Text = "🚗", TextSize = 26, Position = UDim2.fromOffset(8, 4), Size = UDim2.fromOffset(70, 40), Parent = cell })
+		end
+		if sp.stars == 3 then
+			Ui.text({ Text = "✔", TextSize = 18, TextColor3 = Color3.fromHex("#43a047"), AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 2), Size = UDim2.fromOffset(20, 20), Parent = cell })
+		elseif sp.revenge then
+			Ui.text({ Text = "🔥", TextSize = 16, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 2), Size = UDim2.fromOffset(20, 20), Parent = cell })
+		end
+		starRow(cell, sp.stars, UDim2.fromOffset(43 - 24, 46), 16)
+		Ui.text({ Text = if sp.me then "You" else sp.name, Body = true, Weight = "heavy", TextSize = 12, TextColor3 = Ui.INK, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(4, 66), Size = UDim2.new(1, -8, 0, 18), Parent = cell })
+	end
+end
+
+-- The war map: the stars each crew has taken, their racers to pick from, the one to race next with
+-- the Race button, the latest race, and your crew below (the stars they took off you).
+function Crew.warMap(parent: Instance, nextOrder: () -> number, battle: any, me: number, kit: any)
+	local x = battle and battle.current
+	if not x or x.result or not x.attacks then
+		return
+	end
+	local rules = battle.rules or {}
+	local theirs = spots(x.them, x, "us", me)
+	local ours = spots(x.us, x, "them", me)
+	local myPi = myWarPi()
+	local map = box(parent, nextOrder(), 360, "WarMap")
+	local pickedId: string? = nil
+	local function draw()
+		for _, c in map:GetChildren() do
+			if c:IsA("GuiObject") then
+				c:Destroy()
+			end
+		end
+		local took, lost = 0, 0
+		for _, sp in theirs do
+			took += sp.stars
+		end
+		for _, sp in ours do
+			lost += sp.stars
+		end
+		local swept = #theirs > 0 and took >= #theirs * 3
+		Ui.text({ Name = "UsStars", Text = `{x.us.tag} ⭐ {took}`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(0.3, -12, 0, 20), Parent = map })
+		Ui.text({ Text = if swept then "👑 All beaten!" else "Beat their racers for ⭐", Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.new(0.4, 0, 0, 20), TextTruncate = Enum.TextTruncate.AtEnd, Parent = map })
+		Ui.text({ Text = `⭐ {lost} {x.them.tag}`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 6), Size = UDim2.new(0.3, -12, 0, 20), Parent = map })
+		local target: any = nil
+		for _, sp in theirs do
+			if sp.id == pickedId then
+				target = sp
+			end
+		end
+		target = target or nextTarget(theirs, myPi)
+		spotRow(map, 30, theirs, "Them", target and target.id, function(sp: any)
+			pickedId = sp.id
+			draw()
+		end)
+		-- The one to race next, and the only button.
+		local duel = Ui.new("Frame", { Name = "Duel", Position = UDim2.fromOffset(8, 132), Size = UDim2.new(1, -16, 0, 74), BackgroundColor3 = Color3.fromHex("#f5f7fa"), Parent = map }, { Ui.corner(10) })
+		local left = battle.attacksLeft or 0
+		if target then
+			local time = target.t or streetTime(myPi, target.w or 1)
+			local tag = if target.revenge and target.stars < 3 then "🔥 REVENGE · " elseif target.stars == 3 then "🔁 REMATCH · " else ""
+			Ui.text({ Name = "Target", Text = `{tag}{target.name}`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -170, 0, 20), Parent = duel })
+			Ui.text({ Text = `⏱ {if target.t then "" else "~"}{string.format("%.2f", time)}s · {target.car} · ⭐ {target.stars}/3`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 30), Size = UDim2.new(1, -170, 0, 17), Parent = duel })
+			local hours = math.max(1, math.ceil((battle.dayLeft or 0) / 3600))
+			Ui.text({ Name = "Tickets", Text = if left > 0 then `🎟 {left}/{rules.attacksPerDay or 3} today · ★ win, ★★ by 1%, ★★★ by 3%` else `🎟 More war races in {hours}h`, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 50), Size = UDim2.new(1, -170, 0, 16), Parent = duel })
+			Ui.buy({ Name = "WarRace", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(140, 44), Parent = duel }, `⚔️ Race ⛽{data.RACE_FUEL}`, if left > 0 then "green" else "broke", function()
+				if left > 0 then
+					RaceMenu.start(kit.ctx, "war", { target = target.id }, "hub")
+				else
+					kit.toast("No war races left today")
+				end
+			end, 17)
+		else
+			Ui.text({ Text = "Nobody on their side has a car to race yet", Body = true, TextSize = 14, TextColor3 = Ui.MUTED, Size = UDim2.fromScale(1, 1), Parent = duel })
+		end
+		-- The latest war race, either side.
+		local latest = (x.attacks or {})[1]
+		if latest then
+			local function nameOf(id: string): string
+				for _, sp in theirs do
+					if sp.id == id then
+						return sp.name
+					end
+				end
+				for _, sp in ours do
+					if sp.id == id then
+						return if sp.me then "you" else sp.name
+					end
+				end
+				return "?"
+			end
+			local by = if tostring(latest.by) == tostring(me) then "You" else latest.byName
+			local text = if latest.won then `{by} took {string.rep("★", latest.stars)} off {nameOf(latest.target)}` else `{by} lost to {nameOf(latest.target)}`
+			Ui.text({ Name = "Latest", Text = `{if latest.side == "us" then "🟢" else "🔴"} {text}`, Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 210), Size = UDim2.new(1, -24, 0, 18), Parent = map })
+		end
+		Ui.text({ Text = `🛡️ {x.us.name}: stars {x.them.tag} took off you`, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 232), Size = UDim2.new(1, -24, 0, 16), Parent = map })
+		spotRow(map, 252, ours, "Us", nil, nil)
+	end
+	draw()
 end
 
 local function label(parent: Instance, text: string, y: number)
@@ -449,7 +688,9 @@ function Crew.draw(list: Instance, kit: any, state: any)
 			end
 			Crew.goal(list, nextOrder, res.goal, openChest)
 			Crew.battleChests(list, nextOrder, res.battle, claimBattle)
-			Crew.battle(list, nextOrder, res.battle, me, kit.heading, claimBattle)
+			Crew.battle(list, nextOrder, res.battle, me, kit.heading, claimBattle, function()
+				Crew.warMap(list, nextOrder, res.battle, me, kit)
+			end)
 
 			-- Crew chat: the crew's tab in Roblox's chat (server/CrewChat), for players Roblox lets chat.
 			local lp = Players.LocalPlayer

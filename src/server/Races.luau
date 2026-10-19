@@ -90,6 +90,8 @@ export type Mods = {
 	people: ((userId: number) -> { any })?,
 	-- The town visitors (server/Visitors), for street races against a visiting racer.
 	visitors: any?,
+	-- The crew war (server/CrewBattles), for war races (Modes/War): { battles, crewOf, nameOf }.
+	crewWar: any?,
 }
 
 -- A race mode beyond the ones built in here (server/Modes/*.luau). Each is a table of functions
