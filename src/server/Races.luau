@@ -53,15 +53,10 @@ type Pending = {
 	startedAt: number,
 	-- The paint rival or town rival raced.
 	who: string?,
-	-- A double-or-nothing rematch: what's riding on it.
-	stake: number?,
 	-- What a mode from server/Modes kept for its finish.
 	extra: any,
 	userId: number,
 }
-
--- A town rival race won, with a rematch for double or nothing on offer until another race.
-type Bet = { card: RivalCard, who: string, stake: number }
 
 export type Mods = {
 	store: any,
@@ -121,7 +116,6 @@ export type Races = typeof(setmetatable(
 		mods: Mods,
 		quick: { [number]: { pi: number, list: { RivalCard } } },
 		pending: { [number]: Pending },
-		bets: { [number]: Bet },
 		-- After a Quick Race (or a challenger): the next challenger after a win, the rematch after a loss.
 		nextUp: { [number]: RivalCard },
 	},
@@ -129,7 +123,7 @@ export type Races = typeof(setmetatable(
 ))
 
 function Races.new(towns: any, mods: Mods): Races
-	return setmetatable({ towns = towns, mods = mods, quick = {}, pending = {}, bets = {}, nextUp = {} }, Races)
+	return setmetatable({ towns = towns, mods = mods, quick = {}, pending = {}, nextUp = {} }, Races)
 end
 
 local function round(x: number): number
@@ -369,21 +363,9 @@ function Races._townCard(self: Races, s: any): (RivalCard?, string?)
 		cur.def.id
 end
 
--- A double-or-nothing rematch not raced (or left half way) is lost, as the web's forfeitBet.
-function Races._forfeit(self: Races, userId: number)
-	local p = self.pending[userId]
-	if p and p.stake and self.towns:isOpen(userId) then
-		self.pending[userId] = nil
-		local stake = p.stake
-		self.towns:_with(userId, function(_s: any)
-			self.mods.store.useGame.getState().rivalBet(false, stake)
-		end)
-	end
-end
-
 -- Starts a race. mode "quick" with the rival's number (1-3), "campaign" with { chapter, race }
 -- (0-based, as the web game counts), "row" with a paint rival's id, "rival" for the rival in
--- town, or "bet" for double or nothing after beating them. Returns what the client needs to run
+-- town. Returns what the client needs to run
 -- it, or nil and why.
 function Races.start(self: Races, userId: number, mode: string, arg: any): (any?, string?)
 	local data, store = self.mods.data, self.mods.store
@@ -394,10 +376,6 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 	local why: string? = nil
 	local where: any = nil
 	local who: string? = nil
-	local stake: number? = nil
-	self:_forfeit(userId)
-	local bet = self.bets[userId]
-	self.bets[userId] = nil
 	local nextUp = self.nextUp[userId]
 	self.nextUp[userId] = nil
 	if mode == "quick" then
@@ -410,11 +388,6 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 			return nil, "no race on offer"
 		end
 		rival = nextUp
-	elseif mode == "bet" then
-		if not bet then
-			return nil, "no bet on offer"
-		end
-		rival, who, stake = bet.card, bet.who, bet.stake
 	elseif mode == "row" then
 		if type(arg) ~= "string" or not self.mods.paintRivals.paintRival(arg) then
 			return nil, "pick a rival"
@@ -491,8 +464,7 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 				fuelFree = true
 			end
 		end
-		-- The rematch is on the house: it was the last race's fuel.
-		if mode ~= "bet" and not fuelFree and not store.spendFuel(data.RACE_FUEL) then
+		if not fuelFree and not store.spendFuel(data.RACE_FUEL) then
 			s.showNeed("fuel", data.RACE_FUEL - s.fuel, "a race")
 			why = "need fuel"
 			return
@@ -546,8 +518,8 @@ function Races.start(self: Races, userId: number, mode: string, arg: any): (any?
 		return nil, why
 	end
 	local r = rival :: RivalCard
-	self.pending[userId] = { mode = mode, spec = spec, rival = r, chapter = chapter, race = raceNo, model = model, startedAt = self.mods.clock(), who = who, stake = stake, extra = extra, userId = userId }
-	return { spec = spec, rival = r, mode = mode, venue = where, stake = stake, extra = extra, car = loaner }
+	self.pending[userId] = { mode = mode, spec = spec, rival = r, chapter = chapter, race = raceNo, model = model, startedAt = self.mods.clock(), who = who, extra = extra, userId = userId }
+	return { spec = spec, rival = r, mode = mode, venue = where, extra = extra, car = loaner }
 end
 
 -- Finishes the race started last, from the client's presses: races it again and pays it.
@@ -559,7 +531,6 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 		return nil, "no race"
 	end
 	if not DragRace.valid(events) then
-		self:_forfeit(userId)
 		self.pending[userId] = nil
 		return nil, "bad race"
 	end
@@ -569,8 +540,6 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 	local took = self.mods.clock() - p.startedAt
 	local need = DragRace.GO_TICK * DragRace.DT + math.min(myTime, theirTime, DragRace.MAX_SECONDS)
 	if took < need * 0.85 then
-		-- A rematch for double or nothing that doesn't count is lost.
-		self:_forfeit(userId)
 		self.pending[userId] = nil
 		return nil, "too quick"
 	end
@@ -578,7 +547,6 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 	-- A dead heat goes to the player, as on the web.
 	local won = myTime < theirTime or (myTime == theirTime and myTime < math.huge)
 	local result: any = { won = won, myTime = myTime, theirTime = theirTime, launch = run.launch, perfect = run.perfect, shifts = run.shifts, top = run.top }
-	local bet: Bet? = nil
 	self.towns:_with(userId, function(s: any)
 		local before = { coins = s.coins, xp = s.xp, level = s.level, trophies = s.trophies, bucks = s.bucks }
 		local modeDef: Mode? = if self.mods.modes then self.mods.modes[p.mode] else nil
@@ -605,15 +573,8 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 				result.paint = p.rival.color
 			end
 		elseif p.mode == "rival" then
-			local bonus = store().rivalResult(p.who, won, p.rival.prize)
-			result.bonus = bonus
-			-- A win (unless they just quit) offers double or nothing on the prize.
-			if won and not bonus then
-				bet = { card = p.rival, who = p.who :: string, stake = p.rival.prize }
-				result.bet = p.rival.prize
-			end
-		elseif p.mode == "bet" then
-			store().rivalBet(won, p.stake)
+			-- Unlike the web, no double or nothing after a win: Roblox doesn't allow betting.
+			result.bonus = store().rivalResult(p.who, won, p.rival.prize)
 		elseif modeDef then
 			modeDef.finish(self, s, p, won, myTime, theirTime, result)
 			-- A mode can call the race itself (a ghost's kept time, a live rival's own run).
@@ -641,11 +602,10 @@ function Races.finish(self: Races, userId: number, events: any): (any?, string?)
 		result.coins = after.coins - before.coins
 		result.trophies = after.trophies - before.trophies
 		result.bucks = after.bucks - before.bucks
-		-- A race that paid no XP (double or nothing, a solo run) shows none.
-		result.xp = if p.mode == "bet" or (after.xp == before.xp and after.level == before.level) then 0 else self.mods.store.lastRaceXpPaid()
+		-- A race that paid no XP (a solo run) shows none.
+		result.xp = if after.xp == before.xp and after.level == before.level then 0 else self.mods.store.lastRaceXpPaid()
 		result.levelUp = after.level > before.level
 	end)
-	self.bets[userId] = bet :: any
 	-- A Quick Race win or loss deals new rivals next time, and offers the next race: a faster
 	-- challenger after a win, the rematch after a loss.
 	if p.mode == "quick" or p.mode == "next" then
@@ -686,14 +646,7 @@ function Races.act(self: Races, userId: number, mode: any, arg: any): (any?, str
 	return out, why
 end
 
--- Turns down double or nothing (the result card's Keep button), or leaves it.
-function Races.keep(self: Races, userId: number)
-	self.bets[userId] = nil
-end
-
 function Races.close(self: Races, userId: number)
-	self:_forfeit(userId)
-	self.bets[userId] = nil
 	self.quick[userId] = nil
 	self.nextUp[userId] = nil
 	self.pending[userId] = nil
