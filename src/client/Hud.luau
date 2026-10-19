@@ -209,7 +209,7 @@ function Hud.start()
 			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 10) }),
 		})
 		local _ = face
-		Icons.currency(icon, row, 24).LayoutOrder = 1
+		Icons.picture(icon, row, 24).LayoutOrder = 1
 		local value = Ui.text({ Name = "Value", Text = "0", TextSize = 17, Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = row })
 		local plusSlot = Ui.new("Frame", { Size = UDim2.fromOffset(22, 20), BackgroundTransparency = 1, LayoutOrder = 3, Parent = row })
 		local plus = Ui.new("Frame", { Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Ui.WHITE, Parent = plusSlot }, {
@@ -387,14 +387,23 @@ function Hud.start()
 	-- behind it; My Town always brings you back to the view over your own town, wherever you were.
 	local walk = Ui.new("Frame", { Name = "Walk", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -250), Size = UDim2.fromOffset(60, 78), BackgroundTransparency = 1, Parent = root })
 	local walkLabel: TextLabel
-	local walkIcon: TextLabel
+	local walkIcon: GuiObject? = nil
 	local _, walkFace = Ui.button({ Name = "WalkButton", Position = UDim2.fromOffset(2.5, 5.5), Size = UDim2.fromOffset(55, 55), Parent = walk }, "white", function()
 		TownCamera.setWalking(not TownCamera.isWalking())
 	end, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
-	walkIcon = Ui.text({ Text = "🚗", TextSize = 30, Size = UDim2.fromScale(1, 1), Parent = walkFace })
+	-- The car (or the town), centred in the tile: a baked picture, as emoji sit high and to one side.
+	local function setWalkIcon(kind: string)
+		if walkIcon then
+			walkIcon:Destroy()
+		end
+		walkIcon = Icons.picture(kind, walkFace, 38)
+		walkIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+		walkIcon.Position = UDim2.fromScale(0.5, 0.5)
+	end
+	setWalkIcon("car")
 	walkLabel = Ui.text({ Text = "DRIVE", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
 	TownCamera.onWalking(function(on: boolean)
-		walkIcon.Text = if on then "🏙️" else "🚗"
+		setWalkIcon(if on then "town" else "car")
 		walkLabel.Text = if on then "MY TOWN" else "DRIVE"
 		-- The server puts them in their car, or takes them out and back home.
 		if not on or Players.LocalPlayer:GetAttribute("Driving") ~= true then

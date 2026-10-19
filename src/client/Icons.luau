@@ -319,11 +319,11 @@ function Icons.draw(name: string, parent: Instance, size: number, color: Color3?
 	return holder
 end
 
--- A currency icon ("coin", "bucks", "parts" or "fuel"), size pixels square: the web's own vector
--- art, baked into one picture by tools/icons/build.mjs, so it stays smooth at any size. Until that
--- picture is uploaded, the coin is drawn with frames and the rest are emoji.
-local EMOJI = { bucks = "💎", parts = "⚙️", fuel = "⛽" }
-function Icons.currency(kind: string, parent: Instance, size: number): GuiObject
+-- A baked icon ("coin", "bucks", "parts", "fuel", "car" or "town"), size pixels square: vector
+-- art baked into one picture by tools/icons/build.mjs, so it stays smooth and centred at any size.
+-- Until that picture is uploaded, the coin is drawn with frames and the rest are emoji.
+local EMOJI = { bucks = "💎", parts = "⚙️", fuel = "⛽", car = "🚗", town = "🏙️" }
+function Icons.picture(kind: string, parent: Instance, size: number): GuiObject
 	local IconImages = require(ReplicatedStorage.Shared.IconImages) :: any
 	local at = IconImages.at[kind]
 	if IconImages.sheet ~= 0 and at then

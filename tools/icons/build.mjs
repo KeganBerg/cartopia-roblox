@@ -1,5 +1,5 @@
 // Bakes the web game's currency icons (CoinIcon, BuckIcon, PartsIcon and FuelIcon in the web
-// repo's src/ui/Icon.tsx) into one picture Roblox can show, so the HUD's coin, gem and parts pills
+// repo's src/ui/Icon.tsx) and the Drive button's car and town into one picture Roblox can show, so the HUD's coin, gem and parts pills
 // draw the web's smooth vector art instead of emoji or shapes built from frames. Each icon is
 // drawn ICON pixels square, side by side, with a pixel of clear space round it so neighbours
 // never bleed in when Roblox scales it down.
@@ -49,6 +49,23 @@ const SVG = {
 <path d="M8.5 1.5h4v3h-4Z" fill="#3a4148"/>
 <path d="M12 9.5c1.8 2.4 3 4 3 5.6a3 3 0 0 1-6 0c0-1.6 1.2-3.2 3-5.6Z" fill="#fff"/>
 <path d="M6 9.2 8.6 6.5H17" stroke="#fff" stroke-opacity=".45" stroke-width="1.2" fill="none" stroke-linecap="round"/>`,
+  // The HUD's Drive button (Roblox only, no web original): a red car side on, and the town it
+  // takes you back to. Drawn here so they sit dead centre, which emoji glyphs don't.
+  car: `<g transform="translate(0 -2.8)"><path d="M3 15.2c0-1.3.7-2.2 1.9-2.5l2.2-.6 2.6-3.3c.5-.6 1.2-.9 2-.9h3.6c.8 0 1.5.4 2 1l2.3 3 1.6.4c1.1.3 1.8 1.2 1.8 2.3v1.8c0 .6-.4 1-1 1H4c-.6 0-1-.4-1-1Z" fill="#a3161c" transform="translate(0 1)"/>
+<path d="M3 15.2c0-1.3.7-2.2 1.9-2.5l2.2-.6 2.6-3.3c.5-.6 1.2-.9 2-.9h3.6c.8 0 1.5.4 2 1l2.3 3 1.6.4c1.1.3 1.8 1.2 1.8 2.3v1.8c0 .6-.4 1-1 1H4c-.6 0-1-.4-1-1Z" fill="#ef3e3e"/>
+<path d="M8.6 12.1 10.6 9.6c.3-.3.6-.5 1-.5h1.6v3Zm5.8 0v-3h1.3c.4 0 .8.2 1 .5l1.9 2.5Z" fill="#bfe6ff"/>
+<path d="M5 13.4h14" stroke="#fff" stroke-opacity=".35" stroke-width=".9" stroke-linecap="round"/>
+<circle cx="7.6" cy="17.3" r="2.5" fill="#263238"/><circle cx="7.6" cy="17.3" r="1.1" fill="#cfd8dc"/>
+<circle cx="16.6" cy="17.3" r="2.5" fill="#263238"/><circle cx="16.6" cy="17.3" r="1.1" fill="#cfd8dc"/>
+<rect x="19.6" y="13.6" width="1.6" height="1.2" rx=".5" fill="#ffe082"/></g>`,
+  town: `<g transform="translate(0 1)" fill="#1f3358"><rect x="2.5" y="10" width="6" height="11" rx="1"/><rect x="8" y="4" width="7" height="17" rx="1"/><rect x="14.5" y="8" width="7" height="13" rx="1"/></g>
+<rect x="2.5" y="10" width="6" height="11" rx="1" fill="#5aa9ff"/>
+<rect x="8" y="4" width="7" height="17" rx="1" fill="#ffb547"/>
+<rect x="14.5" y="8" width="7" height="13" rx="1" fill="#4fd1c5"/>
+<g fill="#fff" opacity=".85"><rect x="4" y="12" width="1.4" height="1.4" rx=".3"/><rect x="6" y="12" width="1.4" height="1.4" rx=".3"/><rect x="4" y="15" width="1.4" height="1.4" rx=".3"/><rect x="6" y="15" width="1.4" height="1.4" rx=".3"/>
+<rect x="9.6" y="6.5" width="1.5" height="1.5" rx=".3"/><rect x="12" y="6.5" width="1.5" height="1.5" rx=".3"/><rect x="9.6" y="9.5" width="1.5" height="1.5" rx=".3"/><rect x="12" y="9.5" width="1.5" height="1.5" rx=".3"/><rect x="9.6" y="12.5" width="1.5" height="1.5" rx=".3"/><rect x="12" y="12.5" width="1.5" height="1.5" rx=".3"/>
+<rect x="16" y="10.5" width="1.5" height="1.5" rx=".3"/><rect x="18.5" y="10.5" width="1.5" height="1.5" rx=".3"/><rect x="16" y="13.5" width="1.5" height="1.5" rx=".3"/><rect x="18.5" y="13.5" width="1.5" height="1.5" rx=".3"/></g>
+<rect x="10.4" y="17" width="2.2" height="4" rx=".4" fill="#7a4a00"/>`,
 }
 const names = Object.keys(SVG)
 

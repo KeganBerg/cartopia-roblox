@@ -114,12 +114,42 @@ end
 
 -- Loads every uploaded mesh pack (server only: InsertService). Waits for all of them, up to
 -- timeout seconds, calling progress(done, total) as each one finishes. Safe to call more than once.
+-- The packs only the race venues use (RaceScenery), found once: nobody sees them until a race
+-- starts, so a new server doesn't hold its first players up for them (Builder.loadRaces).
+local racePacks: { [number]: boolean }? = nil
+local function raceOnly(): { [number]: boolean }
+	if racePacks then
+		return racePacks
+	end
+	local function assetsOf(list: { [string]: { any } }, into: { [number]: boolean })
+		for _, parts in list do
+			for _, p in parts do
+				local m = p[1] == "m" and Meshes.MESHES[p[13]]
+				if m and m.asset ~= 0 then
+					into[m.asset] = true
+				end
+			end
+		end
+	end
+	local elsewhere: { [number]: boolean } = {}
+	assetsOf(Catalog.MODELS, elsewhere)
+	assetsOf(Scenery.MODELS, elsewhere)
+	local set: { [number]: boolean } = {}
+	assetsOf(RaceScenery.MODELS, set)
+	for asset in elsewhere do
+		set[asset] = nil
+	end
+	racePacks = set
+	return set
+end
+
 function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: number) -> ())?)
 	local byAsset: { [number]: boolean } = {}
+	local races = raceOnly()
 	for _, m in Meshes.MESHES do
-		-- A car's mod pack waits until that car needs it (Builder.loadFor), the far land until the
-		-- rest is in (Builder.loadLate).
-		if m.asset ~= 0 and not (m :: any).lazy and not (m :: any).late then
+		-- A car's mod pack waits until that car needs it (Builder.loadFor), the race venues until
+		-- the rest is in (Builder.loadRaces), and the far land behind them (Builder.loadLate).
+		if m.asset ~= 0 and not (m :: any).lazy and not (m :: any).late and not races[m.asset] then
 			byAsset[m.asset] = true
 		end
 	end
@@ -156,6 +186,25 @@ function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: n
 			copy.Parent = library
 		end
 		library.Parent = ReplicatedStorage
+	end
+end
+
+-- Loads the race venues' own mesh packs (server only), after Builder.loadMeshes, waiting up to
+-- timeout seconds for them. A race started before they're in fills in as they arrive.
+function Builder.loadRaces(timeout: number?)
+	local list = {}
+	for asset in raceOnly() do
+		if not packState[asset] then
+			table.insert(list, asset)
+		end
+	end
+	local left = #list
+	loadPacks(list, function()
+		left -= 1
+	end)
+	local start = os.clock()
+	while left > 0 and os.clock() - start < (timeout or 60) do
+		task.wait(0.2)
 	end
 end
 
