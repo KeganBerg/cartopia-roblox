@@ -29,6 +29,8 @@
 --                          visitors, their prizes rolled here (see Visitors)
 --   WebLink RemoteFunction client -> server: (code) -> ok, or why not: brings the player's web
 --                          town over, earned progress only (see WebLink)
+--   AdminRemote            only in the owner's own PlayerGui.CartopiaAdmin: the admin panel's
+--                          testing tools, checked by user id on every call (see Admin)
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -76,6 +78,8 @@ local WebLink = require(script.WebLink)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 local GetIn = require(script.GetIn)
 local Visitors = require(script.Visitors)
+local Admin = require(script.Admin)
+local Rave = require(script.Rave)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
 local TICK = 1 -- seconds between town clock ticks, as on the web
@@ -339,7 +343,7 @@ local prefsRemote = Instance.new("RemoteEvent")
 prefsRemote.Name = "Prefs"
 prefsRemote.Parent = remotes
 -- Rave Mode's button (the DJ only), shared with every server.
-require(script.Rave).start(remotes)
+Rave.start(remotes)
 remotes.Parent = ReplicatedStorage
 Prefs.start(DataStoreService:GetDataStore("Prefs_v1"), prefsRemote, Players)
 GetIn.start(towns)
@@ -1264,6 +1268,54 @@ task.spawn(function()
 		task.wait(if ok then 600 else 60)
 	end
 end)
+
+-- The admin panel (server/Admin): testing tools for Kegan's account only, checked here by user id.
+local admin = Admin.new({
+	towns = towns,
+	store = require(Game.store),
+	data = require(Game.data),
+	visitors = visitors,
+	player = function(userId: number): any
+		return Players:GetPlayerByUserId(userId)
+	end,
+	players = function(): { any }
+		return Players:GetPlayers()
+	end,
+	push = function(player: any, force: boolean?)
+		push(player, force)
+	end,
+	save = function(player: any)
+		save(player)
+	end,
+	hub = function(): CFrame
+		return CFrame.new(0, 5, 160)
+	end,
+	plot = function(i: number): CFrame?
+		return World.gate(i)
+	end,
+	plots = World.COUNT,
+	rave = function(player: any): (boolean, string?)
+		return Rave.go(player)
+	end,
+	stats = function(): { [string]: any }
+		local Stats = game:GetService("Stats")
+		return {
+			memoryMb = math.floor(Stats:GetTotalMemoryUsageMb()),
+			physicsFps = math.floor(workspace:GetRealPhysicsFPS()),
+			heartbeatMs = math.floor(Stats.HeartbeatTimeMs * 10) / 10,
+			uptime = math.floor(time()),
+			players = #Players:GetPlayers(),
+			instances = Stats.InstanceCount,
+			version = game.PlaceVersion,
+			job = if game.JobId == "" then "studio" else string.sub(game.JobId, 1, 8),
+		}
+	end,
+	now = now,
+	uid = function(): string
+		return HttpService:GenerateGUID(false)
+	end,
+})
+admin:start(Players)
 
 -- The town clock: jobs finish, fuel refills, tasks roll over.
 task.spawn(function()

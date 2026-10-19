@@ -33,6 +33,8 @@ local function source(uid: string): any
 end
 
 local GetIn = {}
+-- How much faster than normal the player walks (the admin panel's speed, for testing).
+GetIn.speedScale = 1
 
 local player = Players.LocalPlayer
 
@@ -92,7 +94,7 @@ local function applySpeed()
 		return
 	end
 	if TownCamera.isWalking() then
-		humanoid.WalkSpeed = if boosting() then SPRINT else WALK
+		humanoid.WalkSpeed = (if boosting() then SPRINT else WALK) * GetIn.speedScale
 	end
 end
 
@@ -431,6 +433,11 @@ local function makeButtons()
 end
 
 ---------------------------------------------------------------------------------------------------
+
+-- Sets the walking pace again at once (after speedScale changes).
+function GetIn.applySpeed()
+	applySpeed()
+end
 
 function GetIn.start()
 	CarDrive.start(boosting)

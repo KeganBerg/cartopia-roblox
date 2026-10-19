@@ -34,6 +34,7 @@ local Builder = require(Models:WaitForChild("Builder")) :: any
 
 local Town = require(script.Parent.Town)
 local TownCamera = require(script.Parent.TownCamera)
+local ClockShift = require(script.Parent.ClockShift)
 
 local SkyExtras = {}
 
@@ -51,7 +52,7 @@ local function image(id: number?): string?
 end
 
 local function night(): number
-	return clock.nightAmount(clock.dayPhase(DateTime.now().UnixTimestampMillis))
+	return clock.nightAmount(clock.dayPhase(ClockShift.now()))
 end
 
 -- The player's own wall clock, as a web Date (whose hours read as UTC here).
@@ -96,7 +97,7 @@ local function moon(n: number)
 	local phases = SkyImages.moon or {}
 	local pic = nil
 	if n > 0.5 and #phases > 0 then
-		local phase = extras.moonPhase(DateTime.now().UnixTimestampMillis)
+		local phase = extras.moonPhase(ClockShift.now())
 		pic = image(phases[math.floor(phase * #phases + 0.5) % #phases + 1])
 	end
 	local want = pic or "rbxasset://sky/sun.jpg"

@@ -14,6 +14,7 @@ the web game's.
 | `src/shared/RaceFloors.luau` | The fastest legal finish time for each PI, **generated** from the web game's referee migration. |
 | `src/server/Towns.luau` | Runs every player's town on the server with the web game's own store, and checks which actions clients may ask for. |
 | `src/server/Saves.luau` | Player saves in a DataStore (`Towns_v1`), with session locking. |
+| `src/server/Admin/` | The admin panel: testing tools (money, cars, crates, time, weather, teleport, fly, saves, kicks) for the owner's account only, by Roblox user id. The panel's screen (`Panel.client.luau`) is copied into that player's own PlayerGui, so nobody else's game has it. |
 | `src/server/init.server.luau` | Wires it up: loads and saves towns, ticks the town clock every second, autosaves every 5 minutes, and serves the remotes. |
 | `src/shared/Models/` | `Catalog.luau`, `Scenery.luau` and `Meshes.luau` are **generated** by `tools/models`: every building (`id@level`), car and street piece as Roblox parts, and the countryside round the town (forest, farm, lake, each plot's wild meadow) with its meshes merged so it stays cheap to draw. `Builder.luau` builds them. |
 | `src/server/TownView.luau` | Draws each player's town in `Workspace.Towns` from their save: land, lawn, roads (put together like the web's `RoadTile`), buildings and cars. |
