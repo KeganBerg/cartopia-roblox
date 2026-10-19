@@ -307,6 +307,8 @@ function Season.open(ctx: any): Instance
 			local fg = if t.car then "#ffffff" else SIGN_INK[t.state]
 			local shadow, face = Ui.shadowed({ Name = `Tier{t.n}`, Position = UDim2.fromOffset(6 + (i - 1) * 52, 9), Size = UDim2.fromOffset(46, 46), Parent = chips }, { radius = 12, stroke = 3, drop = 3, dark = 0.3, class = "TextButton", color = Color3.fromHex(colors) })
 			local _ = shadow
+			-- Six pixels apart with thick outlines: no room to grow under the mouse.
+			face:SetAttribute("MaxGrow", 0)
 			Ui.text({ Text = if t.car then "🚗" else tostring(t.n), TextSize = if t.car then 20 else 18, TextColor3 = Color3.fromHex(fg), Size = UDim2.fromScale(1, 1), Parent = face })
 			local ring = Ui.new("Frame", { Name = "On", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, 10, 1, 10), BackgroundTransparency = 1, Visible = false, Parent = face }, { Ui.corner(16), Ui.stroke(3, Color3.fromHex("#2f7ff0")) })
 			table.insert(rings, ring)
