@@ -34,7 +34,7 @@ local growth = require(Game:WaitForChild("growth")) :: any
 local clock = require(Game:WaitForChild("clock")) :: any
 local TownLife = require(script.Parent:WaitForChild("TownLife")) :: any
 
-local CenterLife = {}
+local StoreDoorLife = {}
 
 local S = Catalog.SCALE -- studs per web unit
 local TILE = data.TILE
@@ -162,7 +162,7 @@ local function copies(merged: number, w: number, d: number): { Copy }
 	-- Squares grow evenly; a pair grows longer (or deeper) at the same height.
 	return { { x = 0, z = 0, sx = sx, sy = if sx == sz then sx else 1, sz = sz } }
 end
-CenterLife._copies = copies
+StoreDoorLife._copies = copies
 
 -- The doors of a `name` model in a block `w` by `d` tiles of `merged` buildings.
 local function doorsOf(name: string, merged: number, w: number, d: number): { Door }
@@ -197,7 +197,7 @@ local function doorsOf(name: string, merged: number, w: number, d: number): { Do
 	end
 	return out
 end
-CenterLife._doorsOf = doorsOf
+StoreDoorLife._doorsOf = doorsOf
 
 -- How high the ground is under (x, z): the lot, or the step up to a door (with a short ramp up
 -- its front so nobody pops up it).
@@ -252,14 +252,14 @@ Life.__index = Life
 -- Builds the life at a `def` centre ("market" or "motel") drawn as `name`, a block of `merged`
 -- buildings `w` by `d` tiles on its own frame, whose middle on the ground is `frame` turned
 -- `turn` quarter turns. `small`: a phone, with fewer people about.
-function CenterLife.new(parent: Instance, frame: CFrame, turn: number, def: string, name: string, merged: number, w: number, d: number, small: boolean?): Life?
+function StoreDoorLife.new(parent: Instance, frame: CFrame, turn: number, def: string, name: string, merged: number, w: number, d: number, small: boolean?): Life?
 	local kind = KINDS[def]
 	local doors = doorsOf(name, merged, w, d)
 	if not kind or #doors == 0 then
 		return nil
 	end
 	local folder = Instance.new("Folder")
-	folder.Name = "CenterLife"
+	folder.Name = "StoreDoorLife"
 	-- The doorway and two glass panels for each door, out of sight until it opens.
 	for _, door in doors do
 		door.parts = {
@@ -563,7 +563,7 @@ end
 
 -- Keeps a Life for every centre in `town` (its Buildings folder); returns a function that looks
 -- for new, moved or changed ones, and one that moves them all on (each frame).
-function CenterLife.attach(town: Folder, parent: Instance?): (() -> (), (dt: number) -> ())
+function StoreDoorLife.attach(town: Folder, parent: Instance?): (() -> (), (dt: number) -> ())
 	local buildings = town:WaitForChild("Buildings")
 	local holder = Instance.new("Folder")
 	holder.Name = "Centers"
@@ -596,7 +596,7 @@ function CenterLife.attach(town: Folder, parent: Instance?): (() -> (), (dt: num
 				have = nil
 			end
 			if not have then
-				lives[model.Name] = { life = CenterLife.new(holder, frame, turn, def, name, merged, w, d, small), key = key }
+				lives[model.Name] = { life = StoreDoorLife.new(holder, frame, turn, def, name, merged, w, d, small), key = key }
 			end
 		end
 		for uid, have in lives do
@@ -632,7 +632,7 @@ function CenterLife.attach(town: Folder, parent: Instance?): (() -> (), (dt: num
 	return scan, step
 end
 
-function CenterLife.start()
+function StoreDoorLife.start()
 	local Town = require(script.Parent.Town) :: any
 	local Remote = require(script.Parent.Remote) :: any
 	task.spawn(function()
@@ -643,7 +643,7 @@ function CenterLife.start()
 				task.wait(0.5)
 			end
 		end
-		local scan, step = CenterLife.attach(folder :: Folder)
+		local scan, step = StoreDoorLife.attach(folder :: Folder)
 		-- The server redraws a building when it's built, moved, merged or upgraded; buildings also
 		-- stream in and out, so look again every second as well as on every change.
 		Remote.changed:Connect(function()
@@ -662,4 +662,4 @@ function CenterLife.start()
 	end)
 end
 
-return CenterLife
+return StoreDoorLife

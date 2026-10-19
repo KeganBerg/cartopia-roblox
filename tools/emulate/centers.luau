@@ -1,5 +1,5 @@
 --!nocheck
--- Previews the life at the merged Fresh Mart and motel (client/CenterLife): a starter town given a
+-- Previews the life at the merged Fresh Mart and motel (client/StoreDoorLife): a starter town given a
 -- 2x2 Fresh Mart at level 8 and a 2x2 motel at level 9 along the bottom road, and a Fresh Mart pair
 -- at level 7 on the top road, drawn by the server's TownView, with the shoppers and guests run for a
 -- while on the client. Writes build/shot-centers-<t>.json at each of the SHOTS times (seconds), and
@@ -72,8 +72,8 @@ end
 local view = TownView.new(folder, "Player1", Vector3.new(0, 0, 0), 1, function() end)
 view:render(save)
 
-local CenterLife = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.CenterLife)
-local scan, step = CenterLife.attach(view.folder, game.Workspace)
+local StoreDoorLife = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.StoreDoorLife)
+local scan, step = StoreDoorLife.attach(view.folder, game.Workspace)
 scan()
 
 local Gui = require("./gui")
