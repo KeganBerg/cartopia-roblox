@@ -78,12 +78,28 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
     const file = join(ROOT, 'build/callcards', key.slice(9) + '.png')
     if (existsSync(file)) images[key] = 'data:image/png;base64,' + readFileSync(file).toString('base64')
   }
+  // The HUD's currency icons (tools/icons/build.mjs), as "icons:<file>", with the sheet's size
+  // (read from the PNG header) since it isn't 1024 square.
+  const imageSize = {}
+  const findIcons = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (typeof n.image?.key === 'string' && n.image.key.startsWith('icons:') && !images[n.image.key]) {
+      const file = join(ROOT, 'build/icons', n.image.key.slice(6) + '.png')
+      if (existsSync(file)) {
+        const buf = readFileSync(file)
+        images[n.image.key] = 'data:image/png;base64,' + buf.toString('base64')
+        imageSize[n.image.key] = [buf.readUInt32BE(16), buf.readUInt32BE(20)]
+      }
+    }
+    for (const v of Object.values(n)) if (v && typeof v === 'object') findIcons(v)
+  }
+  findIcons(gui)
   // The sky's faces (tools/sky/build.mjs) for the step the scene asks for.
   const sky = {}
   if (scene.sky) {
     for (const face of ['Lf', 'Bk', 'Rt', 'Ft', 'Up', 'Dn']) sky[face] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/sky', `${scene.sky.season}-${scene.sky.step}-${face}.png`)).toString('base64')
   }
-  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, sky, gui: gui ?? null, camera: camera ?? null })}`)
+  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, imageSize, sky, gui: gui ?? null, camera: camera ?? null })}`)
   writeFileSync(join(dir, 'scene.html'), PAGE)
   const server = createServer((q, r) => {
     const f = join(dir, decodeURIComponent(new URL(q.url, 'http://x').pathname))
@@ -521,7 +537,7 @@ function draw(node, into = ui, ox = 0, oy = 0) {
     Object.assign(wrap.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 1 - node.image.t, isolation: 'isolate' })
     const r = node.image.rect
     // A sheet's piece: the sheet drawn scaled so the piece fills the box.
-    const piece = r && { backgroundImage: 'url(' + src + ')', backgroundSize: (1024 * pw / r[2]) + 'px ' + (1024 * ph / r[3]) + 'px', backgroundPosition: (-r[0] * pw / r[2]) + 'px ' + (-r[1] * ph / r[3]) + 'px', backgroundRepeat: 'no-repeat' }
+    const piece = r && { backgroundImage: 'url(' + src + ')', backgroundSize: ((S.imageSize?.[node.image.key]?.[0] ?? 1024) * pw / r[2]) + 'px ' + ((S.imageSize?.[node.image.key]?.[1] ?? 1024) * ph / r[3]) + 'px', backgroundPosition: (-r[0] * pw / r[2]) + 'px ' + (-r[1] * ph / r[3]) + 'px', backgroundRepeat: 'no-repeat' }
     const img = document.createElement(r ? 'div' : 'img')
     if (!r) img.src = src
     Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit }, piece || {})

@@ -39,6 +39,49 @@ end
 -- it can be tried again.
 local packState: { [number]: "loading" | "done" } = {}
 
+-- Whether a loaded mesh came in the shape it was made: its own size (MeshSize) in the same
+-- proportions as the converter recorded (Meshes.MESHES). A mesh Roblox imported turned on its side
+-- or squashed would be stretched by its part's size into long beams across the sky, so one that
+-- doesn't fit is treated as not loaded and left out. Only the countryside's meshes are checked,
+-- where a missing piece is simply not drawn (a town would show a box).
+local sceneryMeshes: { [string]: boolean }? = nil
+local function fits(d: MeshPart): boolean
+	if not sceneryMeshes then
+		local set = {}
+		for _, list in { Scenery.MODELS, RaceScenery.MODELS } do
+			for _, parts in list do
+				for _, p in parts do
+					if p[1] == "m" then
+						set[p[13]] = true
+					end
+				end
+			end
+		end
+		sceneryMeshes = set
+	end
+	if not (sceneryMeshes :: any)[d.Name] then
+		return true
+	end
+	local want = Meshes.MESHES[d.Name]
+	local ok, got = pcall(function()
+		return d.MeshSize
+	end)
+	if not want or not ok or typeof(got) ~= "Vector3" or got.Magnitude < 1e-6 then
+		return true
+	end
+	local lo, hi = math.huge, 0
+	for _, axis in { "X", "Y", "Z" } do
+		local w, g = (want.size :: any)[axis], (got :: any)[axis]
+		-- (Very thin sides are left out: the converter rounds them up.)
+		if w > 0.2 then
+			local r = math.max(g, 1e-6) / w
+			lo = math.min(lo, r)
+			hi = math.max(hi, r)
+		end
+	end
+	return hi == 0 or hi / lo < 1.5
+end
+
 -- Loads mesh packs (server only) and shares a copy of each mesh with the clients through
 -- ReplicatedStorage.MeshLibrary once that exists. Calls back after each pack.
 local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert.Priority?)
@@ -50,7 +93,7 @@ local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert
 			if model then
 				local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
 				for _, d in model:GetDescendants() do
-					if d:IsA("MeshPart") and not meshParts[d.Name] then
+					if d:IsA("MeshPart") and not meshParts[d.Name] and fits(d) then
 						meshParts[d.Name] = d
 						meshArrived()
 						if library then
@@ -132,22 +175,106 @@ function Builder.loadLate()
 	loadPacks(list, nil, "last")
 end
 
+-- Roblox draws a MeshPart in less detail the further its middle is from the camera (Automatic
+-- render fidelity). A race venue's meshes are merged over hundreds of studs of roadside, so their
+-- middles are far off even where they pass the car: the crowd came out as bare boxes and balls,
+-- the trees, fences and lift towers vanished and the mountains went flat. Swaps every race venue
+-- mesh for a copy drawn at full detail (server only, after Builder.loadMeshes), a few at a time
+-- in the background, and hands each one on to the clients through MeshLibrary as it's made.
+-- Call it again for meshes whose packs came in late; each mesh is only asked for once.
+local sharpening = false
+local sharpened: { [string]: boolean } = {}
+function Builder.sharpenRaces()
+	if sharpening then
+		return
+	end
+	local keys: { string } = {}
+	for _, parts in RaceScenery.MODELS do
+		for _, p in parts do
+			local key = p[13]
+			if p[1] == "m" and not sharpened[key] and meshParts[key] then
+				sharpened[key] = true
+				table.insert(keys, key)
+			end
+		end
+	end
+	if #keys == 0 then
+		return
+	end
+	local found, AssetService = pcall(game.GetService, game, "AssetService")
+	if not found then
+		return
+	end
+	sharpening = true
+	local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
+	local function sharpen(key: string)
+		local old = meshParts[key]
+		local ok, made = pcall(function()
+			return (AssetService :: any):CreateMeshPartAsync(old.MeshId, {
+				RenderFidelity = Enum.RenderFidelity.Precise,
+				CollisionFidelity = Enum.CollisionFidelity.Box,
+			})
+		end)
+		if not ok or not made then
+			return
+		end
+		made.Name = key
+		made.Anchored = true
+		made.CanCollide = false
+		meshParts[key] = made
+		if library then
+			local was = library:FindFirstChild(key)
+			made:Clone().Parent = library
+			if was then
+				was:Destroy()
+			end
+		end
+	end
+	local nextKey, running = 0, 6
+	for _ = 1, running do
+		task.spawn(function()
+			while nextKey < #keys do
+				nextKey += 1
+				sharpen(keys[nextKey])
+			end
+			running -= 1
+			if running == 0 then
+				sharpening = false
+			end
+		end)
+	end
+end
+
+-- Goes up each time a mesh reaches a client after Builder.useLibrary (late packs, a car's mods,
+-- Builder.sharpenRaces), so a model it keeps can be built again.
+Builder.meshVersion = 0
+
 function Builder.useLibrary(timeout: number?): boolean
 	local library = game:GetService("ReplicatedStorage"):WaitForChild("MeshLibrary", timeout or 60)
 	if not library then
 		return false
 	end
 	for _, d in library:GetChildren() do
-		if d:IsA("MeshPart") then
+		if d:IsA("MeshPart") and fits(d) then
 			meshParts[d.Name] = d
 		end
 	end
 	table.clear(templates)
-	-- Meshes the server loads later (a car's mods, Builder.loadFor) arrive one by one.
+	-- Meshes the server loads later (a car's mods, Builder.loadFor) arrive one by one. So do the
+	-- race venues' full-detail copies (Builder.sharpenRaces), replacing the ones already here: race
+	-- models built from then on use them.
 	library.ChildAdded:Connect(function(d: Instance)
-		if d:IsA("MeshPart") then
+		if d:IsA("MeshPart") and fits(d) then
+			if meshParts[d.Name] and meshParts[d.Name] ~= d then
+				for name in templates do
+					if name:sub(1, 5) == "race:" then
+						templates[name] = nil
+					end
+				end
+			end
 			meshParts[d.Name] = d
 			meshArrived()
+			Builder.meshVersion += 1
 		end
 	end)
 	return true
@@ -163,7 +290,7 @@ local function findMesh(key: string): MeshPart?
 	end
 	local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
 	local d = library and library:FindFirstChild(key)
-	if d and d:IsA("MeshPart") then
+	if d and d:IsA("MeshPart") and fits(d) then
 		meshParts[key] = d
 		meshArrived()
 		return d

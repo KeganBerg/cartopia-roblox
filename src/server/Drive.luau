@@ -100,4 +100,17 @@ function Drive.set(player: Player, model: Model | false | nil)
 	player:SetAttribute("Driving", true)
 end
 
+-- A new avatar (after driving off the world's edge, say) starts on foot at walking pace: the old
+-- one's car went with it, so the Driving flag goes too.
+local Players = game:GetService("Players")
+local function watch(player: Player)
+	player.CharacterAdded:Connect(function()
+		player:SetAttribute("Driving", nil)
+	end)
+end
+Players.PlayerAdded:Connect(watch)
+for _, player in Players:GetPlayers() do
+	watch(player)
+end
+
 return Drive

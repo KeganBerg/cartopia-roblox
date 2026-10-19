@@ -49,6 +49,12 @@
         "EnvironmentSpecularScale": 0.4
       }
     },
+    "HttpService": {
+      "$className": "HttpService",
+      "$properties": {
+        "HttpEnabled": true
+      }
+    },
     "ReplicatedFirst": {
       "$className": "ReplicatedFirst",
       "Loading": { "$path": "src/first" }

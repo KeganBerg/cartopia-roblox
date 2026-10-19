@@ -86,8 +86,13 @@ function Hud.start()
 	local scale = Ui.new("UIScale", { Scale = 1, Parent = root })
 	local left = Ui.new("Frame", { Name = "Left", Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(250, 120), BackgroundTransparency = 1, Parent = root })
 	local function fit()
+		-- The screen the GUI is drawn on, which can be smaller than the camera's view (safe
+		-- areas, window edges): sized from the camera alone, wide menus ran off the right edge.
 		local cam = workspace.CurrentCamera
-		local view = if cam then cam.ViewportSize else Vector2.new(REF_W, REF_H)
+		local view = gui.AbsoluteSize
+		if (view.X < 2 or view.Y < 2) and cam then
+			view = cam.ViewportSize
+		end
 		if view.X < 2 or view.Y < 2 then
 			view = Vector2.new(REF_W, REF_H)
 		end
@@ -102,6 +107,7 @@ function Hud.start()
 		left.Position = UDim2.fromOffset(10, 10 + (if top > 0 then top / s - 4 else 0))
 	end
 	fit()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 	if workspace.CurrentCamera then
 		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 	end
@@ -203,19 +209,17 @@ function Hud.start()
 			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 10) }),
 		})
 		local _ = face
-		if icon == "coin" then
-			Icons.draw("coin", row, 24).LayoutOrder = 1
-		else
-			Ui.text({ Text = icon, TextSize = 19, Size = UDim2.fromOffset(24, 24), LayoutOrder = 1, Parent = row })
-		end
+		Icons.currency(icon, row, 24).LayoutOrder = 1
 		local value = Ui.text({ Name = "Value", Text = "0", TextSize = 17, Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = row })
-		local plusSlot = Ui.new("Frame", { Size = UDim2.fromOffset(20, 18), BackgroundTransparency = 1, LayoutOrder = 3, Parent = row })
-		local plus = Ui.new("Frame", { Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(14, 14), BackgroundColor3 = Ui.WHITE, Parent = plusSlot }, {
-			Ui.corner(5),
-			Ui.stroke(2),
+		local plusSlot = Ui.new("Frame", { Size = UDim2.fromOffset(22, 20), BackgroundTransparency = 1, LayoutOrder = 3, Parent = row })
+		local plus = Ui.new("Frame", { Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Ui.WHITE, Parent = plusSlot }, {
+			Ui.corner(6),
+			Ui.stroke(1.5, Color3.fromHex("#1d5a20"), 0.15),
 			Ui.gradient(Ui.COLORS.plus[1], Ui.COLORS.plus[2]),
 		})
-		Icons.draw("plus", plus, 11, Ui.WHITE, nil, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		-- The web's inset highlight along the top (theme.css .plus box-shadow).
+		Ui.new("Frame", { Position = UDim2.fromOffset(3, 1), Size = UDim2.new(1, -6, 0, 1.5), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.55, BorderSizePixel = 0, Parent = plus }, { Ui.round() })
+		Icons.draw("plus", plus, 12, Ui.WHITE, nil, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		row.Activated:Connect(onClick)
 		return value
 	end
@@ -223,14 +227,14 @@ function Hud.start()
 		openPanel("need", { res = "coins", missing = 0 })
 	end)
 	-- Gems open the Bank once it's unlocked (web Hud.tsx openGems), else how to earn them.
-	local gems = counter(2, "💎", function()
+	local gems = counter(2, "bucks", function()
 		if Bank.unlocked(store.useGame.getState()) then
 			openPanel("bank")
 		else
 			openPanel("need", { res = "bucks", missing = 0 })
 		end
 	end)
-	local parts = counter(3, "⚙️", function()
+	local parts = counter(3, "parts", function()
 		openPanel("need", { res = "parts", missing = 0 })
 	end)
 	-- Where collected rewards fly to (Fly.from): the counters, and the XP box for XP.
@@ -307,7 +311,7 @@ function Hud.start()
 	Icons.draw("trophy", trophyRow, 16, Ui.WHITE).LayoutOrder = 1
 	local trophyText = Ui.text({ Text = "0", TextSize = 17, Size = UDim2.fromOffset(0, 23), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = trophyRow })
 	trophyRow.Activated:Connect(function()
-		toast("Leaderboards are coming to Roblox soon")
+		openPanel("friends", "leaders")
 	end)
 	-- Sound on/off: mutes the game's sounds (they play through the Cartopia sound group).
 	local soundGroup = SoundService:FindFirstChild("Cartopia") or Ui.new("SoundGroup", { Name = "Cartopia", Volume = 1, Parent = SoundService })
