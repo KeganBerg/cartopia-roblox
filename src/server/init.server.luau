@@ -365,10 +365,10 @@ task.spawn(function()
 	end)
 	meshesReady = true
 	workspace:SetAttribute("ShapesReady", true)
-	-- The race venues' own meshes come in next, then at full detail (Builder.sharpenRaces), again
-	-- for any that came late.
+	-- The race venues' and rescue lot's own meshes come in next, then the race venues' at full
+	-- detail (Builder.sharpenRaces), again for any that came late.
 	task.spawn(function()
-		Builder.loadRaces(60)
+		Builder.loadVenues(60)
 		Builder.sharpenRaces()
 		task.delay(120, Builder.sharpenRaces)
 	end)
