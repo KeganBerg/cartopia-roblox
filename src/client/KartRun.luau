@@ -25,6 +25,7 @@ local nearMiss = require(Game.nearMiss) :: any
 local cones = require(Game.cones) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Snapshot = require(script.Parent.Snapshot)
 local Thumb = require(script.Parent.Thumb)
 local TownCamera = require(script.Parent.TownCamera)
 local DayNight = require(script.Parent.DayNight)
@@ -646,6 +647,10 @@ function KartRun.run(ctx: any, started: any, onExit: () -> (), again: (string, a
 		podium = overlay
 		local card = Ui.new("Frame", { Name = "Podium", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(420, 480), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.04, ZIndex = 41, Parent = overlay }, { Ui.corner(22) })
 		local INK = hex("#263238")
+		-- A won race's postcard (the web's SnapshotButton).
+		if won then
+			Snapshot.button(card, overlay, screen, "🏆 1st place")
+		end
 		Ui.text({ Text = if won then "🏆 You win!" else `{ord(finishPlace)} place`, TextSize = 30, TextColor3 = INK, Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 36), ZIndex = 41, Parent = card })
 		local order = race:order()
 		local ids = {}

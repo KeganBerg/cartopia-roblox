@@ -3992,3 +3992,207 @@ do
 	townsFolder:Destroy()
 	print(`visitors: {problems} problems`)
 end
+
+-- Car extras: the dyno pull on the car's page after an upgrade (client/Dyno), the 📸 postcard on a
+-- won race (client/Snapshot), and the "🛞 Flat!" bubble over a stalled car in town that opens its
+-- fix-it sheet (Popups/FlatBadge). SHOTS=1 writes build/shot-dyno*.json and shot-postcard.json.
+do
+	hud.ctx.close()
+	local problems = 0
+	local function problem(msg)
+		problems += 1
+		print(`[car extras] PROBLEM {msg}`)
+	end
+	local UIS = game:GetService("UserInputService")
+	local touch = { UserInputType = roblox.Enum.UserInputType.Touch, KeyCode = roblox.Enum.KeyCode.Unknown }
+	local function textOf(root)
+		local out = {}
+		for _, d in root:GetDescendants() do
+			if d:IsA("TextLabel") and d.Name ~= "Face" and d.Text ~= "" and d.Visible then
+				table.insert(out, d.Text)
+			end
+		end
+		return table.concat(out, " | ")
+	end
+
+	-- The dyno: an engine upgrade tapped on the car's page.
+	calls = {}
+	handlerErrors = {}
+	local uid
+	towns:_with(1, function()
+		local cars = {}
+		for i, c in store.useGame.getState().cars do
+			cars[i] = table.clone(c)
+			cars[i].flat, cars[i].lowFuel = nil, nil
+		end
+		cars[1].upgrades = { engine = 0, turbo = 0, tires = 0, weight = 0 }
+		uid = cars[1].uid
+		store.useGame.setState({ coins = 1000000, parts = 100000, cars = cars, selectedCar = uid })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.openPanel("cars", { car = uid, tab = "tune" })
+	local Dyno = emu.require(client.Dyno)
+	local t = 1000
+	Dyno.clock = function()
+		return t
+	end
+	signalFor(UIS, "InputBegan"):Fire(touch, true)
+	Remote.act("upgradeCar", uid, "engine")
+	Emu.resumeWaits()
+	local dyno = hud.gui:FindFirstChild("Dyno", true)
+	if not dyno then
+		problem(`no dyno after an upgrade ({table.concat(calls, ", ")}) {table.concat(handlerErrors, "; ")}`)
+	else
+		local pi = hud.gui:FindFirstChild("PI", true)
+		if pi and pi.Visible then
+			problem("the PI badge shows over the dyno")
+		end
+		print(`dyno: start "{textOf(dyno)}"`)
+		shot("dyno", nil)
+		-- The pull run to its end: the new time and the gain.
+		t += Dyno.PULL + 0.1
+		signalFor(game:GetService("RunService"), "RenderStepped"):Fire(1 / 60)
+		local done = textOf(dyno)
+		print(`dyno: done "{done}"`)
+		if not string.find(done, "PI", 1, true) or not (string.find(done, "−", 1, true) or string.find(done, "Same time", 1, true)) then
+			problem(`the dyno's result says "{done}"`)
+		end
+		shot("dyno-done", nil)
+		-- Tapped to skip: it goes and the PI badge is back.
+		signalFor(dyno, "Activated"):Fire()
+		Emu.resumeWaits()
+		if hud.gui:FindFirstChild("Dyno", true) then
+			problem("the dyno didn't go when tapped")
+		end
+		local back = hud.gui:FindFirstChild("PI", true)
+		if not back or not back.Visible then
+			problem("the PI badge didn't come back after the dyno")
+		end
+	end
+	-- A save arriving with no tap on the page (from another device) starts no dyno.
+	Dyno.clock = os.clock
+	hud.ctx.close()
+	hud.openPanel("cars", { car = uid, tab = "tune" })
+	towns:_with(1, function()
+		local cars = {}
+		for i, c in store.useGame.getState().cars do
+			cars[i] = table.clone(c)
+		end
+		cars[1].upgrades = table.clone(cars[1].upgrades)
+		cars[1].upgrades.turbo = (cars[1].upgrades.turbo or 0) + 1
+		store.useGame.setState({ cars = cars })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	if hud.gui:FindFirstChild("Dyno", true) then
+		problem("a dyno ran with no tap")
+	end
+	hud.ctx.close()
+
+	-- The postcard: the 📸 on a result card, as a won race shows it (no screenshot service here, so
+	-- the postcard stays up with its hint, and a tap brings the card back).
+	local Snapshot = emu.require(client.Snapshot)
+	-- Drawn on the HUD's screen, so the picture has it.
+	local screen = Instance.new("Frame")
+	screen.Name = "SnapTest"
+	screen.BackgroundTransparency = 1
+	screen.ZIndex = 50
+	screen.Size = roblox.UDim2.fromScale(1, 1)
+	screen.Parent = hud.root
+	local gui = screen
+	local result = Instance.new("Frame")
+	result.Name = "Result"
+	result.Size = roblox.UDim2.fromScale(1, 1)
+	result.Parent = screen
+	local card = Instance.new("Frame")
+	card.Size = roblox.UDim2.fromOffset(420, 470)
+	card.Parent = result
+	local snapButton = Snapshot.button(card, result, screen, "🏆 Beat Rosa")
+	handlerErrors = {}
+	signalFor(snapButton, "Activated"):Fire()
+	Emu.resumeWaits()
+	local strip = screen:FindFirstChild("Postcard")
+	if not strip or result.Visible then
+		problem(`no postcard on 📸 {table.concat(handlerErrors, "; ")}`)
+	else
+		print(`postcard: "{textOf(strip)}"`)
+		if textOf(strip) ~= "🏆 Beat Rosa | Cartopia" then
+			problem(`the postcard says "{textOf(strip)}"`)
+		end
+		shot("postcard", nil)
+		local back = screen:FindFirstChild("PostcardBack")
+		if not back then
+			problem("the postcard has no way back")
+		else
+			signalFor(back, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		if screen:FindFirstChild("Postcard") or not result.Visible then
+			problem("the result card didn't come back after the postcard")
+		end
+	end
+	gui:Destroy()
+
+	-- The flat-tire bubble: over the stalled car on the road, tapped for its fix-it sheet.
+	local FlatBadge = emu.require(client.Popups.FlatBadge)
+	local carModel = Instance.new("Model")
+	local body = Instance.new("Part")
+	body.Size = roblox.Vector3.new(8, 4, 16)
+	body.Parent = carModel
+	carModel.PrimaryPart = body
+	carModel.Parent = game.Workspace
+	for _, how in { "flat", "gas" } do
+		local stuck
+		towns:_with(1, function()
+			local cars = {}
+			for i, c in store.useGame.getState().cars do
+				cars[i] = table.clone(c)
+				cars[i].flat = if i == 1 and how == "flat" then true else nil
+				cars[i].lowFuel = if i == 1 and how == "gas" then true else nil
+			end
+			stuck = cars[1].uid
+			store.useGame.setState({ cars = cars })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		FlatBadge.onRoad = function()
+			return { [stuck] = carModel }
+		end
+		FlatBadge.refresh()
+		local face = FlatBadge.faces()[stuck]
+		if not face then
+			problem(`no bubble over the {how} car`)
+			continue
+		end
+		local words = textOf(face)
+		print(`flat badge ({how}): "{words}"`)
+		if words ~= (if how == "flat" then "🛞 Flat!" else "⛽ No gas!") then
+			problem(`the {how} bubble says "{words}"`)
+		end
+		handlerErrors = {}
+		signalFor(face, "Activated"):Fire()
+		Emu.resumeWaits()
+		local panel = hud.root:FindFirstChild("Panel")
+		local sheet = panel and textOf(panel) or ""
+		print(`flat badge ({how}): sheet "{string.sub(sheet, 1, 140)}"`)
+		if not panel or #handlerErrors > 0 then
+			problem(`the {how} bubble didn't open the fix-it sheet {table.concat(handlerErrors, "; ")}`)
+		end
+		hud.ctx.close()
+	end
+	-- Fixed: the bubble goes.
+	towns:_with(1, function()
+		local cars = {}
+		for i, c in store.useGame.getState().cars do
+			cars[i] = table.clone(c)
+			cars[i].flat, cars[i].lowFuel = nil, nil
+		end
+		store.useGame.setState({ cars = cars })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	FlatBadge.refresh()
+	if next(FlatBadge.faces()) then
+		problem("the bubble stayed after the car was fixed")
+	end
+	carModel:Destroy()
+	print(`car extras: {problems} problems`)
+end
