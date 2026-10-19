@@ -29,6 +29,7 @@ local weather = require(Game:WaitForChild("weather")) :: any
 local clock = require(Game:WaitForChild("clock")) :: any
 local season = require(Game:WaitForChild("scene_season")) :: any
 local DayNight = require(script.Parent.DayNight)
+local TownCamera = require(script.Parent.TownCamera)
 
 local TownWeather = {}
 
@@ -352,12 +353,37 @@ local function build(): Kit
 	return { folder = folder, sky = sky, ground = ground, anchor = anchor, rain = rain, snow = snow, splash = splash, bolt = bolt, boltAt = boltAt, bow = bow, bowAt = bowAt }
 end
 
--- Weather.tsx frameFor (bird's-eye): the ground point in the middle of the screen, how big a box
--- fills the view, and how many studs a pixel is there.
-type Frame = { center: Vector3, span: number, top: number, px: number, dist: number }
-function TownWeather.frame(cam: Camera): Frame
+-- Weather.tsx frameFor: where the weather box sits, how big a box fills the view, and how many
+-- studs a pixel is there. `free` is a camera down among the streets (walking or driving).
+type Frame = { center: Vector3, span: number, top: number, px: number, dist: number, free: boolean, ahead: Vector3 }
+function TownWeather.frame(cam: Camera, free: boolean?): Frame
 	local cf = cam.CFrame
 	local fwd = cf.LookVector
+	if free then
+		-- Free view (perspective): a box on the ground ahead of the camera, sized to how far up it
+		-- is. The web fades out every drop within a few metres of the lens (PRECIP_VERT's vFade);
+		-- Roblox can't fade a particle by its distance, so the box starts NEAR studs ahead instead,
+		-- and the drops ride along with it (precip), so no streak ever whips past the lens.
+		local t = if fwd.Y < -0.05 then math.min(-cf.Position.Y / fwd.Y, 45 * U) else 30 * U
+		local d = (fwd * t).Magnitude
+		local span = math.ceil(math.min(120 * U, math.max(40 * U, d * 1.2 + 20 * U)) / (8 * U)) * 8 * U
+		local flat = Vector3.new(fwd.X, 0, fwd.Z)
+		if flat.Magnitude < 1e-3 then
+			flat = Vector3.new(cf.UpVector.X, 0, cf.UpVector.Z)
+		end
+		flat = if flat.Magnitude < 1e-3 then Vector3.new(0, 0, -1) else flat.Unit
+		local center = cf.Position + flat * (TownWeather.NEAR + span / 2)
+		return {
+			center = Vector3.new(center.X, 0, center.Z),
+			span = span,
+			top = math.max(22 * U, cf.Position.Y + 6 * U),
+			px = 0.02 * U + d * 0.0006,
+			dist = d,
+			free = true,
+			ahead = flat,
+		}
+	end
+	-- Bird's-eye: the ground point in the middle of the screen.
 	local t = if fwd.Y < -0.05 then -cf.Position.Y / fwd.Y else 1000
 	local center = cf.Position + fwd * t
 	center = Vector3.new(center.X, 0, center.Z)
@@ -369,8 +395,12 @@ function TownWeather.frame(cam: Camera): Frame
 	local h = tall / math.max(0.3, -fwd.Y)
 	-- Rounded up in steps so zooming doesn't reshuffle every drop.
 	local span = math.min(2400, math.ceil((math.max(wide, h) * 1.15 + 14 * U) / (8 * U)) * 8 * U)
-	return { center = center, span = span, top = math.max(22 * U, cf.Position.Y * 0.6), px = tall / vy, dist = dist }
+	return { center = center, span = span, top = math.max(22 * U, cf.Position.Y * 0.6), px = tall / vy, dist = dist, free = false, ahead = Vector3.zero }
 end
+
+-- How far ahead of a street-level camera the falling weather starts (studs): the web's fade
+-- (gone by 1.2, full by 3.5 web units) plus room for the wind to blow a drop back towards the lens.
+TownWeather.NEAR = 6 * U
 
 local function small(cam: Camera): boolean
 	local v = cam.ViewportSize
@@ -396,13 +426,26 @@ local function precip(k: Kit, w: any, night: number, fr: Frame, sizes: { rain: n
 	-- The sky box tilts so its underside faces the way the drops fly.
 	local v = if rain >= snowAmt then rainV else snowV
 	local down = v.Unit
-	local right = down:Cross(Vector3.new(0, 0, 1))
+	-- On foot it also turns with the camera, so its near edge stays square on to the lens.
+	local right = down:Cross(if fr.free then fr.ahead else Vector3.new(0, 0, 1))
 	if right.Magnitude < 1e-3 then
 		right = Vector3.new(1, 0, 0)
 	end
 	right = right.Unit
 	local back = right:Cross(-down).Unit
 	local top = fr.center + Vector3.new(0, fr.top, 0)
+	if fr.free then
+		-- The wind carries each drop sideways as it falls: centre that path on the box, and push the
+		-- box back by half of it, so not even a wind blowing at the camera brings one in close.
+		local sideways = Vector3.new(v.X, 0, v.Z) * (fr.top / v.Magnitude)
+		top += fr.ahead * (sideways.Magnitude / 2) - sideways / 2
+	end
+	-- On foot the drops ride along with the box, which stays ahead of the camera, so the street
+	-- you walk or drive into never has a drop sitting in front of the lens.
+	for _, e in k.rain do
+		e.LockedToPart = fr.free
+	end
+	k.snow.LockedToPart = fr.free
 	k.sky.CFrame = CFrame.fromMatrix(top - down * 0, right, -down, back)
 	k.sky.Size = Vector3.new(fr.span, 1, fr.span)
 	k.ground.CFrame = CFrame.new(fr.center + Vector3.new(0, 0.04 * U, 0))
@@ -736,7 +779,7 @@ function TownWeather.step(now: number, t: number)
 	local phase = clock.dayPhase(now)
 	local night = clock.nightAmount(phase)
 	local fx = TownWeather.skyFx(w, phase)
-	local fr = TownWeather.frame(cam)
+	local fr = TownWeather.frame(cam, TownCamera.isWalking())
 	lightning(k, w, t, fr)
 	light(w, night, fx)
 	precip(k, w, night, fr, if small(cam) then SIZES.small else SIZES.big)
