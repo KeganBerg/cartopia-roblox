@@ -50,6 +50,17 @@ vi.mock('./scene/SkyEnv', async (load) => ({ ...((await load()) as object), SkyE
 // The Speedway's race and crowd (SpeedwayLife.tsx) move every frame, so the game draws them on each
 // player's own screen (client/SpeedwayLife.luau) instead of baking one still frame into the model.
 vi.mock('./scene/SpeedwayLife', async (load) => ({ ...((await load()) as object), SpeedwayLife: () => null }))
+// The nightclub's dancers, bouncer and searchlights (ClubLife.tsx) too: client/ClubLife.luau.
+vi.mock('./scene/ClubLife', async (load) => ({ ...((await load()) as object), ClubLife: () => null }))
+// So do the campuses' people and learner cars (CampusLife.tsx Crowd and StudentCars, drawn by
+// client/CampusLife.luau; the parked LearnerCars stay in the model) and the funfair's visitors
+// (FairCrowd.tsx, client/FairCrowd.luau). Left in, they'd be baked where their first frame put them:
+// the campus crowds and the class all piled up at the middle of the lot.
+vi.mock('./scene/CampusLife', async (load) => ({ ...((await load()) as object), Crowd: () => null, StudentCars: () => null }))
+vi.mock('./scene/FairCrowd', async (load) => ({ ...((await load()) as object), FairCrowd: () => null }))
+// So do the countryside lake's fisherman, gulls and ducks (LakeLife.tsx): client/LakeLife.luau. Until
+// the next conversion the forest still has one still frame of them, which that hides.
+vi.mock('./scene/LakeLife', async (load) => ({ ...((await load()) as object), LakeLife: () => null }))
 
 // --- A canvas that remembers what was painted on it ---------------------------------------
 // Signs and other painted textures are drawn on 2D canvases. jsdom has none, so this records
@@ -806,8 +817,9 @@ it('exports every building and car', async () => {
   const { PLOT_MIN, PLOT_MAX } = await import('./game/data')
   const plots: string[] = []
   for (let x = PLOT_MIN; x <= PLOT_MAX; x++) for (let z = PLOT_MIN; z <= PLOT_MAX; z++) plots.push(`${x},${z}`)
-  // The lake's fisherman, his rowboat and the gulls (LakeLife.tsx) are only put in place by their
-  // useFrame, so the forest is drawn a few frames in; until then they sat at the town's middle.
+  // The forest is drawn a few frames in, for anything its useFrames put in place (the lake's
+  // fisherman, rowboat and gulls were, before LakeLife.tsx was left out above: until then they sat
+  // at the town's middle).
   const { useThree: useOutskirtsThree } = await import('@react-three/fiber')
   const outskirtsState: { now?: { internal: { subscribers: { ref: { current: (s: unknown, dt: number) => void } }[] } } } = {}
   const GrabOutskirts = () => {
