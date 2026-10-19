@@ -76,6 +76,7 @@ local Duels = require(script.Duels)
 local Invites = require(script.Invites)
 local Crews = require(script.Crews)
 local CrewGoals = require(script.CrewGoals)
+local CrewParts = require(script.CrewParts)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -725,6 +726,26 @@ local function crewPoints(userId: number, now: boolean?)
 		task.spawn(pcall, count)
 	end
 end
+-- Crew part requests (server/CrewParts): ask the crew for 10 parts a day, give crewmates one at a time.
+local crewParts = CrewParts.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+	clock = os.time,
+})
+-- Adds the parts crewmates have given to the player's asks.
+local function collectCrewParts(player: Player)
+	local n = crewParts:claim(player.UserId)
+	if n <= 0 or not towns:isOpen(player.UserId) then
+		return
+	end
+	towns:_with(player.UserId, function(st: any)
+		(require(Game.store) :: any).useGame.setState({ parts = (st.parts or 0) + n })
+		st.toast(`⚙ Collected {n} part{if n > 1 then "s" else ""} from your crew`)
+	end)
+	push(player)
+end
+
 -- Pays the crew chests a player has opened that their town hasn't had yet (one per chest).
 local function payCrewChests(player: Player)
 	local userId = player.UserId
@@ -1593,9 +1614,53 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 				end
 				mine.house = house
 				mine.goal = crewGoals:goal(player.UserId, mine.crew.id, members)
+				-- What crewmates gave is collected on the way in, as the web game's crew home.
+				pcall(collectCrewParts, player)
+				mine.parts = crewParts:list(mine.crew.id, player.UserId)
 				return mine, nil
 			end
 			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1, goal = crewGoals:goal(player.UserId, nil, 0) }, nil
+		elseif op == "crewPartsAsk" then
+			local id = crews:mineId(player.UserId)
+			if not id then
+				return nil, "no crew"
+			end
+			local r = crewParts:ask(player.UserId, id, player.DisplayName)
+			if r ~= "asked" then
+				return nil, if r == "already" then "asked today" else r
+			end
+			towns:_with(player.UserId, function(st: any)
+				st.toast(`⚙ Asked your crew for {CrewParts.ASK} parts`)
+			end)
+			push(player)
+			return true, nil
+		elseif op == "crewPartGive" and type(arg) == "number" then
+			-- One of the player's own parts to a crewmate's request.
+			if (towns:save(player.UserId).parts or 0) < 1 then
+				return nil, "no parts"
+			end
+			local id = crews:mineId(player.UserId)
+			if not id then
+				return nil, "no crew"
+			end
+			local r = crewParts:give(player.UserId, id, arg)
+			if r ~= "given" then
+				return nil, if r == "full" then "part full" elseif r == "limit" then "part limit" else "try again"
+			end
+			towns:_with(player.UserId, function(st: any)
+				(require(Game.store) :: any).useGame.setState({ parts = math.max(0, (st.parts or 0) - 1) })
+				st.toast("⚙ Part given. Thanks for helping!")
+			end)
+			push(player)
+			-- The asker collects it straight away when they're in this server.
+			local asker = Players:GetPlayerByUserId(arg)
+			if asker then
+				task.spawn(pcall, collectCrewParts, asker)
+			end
+			return true, nil
+		elseif op == "crewPartsCollect" then
+			collectCrewParts(player)
+			return true, nil
 		elseif op == "crewChest" and type(arg) == "string" then
 			-- Opening a crew chest: recorded first, then paid (data.CREW_CHEST, store.openCrewChest).
 			local total, no = crewGoals:open(player.UserId, arg)

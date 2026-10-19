@@ -641,6 +641,7 @@ local crewHouse = false
 local crewN = 0
 -- Crew weekly goals, on the real clock (the week is today's).
 local goalDesk = emu.require(SSS.Server.CrewGoals).new({ clock = os.time })
+local partsDesk = emu.require(SSS.Server.CrewParts).new({ clock = os.time })
 local crewDesk = emu.require(SSS.Server.Crews).new({
 	clock = function()
 		return raceClock
@@ -712,9 +713,30 @@ local function socialDesk(op, arg)
 				end
 				mine.house = crewHouse
 				mine.goal = goalDesk:goal(1, mine.crew.id, n)
+				local got = partsDesk:claim(1)
+				if got > 0 then
+					towns:_with(1, function(st)
+						store.useGame.setState({ parts = (st.parts or 0) + got })
+					end)
+					signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+				end
+				mine.parts = partsDesk:list(mine.crew.id, 1)
 				return mine, nil
 			end
 			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1, goal = goalDesk:goal(1, nil, 0) }, nil
+		elseif op == "crewPartsAsk" then
+			local r = partsDesk:ask(1, crewDesk:mineId(1), "You")
+			return if r == "asked" then true else nil, r
+		elseif op == "crewPartGive" then
+			local r = partsDesk:give(1, crewDesk:mineId(1), arg)
+			if r ~= "given" then
+				return nil, r
+			end
+			towns:_with(1, function(st)
+				store.useGame.setState({ parts = math.max(0, (st.parts or 0) - 1) })
+			end)
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+			return true, nil
 		elseif op == "crewChest" then
 			local total, no = goalDesk:open(1, arg)
 			if not total then
@@ -2005,6 +2027,8 @@ if SHOTS then
 		local niteId = crewDesk:mineId(1)
 		if niteId then
 			goalDesk:add(2, niteId, 2, 240, 0)
+			-- Rosa asks for parts.
+			partsDesk:ask(2, niteId, "Rosa")
 			goalDesk:add(1, niteId, 2, 100, 10)
 			local before = towns:save(1).coins or 0
 			hud.ctx.close()
@@ -2025,6 +2049,31 @@ if SHOTS then
 				table.insert(problems, `the crew chest didn't pay: {towns:save(1).crewChests} chests, coins {before} -> {towns:save(1).coins}`)
 			end
 			shot("crew-goal-opened", nil)
+			-- Part requests: ask, give Rosa one, and collect what she gives back.
+			press("AskParts")
+			if #partsDesk:list(niteId, 1) ~= 2 then
+				table.insert(problems, "asking for parts didn't add a request")
+			end
+			local partsBefore = towns:save(1).parts or 0
+			local rosa = hud.gui:FindFirstChild("PartAsk2", true)
+			local give = rosa and rosa:FindFirstChild("Give", true)
+			local giveButton = give and (if give:IsA("GuiButton") then give else give:FindFirstChildWhichIsA("GuiButton", true))
+			if giveButton then
+				signalFor(giveButton, "Activated"):Fire()
+				Emu.resumeWaits()
+			end
+			if (towns:save(1).parts or 0) ~= partsBefore - 1 then
+				table.insert(problems, `giving a part didn't take one: {partsBefore} -> {towns:save(1).parts}`)
+			end
+			partsDesk:give(2, niteId, 1)
+			partsDesk:give(2, niteId, 1)
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			if (towns:save(1).parts or 0) ~= partsBefore + 1 then
+				table.insert(problems, `the parts Rosa gave weren't collected: {partsBefore} -> {towns:save(1).parts}`)
+			end
+			shot("crew-parts", nil)
 		end
 		crewDesk:leave(1)
 		hud.ctx.close()

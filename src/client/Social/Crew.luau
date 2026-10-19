@@ -335,6 +335,40 @@ function Crew.draw(list: Instance, kit: any, state: any)
 				Ui.text({ Text = c.motto, Body = true, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Stroke = 1.5, Position = UDim2.fromOffset(90, 64), Size = UDim2.new(1, -100, 0, 18), Parent = hero })
 			end
 			Crew.goal(list, nextOrder, res.goal, openChest)
+
+			-- Part requests (web CrewPartsTile): ask once a day, give crewmates a part each.
+			kit.heading(list, nextOrder(), "⚙ Part requests")
+			local asks = res.parts or {}
+			local mineAsk = nil
+			for _, a in asks do
+				if a.id == me then
+					mineAsk = a
+				end
+			end
+			local askRow = box(list, nextOrder(), 50, "MyAsk")
+			if mineAsk then
+				Ui.text({ Text = `Your ask: ⚙ {mineAsk.given}/{mineAsk.want}`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0), Parent = askRow })
+				Ui.text({ Text = if mineAsk.given >= mineAsk.want then "Filled ✔" else "Collected as they come", Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.fromOffset(170, 50), Parent = askRow })
+			else
+				Ui.text({ Text = `Ask your crew for ⚙ 10 parts today`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0), Parent = askRow })
+				Ui.buy({ Name = "AskParts", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(100, 36), Parent = askRow }, "Ask", "green", function()
+					call("crewPartsAsk")
+				end, 16)
+			end
+			for _, a in asks do
+				if a.id ~= me then
+					local row = box(list, nextOrder(), 50, `PartAsk{a.id}`)
+					local full = a.given >= a.want
+					Ui.text({ Text = `{a.name} · ⚙ {a.given}/{a.want}`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0), Parent = row })
+					if full then
+						Ui.text({ Text = "✔", TextSize = 20, TextColor3 = Color3.fromHex("#43a047"), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(100, 36), Parent = row })
+					else
+						Ui.buy({ Name = "Give", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(100, 36), Parent = row }, "Give ⚙1", if a.mine >= 5 then "broke" else "garage", function()
+							call("crewPartGive", a.id)
+						end, 15)
+					end
+				end
+			end
 			-- Each driver's points towards the goal this week.
 			local goalPts: { [number]: number } = {}
 			for _, g in (res.goal and res.goal.current and res.goal.current.members) or {} do
