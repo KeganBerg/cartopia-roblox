@@ -22,8 +22,8 @@ local Tutorial = if roblox
 
 -- The season recap (web game/recap.ts) and the season clock, the same two ways.
 local function shared(name: string): any
-	if game then
-		return require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Game"):WaitForChild(name)) :: any
+	if roblox then
+		return require(roblox:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Game"):WaitForChild(name)) :: any
 	end
 	return (require :: any)(`../shared/Game/{name}`)
 end
