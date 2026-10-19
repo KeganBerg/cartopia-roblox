@@ -22,6 +22,7 @@ require(script.ClubLife).start()
 require(script.CampusLife).start()
 require(script.FairCrowd).start()
 require(script.LakeLife).start()
+require(script.CenterLife).start()
 require(script.SkinMotion).start()
 require(script.Hud).start()
 -- The town's weather and Rave Mode, over what DayNight and the HUD draw.
