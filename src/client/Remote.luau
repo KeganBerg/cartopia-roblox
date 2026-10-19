@@ -47,6 +47,8 @@ local WHY = {
 	["town done"] = "That's all 5 helps here today",
 	["day done"] = "You've helped plenty of towns today. Come back tomorrow!",
 	["not a business"] = "Only businesses need a hand",
+	["Your visitor already left town."] = "Your visitor already left town.",
+	["You already raced them"] = "Your visitor already left town.",
 }
 
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
@@ -149,6 +151,21 @@ function Remote.social(op: string, arg: any?, quiet: boolean?): (boolean, any)
 	end
 	if not ok and not quiet then
 		failed:Fire(WHY[result] or "That didn't work. Try again.")
+	end
+	return ok, result
+end
+
+-- Town visitors (server/Visitors): "next", or "claim" / "leave" with the visitor's id. Returns ok
+-- and the answer or why not, quietly (the visitors' own toasts say what happened).
+function Remote.visitor(op: string, id: string?): (boolean, any)
+	local visitorRemote = remotes:FindFirstChild("Visitor") :: RemoteFunction?
+	if not visitorRemote then
+		return false, "soon"
+	end
+	local sent, ok, result = pcall(visitorRemote.InvokeServer, visitorRemote, op, id)
+	if not sent then
+		warn(`[Cartopia] visitor {op}: {ok}`)
+		return false, "no answer"
 	end
 	return ok, result
 end

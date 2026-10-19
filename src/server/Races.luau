@@ -88,6 +88,8 @@ export type Mods = {
 	-- { userId, name, here? } for everyone else in the server and their friends.
 	ghosts: any?,
 	people: ((userId: number) -> { any })?,
+	-- The town visitors (server/Visitors), for street races against a visiting racer.
+	visitors: any?,
 }
 
 -- A race mode beyond the ones built in here (server/Modes/*.luau). Each is a table of functions

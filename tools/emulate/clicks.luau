@@ -126,8 +126,10 @@ local function setRules(info)
 	end
 end
 setRules({ ArePaidRandomItemsRestricted = false })
+-- The town visitors' clock (ms past NOW), which the client's clock keeps to (see the visitors below).
+local visitClock = 0
 roblox.implementMethod("Workspace", "GetServerTimeNow", function()
-	return NOW / 1000
+	return (NOW + visitClock) / 1000
 end)
 local remotes = Instance.new("Folder")
 remotes.Name = "Cartopia"
@@ -358,6 +360,49 @@ local crateDesk = emu.require(SSS.Server.Crates).new(towns, store, emu.require(G
 		return player:GetAttribute(k)
 	end), pay, free)
 end)
+-- The server end of Cartopia.Visitor (server/Visitors), on a clock of its own (visitClock ms past
+-- NOW), with a seeded stand-in for math.random; the street race mode reaches it through the race desk.
+local visitSeed = 5
+local visitorDesk = emu.require(SSS.Server.Visitors).new(towns, {
+	store = store,
+	data = emu.require(G.data),
+	random = function()
+		visitSeed = (visitSeed * 1103515245 + 12345) % 2147483648
+		return visitSeed / 2147483648
+	end,
+	now = function()
+		return NOW + visitClock
+	end,
+})
+races.mods.visitors = visitorDesk
+local visitorRemote = Instance.new("RemoteFunction")
+visitorRemote.Name = "Visitor"
+visitorRemote.Parent = remotes
+local function visitorCall(op, id)
+	local ran, result, why = pcall(function()
+		if op == "next" then
+			return visitorDesk:next(1)
+		elseif op == "claim" then
+			return visitorDesk:claim(1, id)
+		elseif op == "leave" then
+			return visitorDesk:leave(1, id), nil
+		end
+		return nil, "not a visitor call"
+	end)
+	if not ran then
+		table.insert(calls, `SERVER ERROR visitor {op}: {result}`)
+		return false, "error"
+	end
+	checkSend(`visitor {op} result`, result)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	if result == nil then
+		-- A visitor that left or was already paid is the game's own "too slow" (it says so).
+		table.insert(calls, if why == "no such visitor" or why == "the visitor left" then `ok visitor {op} (gone)` else `visitor {op} refused: {why}`)
+		return false, why
+	end
+	table.insert(calls, `ok visitor {op}`)
+	return true, result
+end
 -- Playing together: a second player in the server (Rosa, not a friend yet) with a town to visit,
 -- and Roblox friends elsewhere (Milo in another Cartopia server, Ada online, Sam offline).
 towns:open(2, nil)
@@ -460,6 +505,8 @@ end
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
 	if remote.Name == "Social" then
 		return socialDesk(name, ...)
+	elseif remote.Name == "Visitor" then
+		return visitorCall(name, ...)
 	elseif remote.Name == "Race" then
 		return raceDesk(name, ...)
 	elseif remote.Name == "Meshes" then
@@ -2761,4 +2808,263 @@ do
 	print(`rave: hook heard {#changes} changes, neon {neon and "back" or "none in town"}`)
 	townsFolder:Destroy()
 	print("weather and rave: 0 problems")
+end
+
+-- Town visitors (client/Visitors, client/VisitorCar, Panels/StreetRace, server/Visitors): a street
+-- racer turns up and drives the town's roads with its badge, its card opens from the badge, every
+-- button on the card is pressed, then it's raced and beaten for its bonus; tourists and the
+-- mystery car are tapped for their prize, and the mystery car once too late. SHOTS=1 writes
+-- build/shot-visitor-*.json (the racer in town, the card, the mystery car's countdown).
+do
+	hud.ctx.close()
+	local problems = 0
+	local function problem(msg)
+		problems += 1
+		print(`[visitors] PROBLEM {msg}`)
+	end
+	local Visitors = emu.require(client.Visitors)
+	local VisitorCar = emu.require(client.VisitorCar)
+	local TownView = emu.require(SSS.Server.TownView)
+	towns:_with(1, function(s)
+		store.useGame.setState({ tutorial = 99, fuel = math.max(s.fuel, 50) })
+	end)
+	local snap = towns:snapshot(1)
+	signalFor(townEvent, "OnClientEvent"):Fire(snap)
+	local townsFolder = Instance.new("Folder")
+	townsFolder.Name = "Towns"
+	townsFolder.Parent = game.Workspace
+	local view = TownView.new(townsFolder, "Player1", roblox.Vector3.new(0, 0, 0), 1, function() end)
+	for _, c in snap.save.cars do
+		c.mods, c.panels = nil, nil
+	end
+	view:render(snap.save)
+	-- The toasts shown (the client's own, and the server's in each snapshot), newest last.
+	local toastsSeen = {}
+	local clientToast = hud.ctx.toast
+	hud.ctx.toast = function(text)
+		table.insert(toastsSeen, text)
+		clientToast(text)
+	end
+	Remote.changed:Connect(function(sn)
+		for _, t in sn.toasts or {} do
+			table.insert(toastsSeen, t)
+		end
+	end)
+	local function lastToast()
+		local out = table.concat(toastsSeen, " / ")
+		table.clear(toastsSeen)
+		return out
+	end
+
+	-- The next visitor, of `kind`: the server's roll made to pick it, past the gap since the last.
+	local function arrive(kind)
+		visitorDesk.rollKind = function()
+			return kind
+		end
+		visitClock += 5 * 60000
+		calls = {}
+		handlerErrors = {}
+		Visitors.ask()
+		Emu.resumeWaits()
+		local v = Visitors.visitor
+		if not v or v.kind ~= kind or v.gone then
+			problem(`no {kind} came: {table.concat(calls, ", ")}`)
+			return nil
+		end
+		for _, c in calls do
+			if c:sub(1, 2) ~= "ok" then
+				problem(c)
+			end
+		end
+		return v
+	end
+	local function drive(frames)
+		for _ = 1, frames do
+			VisitorCar.step(1 / 30)
+		end
+	end
+	local function badge()
+		local holder = player.PlayerGui:FindFirstChild("VisitorBadges")
+		local gui = holder and holder:FindFirstChildWhichIsA("BillboardGui")
+		local face = gui and find(gui, function(d)
+			return d:IsA("TextButton") and d.Name == "Face"
+		end)
+		local text = gui and find(gui, function(d)
+			return d:IsA("TextLabel") and d.Name == "Label"
+		end)
+		return gui, face, text and text.Text or ""
+	end
+	local function aim(at)
+		local cam = game.Workspace.CurrentCamera
+		cam.FieldOfView = 30
+		local from = at + roblox.Vector3.new(75, 80, 75).Unit * 260
+		local look = (at - from).Unit
+		local right = look:Cross(roblox.Vector3.new(0, 1, 0)).Unit
+		local up = right:Cross(look)
+		cam.CFrame = roblox.CFrame.new(from.X, from.Y, from.Z, right.X, up.X, -look.X, right.Y, up.Y, -look.Y, right.Z, up.Z, -look.Z)
+	end
+
+	-- A street racer rolls in and drives round town.
+	local v = arrive("racer")
+	if v then
+		print(`visitor: {v.name} in a {v.model} (PI {v.pi}), toast "{lastToast()}"`)
+		drive(150)
+		local m = VisitorCar._models[`visitor:{v.id}`]
+		local a = VisitorCar._traffic.agents:get(`visitor:{v.id}`)
+		if not m or not a then
+			problem("the racer's car isn't on the road")
+		else
+			local p = m:GetPivot().Position
+			print(`visitor car: at ({math.floor(p.X)}, {math.floor(p.Z)}), shown {string.format("%.2f", a.show)}, road tile {math.floor(a.x / 2)},{math.floor(a.z / 2)}`)
+			aim(p)
+		end
+		local gui, face, text = badge()
+		if not gui or text ~= "🏁 Race me!" then
+			problem(`the racer's badge says "{text}"`)
+		end
+		shot("visitor-town", game.Workspace)
+		-- Its badge opens the Street challenge card.
+		if face then
+			signalFor(face, "Activated"):Fire()
+		end
+		local panel = hud.root:FindFirstChild("Panel")
+		local title = panel and panel:FindFirstChild("Title", true)
+		local titleText = if title and title:IsA("TextLabel") and title.Text ~= "" then title.Text elseif title then label(title) else ""
+		if not string.find(titleText, "Street challenge", 1, true) then
+			problem("tapping the racer didn't open the Street challenge card")
+		end
+		local card = panel and find(panel, function(d)
+			return d:IsA("TextLabel") and d.Name == "Car"
+		end)
+		print(`street card: {card and card.Text or "?"}`)
+		shot("visitor-card", nil)
+	end
+	-- Every button on the card (Race! starts a street race, which clickAll leaves; No thanks sends
+	-- the racer off), a racer brought back for each.
+	local before, pressed = bad, total
+	clickAll("streetRace", function()
+		local here = Visitors.visitor
+		if not here or here.gone or here.kind ~= "racer" then
+			arrive("racer")
+		end
+		hud.openPanel("streetRace")
+	end)
+	print(`street card: {total - pressed} buttons pressed, {bad - before} problems`)
+	if bad > before then
+		problems += bad - before
+	end
+	Emu.resumeWaits()
+
+	-- Raced and beaten: the race prize, and the racer's bonus.
+	local racer = arrive("racer")
+	if racer then
+		local before0 = towns:snapshot(1).save
+		local coins0 = before0.coins
+		local fuel0 = before0.fuel
+		-- They've been in town a while before the race (a racer can't be beaten in their first 10 s).
+		visitClock += 30000
+		local frames, shifts, result = runRace("visitor-race", {}, function()
+			hud.openPanel("streetRace")
+			local panel = hud.root:FindFirstChild("Panel")
+			local go = panel and find(panel, function(d)
+				return d:IsA("TextButton") and label(d) == "Race!"
+			end)
+			assert(go, "no Race! on the Street challenge card")
+			signalFor(go, "Activated"):Fire()
+		end)
+		local after = towns:snapshot(1).save
+		print(`street race: {frames} frames, {shifts} shifts; card: {cardText(result)}`)
+		print(`street race: coins {coins0} -> {after.coins} (bonus ${racer.coins}), fuel {fuel0} -> {after.fuel}, visits {after.visits}`)
+		if not result then
+			problem("the street race has no result card")
+		end
+		if after.fuel ~= fuel0 then
+			problem("the street race cost fuel")
+		end
+		if visitorDesk:current(1) ~= nil then
+			problem("the racer is still in town after the race")
+		end
+		if (after.visits or 0) ~= (before0.visits or 0) + 1 or after.coins < coins0 + racer.coins then
+			problem("beating the racer didn't pay their bonus")
+		end
+		closeRace()
+		print(`street race: toast "{lastToast()}", visitor {if Visitors.visitor and not Visitors.visitor.gone then "still here" else "gone"}`)
+		if Visitors.visitor and not Visitors.visitor.gone then
+			problem("the racer didn't leave after the race")
+		end
+		for _, c in calls do
+			if c:sub(1, 2) ~= "ok" then
+				problem(c)
+			end
+		end
+	end
+
+	-- Tourists: tapped for their tip.
+	local tourist = arrive("tourist")
+	if tourist then
+		drive(60)
+		local _, face, text = badge()
+		print(`tourists: badge "{text}", group {tourist.group or 1}, toast "{lastToast()}"`)
+		local coins0 = towns:snapshot(1).save.coins
+		calls = {}
+		if face then
+			signalFor(face, "Activated"):Fire()
+		end
+		Emu.resumeWaits()
+		local coins1 = towns:snapshot(1).save.coins
+		print(`tourists: claimed, coins {coins0} -> {coins1} (tip ${tourist.coins}), toast "{lastToast()}" {table.concat(calls, ", ")}`)
+		if coins1 ~= coins0 + tourist.coins then
+			problem("the tourists' tip wasn't paid")
+		end
+		drive(60)
+		if VisitorCar._models[`visitor:{tourist.id}`] then
+			problem("the tourists' camper didn't fade away")
+		end
+	end
+
+	-- The mystery car: its countdown, tapped in time, then once too late.
+	local mystery = arrive("mystery")
+	if mystery then
+		drive(60)
+		local _, face, text = badge()
+		print(`mystery car: badge "{text}"`)
+		if not string.find(text, "❓", 1, true) or not string.find(text, "s$") then
+			problem(`the mystery badge says "{text}"`)
+		end
+		local m = VisitorCar._models[`visitor:{mystery.id}`]
+		if m then
+			aim(m:GetPivot().Position)
+		end
+		shot("visitor-mystery", game.Workspace)
+		local parts0 = towns:snapshot(1).save.parts
+		if face then
+			signalFor(face, "Activated"):Fire()
+		end
+		Emu.resumeWaits()
+		print(`mystery car: caught, parts {parts0} -> {towns:snapshot(1).save.parts}, toast "{lastToast()}"`)
+		if towns:snapshot(1).save.parts ~= parts0 + mystery.parts then
+			problem("the mystery car's parts weren't paid")
+		end
+	end
+	local late = arrive("mystery")
+	if late then
+		visitClock += 60000
+		local coins0 = towns:snapshot(1).save.coins
+		local _, face = badge()
+		if face then
+			signalFor(face, "Activated"):Fire()
+		end
+		Emu.resumeWaits()
+		print(`mystery car, too late: coins {coins0} -> {towns:snapshot(1).save.coins}, toast "{lastToast()}"`)
+		if towns:snapshot(1).save.coins ~= coins0 then
+			problem("a mystery car tapped too late still paid")
+		end
+	end
+	-- No thanks: the next one comes a few minutes later, not at once.
+	local w = visitorDesk:next(1)
+	print(`visitors: next ask says wait {w.wait or "none"}s`)
+	Emu.resumeWaits()
+	hud.ctx.close()
+	townsFolder:Destroy()
+	print(`visitors: {problems} problems`)
 end
