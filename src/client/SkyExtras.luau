@@ -34,6 +34,7 @@ local Builder = require(Models:WaitForChild("Builder")) :: any
 
 local Town = require(script.Parent.Town)
 local TownCamera = require(script.Parent.TownCamera)
+local ClockShift = require(script.Parent.ClockShift)
 
 local SkyExtras = {}
 
@@ -51,7 +52,7 @@ local function image(id: number?): string?
 end
 
 local function night(): number
-	return clock.nightAmount(clock.dayPhase(DateTime.now().UnixTimestampMillis))
+	return clock.nightAmount(clock.dayPhase(ClockShift.now()))
 end
 
 -- The player's own wall clock, as a web Date (whose hours read as UTC here).
@@ -96,7 +97,7 @@ local function moon(n: number)
 	local phases = SkyImages.moon or {}
 	local pic = nil
 	if n > 0.5 and #phases > 0 then
-		local phase = extras.moonPhase(DateTime.now().UnixTimestampMillis)
+		local phase = extras.moonPhase(ClockShift.now())
 		pic = image(phases[math.floor(phase * #phases + 0.5) % #phases + 1])
 	end
 	local want = pic or "rbxasset://sky/sun.jpg"
@@ -314,6 +315,13 @@ type Flight = { kind: string, model: Model, at: number, dur: number, from: Vecto
 local flight: Flight? = nil
 local nextFlight = -1
 local built: { [string]: Model } = {}
+-- Each built fly-over's turning parts (Catalog.SPINS): the point and axis they turn about, how
+-- fast, how far round they are, and each part where it sits at rest (from the model's middle).
+type Spinner = { at: Vector3, axis: Vector3, speed: number, angle: number, parts: { { part: BasePart, rest: CFrame } } }
+local spinners: { [Model]: { Spinner } } = {}
+local spinParts: { BasePart } = {}
+local spinFrames: { CFrame } = {}
+local lastSpin = -1
 
 -- The model for a fly-over, once every mesh it needs has arrived (else nil: it waits for the next).
 local function flyModel(name: string): Model?
@@ -343,6 +351,24 @@ local function flyModel(name: string): Model?
 		end
 	end
 	m.Name = "FlyOver"
+	local list: { Spinner } = {}
+	for _, s in ((Catalog :: any).SPINS or {})[name] or {} do
+		local parts = {}
+		for _, i in s.parts do
+			local part = m:FindFirstChild(tostring(i))
+			if part and part:IsA("BasePart") then
+				table.insert(parts, { part = part, rest = part.CFrame })
+			end
+		end
+		table.insert(list, {
+			at = Vector3.new(s.at[1], s.at[2], s.at[3]),
+			axis = Vector3.new(s.axis[1], s.axis[2], s.axis[3]).Unit,
+			speed = s.speed,
+			angle = math.random() * 2 * math.pi,
+			parts = parts,
+		})
+	end
+	spinners[m] = list
 	built[name] = m
 	return m
 end
@@ -460,7 +486,29 @@ local function flyOvers(t: number, n: number, w: any, walking: boolean)
 	else
 		turn = CFrame.Angles(0, heading, 0)
 	end
-	s.model:PivotTo(CFrame.new(at) * turn)
+	local pivot = CFrame.new(at) * turn
+	s.model:PivotTo(pivot)
+	-- Rotors and props turn (FlyByModels.tsx useFrame), about their own hubs.
+	local dt = if lastSpin < 0 then 0 else math.min(t - lastSpin, 0.1)
+	lastSpin = t
+	local n = 0
+	for _, sp in spinners[s.model] or {} do
+		sp.angle += dt * sp.speed
+		local hub = sp.at * s.scale
+		local spin = pivot * CFrame.new(hub) * CFrame.fromAxisAngle(sp.axis, sp.angle) * CFrame.new(-hub)
+		for _, p in sp.parts do
+			n += 1
+			spinParts[n] = p.part
+			spinFrames[n] = spin * (p.rest - p.rest.Position + p.rest.Position * s.scale)
+		end
+	end
+	for j = #spinParts, n + 1, -1 do
+		spinParts[j] = nil
+		spinFrames[j] = nil
+	end
+	if n > 0 then
+		workspace:BulkMoveTo(spinParts, spinFrames, Enum.BulkMoveMode.FireCFrameChanged)
+	end
 	if s.model.Parent ~= workspace then
 		s.model.Parent = workspace
 	end

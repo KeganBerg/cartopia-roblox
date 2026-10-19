@@ -15,6 +15,7 @@ local raceRemote = remotes:WaitForChild("Race") :: RemoteFunction
 local crateRemote = remotes:WaitForChild("Crate") :: RemoteFunction
 local meshRemote = remotes:WaitForChild("Meshes") :: RemoteFunction
 local socialRemote = remotes:WaitForChild("Social") :: RemoteFunction
+local webLinkRemote = remotes:WaitForChild("WebLink") :: RemoteFunction
 
 local Remote = {}
 
@@ -31,6 +32,8 @@ local failed = Instance.new("BindableEvent")
 Remote.failed = failed.Event
 
 local WHY = {
+	["like limit"] = "That's all 40 likes for today",
+	["liked"] = "You already liked this town",
 	["town not loaded"] = "Your town is still loading",
 	["slow down"] = "Slow down a little",
 	["need fuel"] = "Not enough fuel to race",
@@ -157,6 +160,27 @@ function Remote.social(op: string, arg: any?, quiet: boolean?): (boolean, any)
 		failed:Fire(WHY[result] or "That didn't work. Try again.")
 	end
 	return ok, result
+end
+
+-- Brings the player's web town over with a code from the web game's Settings (server/WebLink).
+-- Returns ok, or false and what to tell the player.
+local LINK_WHY = {
+	code = "That code didn't work. Get a new one on the web.",
+	other = "That web town is already on another Roblox account",
+	offline = "Couldn't reach the web game. Try again soon.",
+	tries = "Too many tries. Rejoin to try again.",
+	["slow down"] = "Wait a moment, then try again",
+	["town not loaded"] = "Your town is still loading",
+}
+function Remote.webLink(code: string): (boolean, string?)
+	local sent, ok, why = pcall(webLinkRemote.InvokeServer, webLinkRemote, code)
+	if not sent then
+		return false, "Couldn't reach the server. Try again."
+	end
+	if ok then
+		return true, nil
+	end
+	return false, LINK_WHY[why] or "That didn't work. Try again."
 end
 
 -- Town visitors (server/Visitors): "next", or "claim" / "leave" with the visitor's id. Returns ok

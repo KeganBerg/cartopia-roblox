@@ -131,8 +131,11 @@ local function townLine(into: Instance, origin: Vector3, land: { string }, roads
 	-- Each road out of town gets a gravel lane running off into the country and two lantern posts.
 	for _, g in gates do
 		local ux, uz = if g.along then 0 else g.out, if g.along then g.out else 0
-		local laneSize = if g.along then Vector3.new(1.6, 0.02, 14) else Vector3.new(14, 0.02, 1.6)
-		block(into, laneSize * S, CFrame.new(at(g.x + ux * 7, 0.005, g.z + uz * 7)), Color3.fromHex("#b49a7c"), Enum.Material.Pebble)
+		-- In the shared world (server/World) it stops short of the world's textured ground past
+		-- the town's land: nothing may lie on a Texture.
+		local len = if workspace:FindFirstChild("World") then 11.5 else 14
+		local laneSize = if g.along then Vector3.new(1.6, 0.02, len) else Vector3.new(len, 0.02, 1.6)
+		block(into, laneSize * S, CFrame.new(at(g.x + ux * len / 2, 0.005, g.z + uz * len / 2)), Color3.fromHex("#b49a7c"), Enum.Material.Pebble)
 		for _, sd in { -1, 1 } do
 			local px = if g.along then sd * (HALF_TILE + 0.15) else 0
 			local pz = if g.along then 0 else sd * (HALF_TILE + 0.15)

@@ -843,7 +843,9 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			{ "🌍", "World Tour", soon("The World Tour") },
 			{ "🎆", "Flair", soon("Flair") },
 			{ "👻", "Ghosts", soon("Ghost races") },
-			{ "🏅", "Top racers", soon("Top racers") },
+			{ "🏅", "Top racers", function()
+				ctx.open("friends", "leaders")
+			end },
 		}
 		-- A mode with its own page opens it.
 		for _, m in MINIS do

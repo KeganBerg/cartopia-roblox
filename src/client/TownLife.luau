@@ -10,12 +10,11 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = Shared:WaitForChild("Game")
 local Catalog = require(Shared:WaitForChild("Models"):WaitForChild("Catalog")) :: any
-local Builder = require(Shared.Models:WaitForChild("Builder")) :: any
-local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
 local CarDetail = require(script.Parent:WaitForChild("CarDetail"))
 local lualib = require(Game:WaitForChild("lualib_bundle")) :: any
 local data = require(Game:WaitForChild("data")) :: any
@@ -26,6 +25,8 @@ local sim = require(Game:WaitForChild("scene_traffic_sim")) :: any
 local layout = require(Game:WaitForChild("scene_traffic_layout")) :: any
 local grid = require(Game:WaitForChild("scene_grid")) :: any
 local walk = require(Game:WaitForChild("walkGraph")) :: any
+local Thought = require(script.Parent:WaitForChild("Thought"))
+local ClockShift = require(script.Parent.ClockShift)
 
 local TownLife = {}
 
@@ -62,46 +63,12 @@ local townKey = ""
 local carsKey = ""
 local homesKey = ""
 
--- Townsfolk out driving: everyday cars of the town's own, on top of the player's (the web game
--- has only the player's cars and the odd visitor, which left small towns' roads empty). Their uids
--- start "visitor:" so the sim fades them out when they go. Drawn here, not by the server.
-local LOCALS_MAX = 14
-local LOCALS_MAX_PHONE = 8
-local localsCount = 0
-local localsPool: { any }? = nil
-
--- The everyday cars townsfolk drive (no gem or special cars), cheapest first.
-local function everyday(): { any }
-	if localsPool then
-		return localsPool
-	end
-	local pool = {}
-	for _, c in data.CARS do
-		if not c.bucks and (c.price or 0) > 0 and c.price <= 22000 and c.colors and #c.colors > 0 and (Catalog.TOWN_SIZE or {})[c.id] then
-			table.insert(pool, c)
-		end
-	end
-	table.sort(pool, function(a, b)
-		return a.price < b.price
-	end)
-	localsPool = pool
-	return pool
-end
-
--- Which car and colour townsfolk car `i` is, the same every time.
-local function localCar(i: number): (string, string)
-	local pool = everyday()
-	local c = pool[(i * 7) % #pool + 1]
-	return c.id, c.colors[(i * 3) % #c.colors + 1]
-end
-
 -- Cars taken off the road by the player (driving it, or just left where they parked it).
 local taken: { [string]: boolean } = {}
 
-local function phone(): boolean
-	local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 800)
-	return math.min(v.X, v.Y) < 700
-end
+-- A visitor's cars (client/VisitorCar), in the same traffic as the town's, ahead of them and on
+-- top of the usual cap (TownCars.tsx), so everyone gives way to everyone at the junctions.
+local guests: { any } = {}
 
 local function updateTraffic(save: any)
 	local roads = save.roads or {}
@@ -133,6 +100,10 @@ local function updateTraffic(save: any)
 	end
 	local specs = {}
 	local sig = {}
+	for _, g in guests do
+		table.insert(specs, g)
+		table.insert(sig, `{g.uid}:{g.cruise}`)
+	end
 	for _, c in cars do
 		if taken[c.uid] then
 			continue
@@ -152,21 +123,7 @@ local function updateTraffic(save: any)
 		})
 		table.insert(sig, `{c.uid}:{c.model}:{pis[c.uid]}:{stalled}`)
 	end
-	local max = math.min(MAX_VISIBLE, math.max(3, math.floor(#roads * 0.5)))
-	-- One townsfolk car for every three road tiles, between 3 and the cap.
-	localsCount = math.clamp(math.floor(#roads / 3), 3, if phone() then LOCALS_MAX_PHONE else LOCALS_MAX)
-	for i = 1, localsCount do
-		local uid = `visitor:local:{i}`
-		if taken[uid] then
-			continue
-		end
-		local model = localCar(i)
-		local size = (Catalog.TOWN_SIZE or {})[model] or { 0.8, 0.45, 0.8 }
-		scaleOf[uid] = size[3]
-		table.insert(specs, { uid = uid, len = size[1], wid = size[2], cruise = (1.0 + (i % 4) * 0.12) * pace, stalled = false, low = false })
-		table.insert(sig, uid)
-	end
-	max += localsCount
+	local max = math.min(MAX_VISIBLE, math.max(3, math.floor(#roads * 0.5))) + #guests
 	for uid in taken do
 		table.insert(sig, `-{uid}`)
 	end
@@ -397,7 +354,10 @@ end
 type Pt = { number }
 type Dest = { kind: string, key: string, def: string }
 type Bit = { part: BasePart, bone: number, off: CFrame, near: boolean }
-type Figure = { model: Model, bits: { Bit }, dog: { BasePart }, leash: BasePart, shown: boolean, near: boolean }
+type Figure = { model: Model, bits: { Bit }, dog: { BasePart }, leash: BasePart, shown: boolean, near: boolean, k: number }
+-- How a figure stands (see pose()): hips and head (figure units and radians), each leg's swing
+-- and knee bend, and each arm's turn at the shoulder (left, then right).
+export type Pose = { hip: number, lean: number, twist: number, nod: number, look: number, legs: { { number } }, arms: { CFrame } }
 type Person = {
 	id: string,
 	type: string,
@@ -424,8 +384,14 @@ type Person = {
 	outings: number,
 	colors: { shirt: string, pants: string, skin: string, hair: string, dog: string },
 	look: { top: string, hair: string, shorts: boolean, coat: string, trim: string, shoes: string, hat: string },
+	queue: string?, -- the club whose line they're standing in
 	fig: Figure?,
+	-- How big the figure is drawn, 1 for a grown-up (CampusLife's schoolkids are smaller).
+	size: number?,
 }
+
+local inLine: (p: any, dt: number) -> ()
+local followThought: (list: { any }) -> ()
 
 local function nodePos(n: any): Pt
 	return if n.kind == "v" then n.pos else n.center
@@ -474,15 +440,17 @@ local function person(id: string, home: string, pos: Pt): Person
 			shoes = if kind == "jogger" then "#fafafa" else SHOES[(h // 16777216) % #SHOES + 1],
 			hat = HATS[(h // 67108864) % #HATS + 1],
 		},
+		queue = nil,
 		fig = nil,
 	}
 end
 
-type Places = { shops: { Dest }, browse: { Dest }, parks: { Dest }, houses: { Dest }, corners: { Dest } }
+type Club = { dest: Dest, center: Pt, turn: number }
+type Places = { shops: { Dest }, browse: { Dest }, parks: { Dest }, houses: { Dest }, corners: { Dest }, clubs: { Club } }
 
 -- Places worth walking to, sorted by what kind of outing they make.
 local function destinations(g: any): Places
-	local p: Places = { shops = {}, browse = {}, parks = {}, houses = {}, corners = {} }
+	local p: Places = { shops = {}, browse = {}, parks = {}, houses = {}, corners = {}, clubs = {} }
 	g.byKey:forEach(function(_, _i, key)
 		if string.sub(key, 1, 1) == "v" then
 			table.insert(p.corners, { kind = "jog", key = key, def = "" })
@@ -495,7 +463,7 @@ local function destinations(g: any): Places
 				return { kind = k, key = `b{n.uid}`, def = n.def }
 			end
 			if def.nightOnly then
-				continue -- the nightclub's line and bouncer aren't drawn here yet
+				table.insert(p.clubs, { dest = d("club"), center = n.center, turn = n.turn })
 			elseif def.kind == "business" or def.kind == "gas" or def.kind == "parts" then
 				table.insert(p.shops, d("shop"))
 				if FOOD[n.def] then
@@ -650,17 +618,150 @@ local function settle(p: Person, n: any)
 	end
 end
 
+-- The nightclub's line (Townspeople.tsx): people queue along the velvet rope, and the bouncer
+-- (client/ClubLife draws him) lets the front of the line in every few seconds.
+-- Where things stand at the club, in its lot's own units (clubLayout.ts CLUB).
+local CLUB = { doorX = -1.0, doorZ = 0.36, queueZ = 0.82, queueX = -0.5, gap = 0.3, queueMax = 8, inPath = { { -0.55, 0.98 }, { -1.0, 0.98 } } }
+local clubsNow: { Club } = {}
+local queues: { [string]: { Person } } = {}
+local gates: { [string]: number } = {}
+-- What each club's bouncer sees at his rope (clubDoor.ts), by club key: where the club stands in
+-- the world (studs), whether someone's waiting at the front, and when he last let someone in.
+type Door = { at: Vector3, waiting: boolean, admitted: number }
+local doors: { [string]: Door } = {}
+
+local function clubAt(key: string): Club?
+	for _, c in clubsNow do
+		if c.dest.key == key then
+			return c
+		end
+	end
+	return nil
+end
+
+-- A point in front of the club, from its own coordinates to the town's.
+local function clubPoint(c: Club, lx: number, lz: number): Pt
+	local a = c.turn * math.pi / 2
+	local cos, sin = math.cos(a), math.sin(a)
+	return { c.center[1] + lx * cos + lz * sin, c.center[2] - lx * sin + lz * cos }
+end
+
+local function doorOf(key: string, c: Club): Door
+	local at = (townOrigin or Vector3.zero) + Vector3.new(c.center[1], 0, c.center[2]) * S
+	local d = doors[key]
+	if not d then
+		d = { at = at, waiting = false, admitted = 0 }
+		doors[key] = d
+	end
+	d.at = at
+	return d
+end
+
+-- The bouncer's view of the club standing at `at` (studs), if anyone has queued there.
+function TownLife.clubDoor(at: Vector3): Door?
+	for _, d in doors do
+		if (Vector3.new(d.at.X - at.X, 0, d.at.Z - at.Z)).Magnitude < 0.75 * S then
+			return d
+		end
+	end
+	return nil
+end
+
+-- Each club's bouncer lets the front of the line in every few seconds, and sends everyone home
+-- when the club closes at dawn.
+local function bouncers(dt: number)
+	local open = clock.isNight()
+	for key, q in queues do
+		local c = clubAt(key)
+		if not c or not open then
+			for _, p in q do
+				p.queue = nil
+				p.state = "linger"
+				p.face = nil
+				p.timer = rand(0.3, 2)
+			end
+			queues[key] = nil
+			if doors[key] then
+				doors[key].waiting = false
+			end
+			continue
+		end
+		local left = (gates[key] or rand(6, 10)) - dt
+		gates[key] = left
+		local first = q[1]
+		local d = doorOf(key, c)
+		-- Only once they've made it to the front of the rope.
+		d.waiting = first ~= nil and first.face ~= nil
+		if left > 0 or not d.waiting then
+			continue
+		end
+		table.remove(q, 1)
+		first.queue = nil
+		first.face = nil
+		first.dest = { kind = "door", key = key, def = c.dest.def }
+		-- Round the end of the rope and in front of the canopy pole, then up the carpet.
+		first.steps = {}
+		for _, w in CLUB.inPath do
+			table.insert(first.steps, { p = clubPoint(c, w[1], w[2]) })
+		end
+		table.insert(first.steps, { p = clubPoint(c, CLUB.doorX, CLUB.doorZ) })
+		first.si = 1
+		first.state = "walk"
+		d.admitted = os.clock()
+		gates[key] = rand(8, 15)
+	end
+end
+
+-- Shuffle up to your place in line, then wait facing the door.
+inLine = function(p: Person, dt: number)
+	local c = if p.queue then clubAt(p.queue) else nil
+	local q = if p.queue then queues[p.queue] else nil
+	local i = if q then table.find(q, p) else nil
+	if not c or not i then
+		p.queue = nil
+		p.state = "linger"
+		p.timer = rand(0.3, 1.5)
+		return
+	end
+	local spot = clubPoint(c, CLUB.queueX + (i - 1) * CLUB.gap, CLUB.queueZ)
+	local dx, dz = spot[1] - p.pos[1], spot[2] - p.pos[2]
+	local len = math.sqrt(dx * dx + dz * dz)
+	local move = p.speed * 0.8 * FIT * dt
+	if len > 0.02 then
+		p.face = nil
+		local k = math.min(1, move / len)
+		p.pos[1] += dx * k
+		p.pos[2] += dz * k
+		turnTo(p, math.atan2(dx, dz), dt)
+		p.stride += move * S / K * 14
+		return
+	end
+	local a = c.turn * math.pi / 2
+	p.face = math.atan2(-math.cos(a), math.sin(a))
+	turnTo(p, p.face :: number, dt)
+end
+
 -- Done with the current stop (or time to leave home): work out the next one.
 local function setOff(g: any, places: Places, p: Person, night: boolean)
 	p.sit = false
 	p.face = nil
 	local atHome = p.at == `b{p.home}`
-	if atHome and night and math.random() < 0.85 then
+	-- After dark the nightclub is the place to be (not for joggers or dog walkers).
+	local clubs = {}
+	if night and p.type == "walker" then
+		for _, c in places.clubs do
+			if c.dest.key ~= p.at then
+				table.insert(clubs, c)
+			end
+		end
+	end
+	local club = if #clubs > 0 and math.random() < (if atHome then 0.6 else 0.4) then pick(clubs).dest else nil
+	if atHome and night and not club and math.random() < 0.85 then
 		p.timer = rand(20, 45) -- most people stay in after dark
 		return
 	end
-	local dest: Dest? = nil
-	if not atHome and (p.outings >= 3 or math.random() < 0.4 or night) then
+	local dest: Dest? = club
+	if not dest and not atHome and (p.outings >= 3 or math.random() < 0.4 or night) then
 		dest = { kind = "home", key = `b{p.home}`, def = "house" }
 	end
 	local start = nodeAt(g, p.at) or nearestNode(g, p.pos)
@@ -719,6 +820,21 @@ local function arrive(g: any, p: Person, night: boolean)
 		p.timer = rand(0.2, 0.8)
 		return
 	end
+	if d.kind == "club" then
+		local q = queues[d.key] or {}
+		if not clock.isNight() or #q >= CLUB.queueMax or not clubAt(d.key) then
+			-- Closed, or the line's too long: hang about a moment, then move on.
+			p.state = "linger"
+			p.timer = rand(1, 3)
+			return
+		end
+		table.insert(q, p)
+		queues[d.key] = q
+		p.state = "queue"
+		p.queue = d.key
+		p.face = nil
+		return
+	end
 	if d.kind == "park" then
 		p.state = "linger"
 		local span = LINGER[d.def] or { 3, 8 }
@@ -743,12 +859,18 @@ local function arrive(g: any, p: Person, night: boolean)
 	if d.kind == "home" then
 		p.outings = 0
 		p.timer = if night then rand(40, 90) else rand(12, 35)
+	elseif d.kind == "door" then
+		p.timer = rand(35, 80) -- dancing the night away
 	else
 		p.timer = if d.kind == "shop" then rand(5, 12) else rand(6, 14)
 	end
 end
 
 local function updatePerson(g: any, places: Places, p: Person, dt: number, night: boolean)
+	if p.state == "queue" then
+		inLine(p, dt)
+		return
+	end
 	if p.state == "inside" or p.state == "linger" then
 		if p.face ~= nil then
 			turnTo(p, p.face, dt)
@@ -839,7 +961,8 @@ local SHOULDER = Vector3.new(0.105, 0.255, 0) -- from the hips, on the torso
 -- which is where the bench's seat is.
 local SIT_HIP = 0.26 / FIT
 
-local function figure(p: Person, parent: Instance): Figure
+local function figure(p: Person, parent: Instance, scale: number?): Figure
+	local K = K * (scale or p.size or 1) -- studs per figure unit, for this figure (a bouncer's bigger)
 	local m = Instance.new("Model")
 	m.Name = p.id
 	local c, look = p.colors, p.look
@@ -968,70 +1091,28 @@ local function figure(p: Person, parent: Instance): Figure
 		leash.Transparency = 1
 	end
 	m.Parent = parent
-	return { model = m, bits = bits, dog = dog, leash = leash, shown = true, near = true }
+	return { model = m, bits = bits, dog = dog, leash = leash, shown = true, near = true, k = K }
 end
 
 local HIDDEN = CFrame.new(0, -10000, 0)
 -- How close (studs) the camera must be for a figure's small features to follow it.
 local NEAR = 90
 
--- Places a person's figure (Townspeople.tsx draw()) into the lists BulkMoveTo takes. `eye` is the
--- camera's position, if there is one.
-local function draw(origin: Vector3, p: Person, wag: number, eye: Vector3?, list: { BasePart }, cfs: { CFrame })
-	local fig = p.fig :: Figure
-	local hide = p.state == "inside"
-	if hide then
-		if fig.shown then
-			fig.shown = false
-			fig.near = false
-			for _, b in fig.bits do
-				table.insert(list, b.part)
-				table.insert(cfs, HIDDEN)
-			end
-			for _, x in fig.dog do
-				table.insert(list, x)
-				table.insert(cfs, HIDDEN)
-			end
-			table.insert(list, fig.leash)
-			table.insert(cfs, HIDDEN)
-		end
-		return
-	end
-	fig.shown = true
-	local moving = p.state == "walk" and p.waited == 0
-	local jog = p.type == "jogger"
-	local swing = if moving then math.sin(p.stride) * (if jog then 0.85 else 0.55) else 0
-	local bob = if moving then math.abs(math.cos(p.stride)) * (if jog then 0.05 else 0.025) else 0
-	local hip = (if p.sit then SIT_HIP else LEG) + bob
-	local base = CFrame.new(origin + Vector3.new(p.pos[1], 0, p.pos[2]) * S) * CFrame.Angles(0, p.heading, 0)
+-- Places a figure's parts as `p` (a Pose) has it standing at `base` (its feet, facing +z), into the
+-- lists BulkMoveTo takes, and returns its bones. Small parts only follow it within NEAR studs of
+-- `eye` (the camera), if given. Also used for the club's dancers and bouncer (client/ClubLife).
+local function pose(fig: Figure, base: CFrame, p: Pose, eye: Vector3?, list: { BasePart }, cfs: { CFrame }): { CFrame }
+	local K = fig.k
 	local near = eye == nil or (eye - base.Position).Magnitude < NEAR
-	-- The bones. The torso leans into a jog and turns a little against the legs; legs swing from
-	-- the hips and bend at the knee as they come through (sitting, thighs forward and shins down);
-	-- arms swing against the legs (a dog walker's right one holds the leash out).
-	local hips = base * CFrame.new(0, hip * K, 0)
-	local lean = if moving then (if jog then 0.16 else 0.05) else 0
-	local torso = hips * CFrame.Angles(lean, swing * 0.12, 0)
-	local idle = if p.state == "linger" and not p.sit then math.sin(wag * 0.6 + #p.id) * 0.45 else 0
-	local head = torso * CFrame.new(0, 0.36 * K, 0) * CFrame.Angles(-lean * 0.6, idle - swing * 0.1, 0)
+	local hips = base * CFrame.new(0, p.hip * K, 0)
+	local torso = hips * CFrame.Angles(p.lean, p.twist, 0)
+	local head = torso * CFrame.new(0, 0.36 * K, 0) * CFrame.Angles(p.nod, p.look, 0)
 	local bones = { hips, torso, head }
 	for i, s in { -1, 1 } do
-		local a, knee
-		if p.sit then
-			a, knee = -math.pi / 2, math.pi / 2
-		else
-			a = swing * s
-			knee = if moving then math.max(0, math.cos(p.stride) * s) * (if jog then 1.1 else 0.55) else 0
-		end
-		local thigh = hips * CFrame.new(s * 0.045 * K, 0, 0) * CFrame.Angles(a, 0, 0)
+		local thigh = hips * CFrame.new(s * 0.045 * K, 0, 0) * CFrame.Angles(p.legs[i][1], 0, 0)
 		bones[3 + i] = thigh
-		bones[5 + i] = thigh * CFrame.new(0, -THIGH * K, 0) * CFrame.Angles(knee, 0, 0)
-	end
-	for i, s in { -1, 1 } do
-		local a = if p.sit then -0.45 else -swing * s * (if jog then 1.1 else 0.8)
-		if p.type == "dog" and s == 1 and not p.sit then
-			a = -0.4 + a * 0.3
-		end
-		bones[7 + i] = torso * CFrame.new(s * SHOULDER.X * K, SHOULDER.Y * K, 0) * CFrame.Angles(a, 0, 0) * CFrame.Angles(0, 0, s * 0.1)
+		bones[5 + i] = thigh * CFrame.new(0, -THIGH * K, 0) * CFrame.Angles(p.legs[i][2], 0, 0)
+		bones[7 + i] = torso * CFrame.new(s * SHOULDER.X * K, SHOULDER.Y * K, 0) * p.arms[i]
 	end
 	if near then
 		for _, b in fig.bits do
@@ -1050,6 +1131,70 @@ local function draw(origin: Vector3, p: Person, wag: number, eye: Vector3?, list
 		end
 	end
 	fig.near = near
+	fig.shown = true
+	return bones
+end
+
+-- Hides a figure (and its dog), once.
+local function hide(fig: Figure, list: { BasePart }, cfs: { CFrame })
+	if not fig.shown then
+		return
+	end
+	fig.shown = false
+	fig.near = false
+	for _, b in fig.bits do
+		table.insert(list, b.part)
+		table.insert(cfs, HIDDEN)
+	end
+	for _, x in fig.dog do
+		table.insert(list, x)
+		table.insert(cfs, HIDDEN)
+	end
+	table.insert(list, fig.leash)
+	table.insert(cfs, HIDDEN)
+end
+
+-- Places a person's figure (Townspeople.tsx draw()) into the lists BulkMoveTo takes. `eye` is the
+-- camera's position, if there is one.
+local function draw(origin: Vector3, p: Person, wag: number, eye: Vector3?, list: { BasePart }, cfs: { CFrame })
+	local fig = p.fig :: Figure
+	if p.state == "inside" then
+		hide(fig, list, cfs)
+		return
+	end
+	local moving = (p.state == "walk" and p.waited == 0) or (p.state == "queue" and p.face == nil)
+	local jog = p.type == "jogger"
+	local swing = if moving then math.sin(p.stride) * (if jog then 0.85 else 0.55) else 0
+	local bob = if moving then math.abs(math.cos(p.stride)) * (if jog then 0.05 else 0.025) else 0
+	local hip = (if p.sit then SIT_HIP else LEG) + bob
+	local base = CFrame.new(origin + Vector3.new(p.pos[1], 0, p.pos[2]) * S) * CFrame.Angles(0, p.heading, 0)
+	-- The torso leans into a jog and turns a little against the legs; legs swing from the hips and
+	-- bend at the knee as they come through (sitting, thighs forward and shins down); arms swing
+	-- against the legs (a dog walker's right one holds the leash out).
+	local lean = if moving then (if jog then 0.16 else 0.05) else 0
+	local legs, arms = {}, {}
+	for i, s in { -1, 1 } do
+		if p.sit then
+			legs[i] = { -math.pi / 2, math.pi / 2 }
+		else
+			legs[i] = { swing * s, if moving then math.max(0, math.cos(p.stride) * s) * (if jog then 1.1 else 0.55) else 0 }
+		end
+		local a = if p.sit then -0.45 else -swing * s * (if jog then 1.1 else 0.8)
+		if p.type == "dog" and s == 1 and not p.sit then
+			a = -0.4 + a * 0.3
+		end
+		arms[i] = CFrame.Angles(a, 0, 0) * CFrame.Angles(0, 0, s * 0.1)
+	end
+	local idle = if p.state == "linger" and not p.sit then math.sin(wag * 0.6 + #p.id) * 0.45 else 0
+	local bones = pose(fig, base, {
+		hip = hip,
+		lean = lean,
+		twist = swing * 0.12,
+		nod = -lean * 0.6,
+		look = idle - swing * 0.1,
+		legs = legs,
+		arms = arms,
+	}, eye, list, cfs)
 	if p.type == "dog" then
 		local k = p.dogSize * FIT
 		local still = p.state == "linger"
@@ -1098,6 +1243,108 @@ local modelOf: (string) -> Model? = function()
 	return nil
 end
 
+---------------------------------------------------------------------------------------------------
+-- Thought bubbles (Townspeople.tsx thought() and where()): tap someone to see what they're up to.
+
+-- The chip for where someone is headed ("☕ Coffee"), and whether they're there yet.
+local function whereOf(p: Person): (string, boolean)
+	local d = p.dest
+	local there = p.state == "linger" or p.state == "queue"
+	if not d or d.kind == "jog" then
+		return if p.type == "jogger" then "🏃 Around the block" else "🚶 Around town", false
+	end
+	if d.kind == "home" then
+		return "🏠 Home", there
+	end
+	if d.kind == "friend" then
+		return "🏡 A neighbour's", there
+	end
+	local icon = Thought.SHOP[d.def] or Thought.PARK_GO[d.def]
+	return Thought.placeChip(d.def, if icon then icon[1] else nil), there
+end
+
+-- One line for the bubble: who it is and what they're up to.
+local function thoughtOf(p: Person): string
+	local who = if p.type == "dog" then `{p.name} and {p.dogName} are` else `{p.name} is`
+	local d = p.dest
+	local idea = { "🚶", "out for a walk" }
+	if p.type == "jogger" and (not d or d.kind ~= "home") then
+		idea = { "🏃", "out for a run" }
+	elseif d and d.kind == "home" then
+		idea = { "🏠", "heading home" }
+	elseif d and d.kind == "shop" then
+		idea = Thought.SHOP[d.def] or { "🛍️", "running an errand" }
+	elseif d and d.kind == "browse" then
+		idea = if d.def == "garage" then { "🔧", "peeking into your garage" } else { "🚗", "looking at cars in the showroom" }
+	elseif d and d.kind == "friend" then
+		idea = { "👋", "visiting a neighbour" }
+	elseif d and d.kind == "club" then
+		idea = if p.state == "queue" then { "🎟️", "waiting in line for the club" } else { "🪩", "heading out dancing" }
+	elseif d and d.kind == "door" then
+		idea = { "🕺", "getting into the club" }
+	elseif d and d.kind == "park" then
+		idea = (if p.state == "linger" then Thought.PARK_AT else Thought.PARK_GO)[d.def] or { "🌳", "enjoying the park" }
+	end
+	return `{idea[1]} {who} {idea[2]}`
+end
+
+local function headOf(p: Person): BasePart?
+	for _, b in if p.fig then p.fig.bits else {} do
+		if b.bone == HEAD then
+			return b.part
+		end
+	end
+	return nil
+end
+
+-- Keeps the bubble over the person it belongs to, up to date, until it runs out or they go in.
+followThought = function(list: { Person })
+	local id = Thought.current()
+	if not id then
+		return
+	end
+	for _, p in list do
+		if p.id == id then
+			local head = headOf(p)
+			if p.state == "inside" or not head then
+				break
+			end
+			local where, there = whereOf(p)
+			Thought.show(p.id, head, where, there, thoughtOf(p))
+			return
+		end
+	end
+	Thought.hide()
+end
+
+-- A tap (or click) on the town, `at` on screen: the townsperson nearest it, if one's close enough.
+local function tapped(list: { Person }, at: Vector2): Person?
+	local cam = workspace.CurrentCamera
+	if not cam or not townOrigin then
+		return nil
+	end
+	local best, bestD = nil, math.huge
+	for _, p in list do
+		if p.state == "inside" or not p.fig then
+			continue
+		end
+		local world = (townOrigin :: Vector3) + Vector3.new(p.pos[1] * S, 2.7, p.pos[2] * S)
+		local v, onScreen = cam:WorldToViewportPoint(world)
+		if not onScreen then
+			continue
+		end
+		-- A roomier target than the figure (Townspeople.tsx's invisible hit box), so they're easy
+		-- to tap on a phone: about the figure's height on screen, and never under 28 pixels.
+		local top = cam:WorldToViewportPoint(world + Vector3.new(0, 2.65, 0))
+		local reach = math.max(28, math.abs(v.Y - top.Y) * 1.3)
+		local d = (Vector2.new(v.X, v.Y) - at).Magnitude
+		if d < reach and d < bestD then
+			best, bestD = p, d
+		end
+	end
+	return best
+end
+
 local function smallScreen(): boolean
 	local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 800)
 	return math.min(v.X, v.Y) < 700
@@ -1110,59 +1357,8 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 	townOrigin = origin
 	local carsFolder = town:WaitForChild("Cars")
 
-	-- The townsfolk's cars, built here from the shared meshes.
-	local localsFolder = Instance.new("Folder")
-	localsFolder.Name = "TownTraffic"
-	localsFolder.Parent = workspace
-	local locals: { [string]: Model } = {}
-	-- Their pieces, for showing the small ones only up close (client/CarDetail).
-	local details: { [string]: CarDetail.Detail } = {}
-	local function localModel(id: string, color: string): (Model?, CarDetail.Detail?)
-		local m = Builder.build(id)
-		if not m then
-			return nil, nil
-		end
-		Paint.apply(m, Paint.jobOf({ color = color }))
-		for _, d in m:GetDescendants() do
-			if d:IsA("BasePart") then
-				d.Anchored = true
-				d.CanCollide = false
-				d.CanQuery = true
-				d.CanTouch = false
-			end
-		end
-		return m, CarDetail.track(m)
-	end
-	local function buildLocals()
-		for i = 1, localsCount do
-			local uid = `visitor:local:{i}`
-			if locals[uid] then
-				continue
-			end
-			local id, color = localCar(i)
-			local m, detail = localModel(id, color)
-			if not m or not detail then
-				continue
-			end
-			details[uid] = detail
-			m.Name = uid
-			m:SetAttribute("Uid", uid)
-			m:SetAttribute("Model", id)
-			m:SetAttribute("Color", color)
-			m:PivotTo(HIDDEN)
-			m.Parent = localsFolder
-			locals[uid] = m
-		end
-		for uid, m in locals do
-			local i = tonumber(string.match(uid, "%d+$")) or 0
-			if i > localsCount then
-				m:Destroy()
-				locals[uid] = nil
-				details[uid] = nil
-			end
-		end
-	end
-
+	-- The player's cars' pieces, for showing the small ones only up close (client/CarDetail).
+	local serverDetails: { [Model]: CarDetail.Detail } = setmetatable({}, { __mode = "k" }) :: any
 	local peopleFolder = Instance.new("Folder")
 	peopleFolder.Name = "Townspeople"
 	peopleFolder.Parent = workspace
@@ -1186,9 +1382,12 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 			graphKey = gk
 			graph = walk.buildWalkGraph(lualib.__TS__New(lualib.Set, roads), buildings, land)
 			places = destinations(graph)
+			clubsNow = (places :: Places).clubs
+			table.clear(queues)
 			-- Anyone walking re-plans from where they stand; the simple way: home, indoors.
 			for _, p in people do
-				if p.state == "walk" or p.state == "linger" then
+				p.queue = nil
+				if p.state == "walk" or p.state == "linger" or p.state == "queue" then
 					leaveCrossing(p)
 					p.state = "inside"
 					p.at = `b{p.home}`
@@ -1285,7 +1484,6 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		end
 		lastSave = save
 		updateTraffic(save)
-		buildLocals()
 		drawSignals(origin, save.roads or {})
 		updatePeople(save)
 	end
@@ -1295,7 +1493,7 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		end
 	end
 	modelOf = function(uid: string): Model?
-		return locals[uid] or carsFolder:FindFirstChild(uid) :: Model?
+		return carsFolder:FindFirstChild(uid) :: Model?
 	end
 	local parked: { [string]: boolean } = {}
 	-- If the player's character ever ends up under their town's ground (fallen through before it
@@ -1328,28 +1526,14 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		if nextCheck <= 0 then
 			nextCheck = 1
 			rescueFall()
-			-- Townsfolk cars built before their meshes reached this player, built again now.
-			for uid, d in details do
-				if not taken[uid] and CarDetail.ready(d) then
-					local fresh, nd = localModel(d.model:GetAttribute("Model") :: string, d.model:GetAttribute("Color") :: string)
-					if fresh and nd then
-						details[uid] = CarDetail.swap(d, fresh, nd)
-						locals[uid] = fresh
-					end
-				end
-			end
 		end
 		traffic:step(dt)
 		stepSignals()
-		-- The cars: each server model (and townsfolk car) goes where the sim has it, at its town size.
+		-- The cars: each server model goes where the sim has it, at its town size.
 		-- A car the player has taken stays wherever they left it.
 		local cam0 = workspace.CurrentCamera
 		local eyeAt = if cam0 then cam0.CFrame.Position else nil
-		local all = carsFolder:GetChildren()
-		for _, m in locals do
-			table.insert(all, m)
-		end
-		for _, m in all do
+		for _, m in carsFolder:GetChildren() do
 			if not m:IsA("Model") or taken[m.Name] then
 				continue
 			end
@@ -1373,32 +1557,86 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 			local tilt = if a.stalled and a.tow == 0 then 0.06 else 0
 			local at = origin + Vector3.new(a.x * S, 0.02 * S, a.z * S)
 			m:PivotTo(CFrame.new(at) * CFrame.Angles(0, a.yaw, 0) * CFrame.Angles(0, 0, tilt))
-			local d = details[m.Name]
+			-- The player's own cars, from the server: tracked here, for their wheels.
+			local d = serverDetails[m]
+			if not d then
+				d = CarDetail.track(m)
+				serverDetails[m] = d
+			end
 			if d and eyeAt then
 				CarDetail.lod(d, (at - eyeAt).Magnitude)
+				CarDetail.wheels(d, m:GetPivot(), dt)
 			end
 		end
 		-- The townspeople.
 		if graph and places then
-			local night = clock.nightAmount(clock.dayPhase(DateTime.now().UnixTimestampMillis)) > 0.5
+			local night = clock.nightAmount(clock.dayPhase(ClockShift.now())) > 0.5
 			local wag = os.clock()
 			local cam = workspace.CurrentCamera
 			local eye = if cam then cam.CFrame.Position else nil
 			local parts: { BasePart } = {}
 			local cfs: { CFrame } = {}
+			bouncers(dt)
 			for _, p in people do
 				updatePerson(graph, places, p, dt, night)
 				if p.fig and p.fig.model.Parent then
 					draw(origin, p, wag, eye, parts, cfs)
 				end
 			end
+			followThought(people)
 			if #parts > 0 then
 				workspace:BulkMoveTo(parts, cfs, Enum.BulkMoveMode.FireCFrameChanged)
 			end
 		end
 	end
+	-- Tap someone to see what they're up to; a tap anywhere else (not a drag to pan) closes it.
+	local down: { [InputObject]: Vector2 } = {}
+	local function isTap(input: InputObject): boolean
+		return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+	end
+	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+		if isTap(input) and not processed then
+			down[input] = Vector2.new(input.Position.X, input.Position.Y)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input: InputObject)
+		local from = down[input]
+		down[input] = nil
+		if not from then
+			return
+		end
+		local at = Vector2.new(input.Position.X, input.Position.Y)
+		if (at - from).Magnitude > 6 then
+			return
+		end
+		local p = tapped(people, at)
+		local head = p and headOf(p)
+		if p and head then
+			local where, there = whereOf(p)
+			Thought.show(p.id, head, where, there, thoughtOf(p), true)
+		else
+			Thought.hide()
+		end
+	end)
 	return update, step
 end
+
+-- Puts a visitor's cars on the town's roads, or takes them off (empty): leaving visitors fade out
+-- where they are. Each spec: { uid, len, wid, cruise, stalled }.
+function TownLife.setGuests(list: { any })
+	guests = list
+	refresh()
+end
+
+-- For a town nobody has brought to life (attach): keeps the traffic up to date with `save` and
+-- moves it on by dt, for the visitor's cars alone.
+function TownLife.drive(save: any, dt: number)
+	lastSave = save
+	updateTraffic(save)
+	traffic:step(dt)
+end
+
+TownLife.running = false
 
 function TownLife.start()
 	local Town = require(script.Parent.Town) :: any
@@ -1411,8 +1649,6 @@ function TownLife.start()
 				task.wait(0.5)
 			end
 		end
-		-- The townsfolk's cars are built from the meshes the server shares.
-		Builder.useLibrary(60)
 		local update, step = TownLife.attach(folder :: Folder)
 		Remote.changed:Connect(function(snap)
 			update(snap.save)
@@ -1420,11 +1656,12 @@ function TownLife.start()
 		if Remote.last then
 			update(Remote.last.save)
 		end
+		TownLife.running = true
 		RunService.RenderStepped:Connect(step)
 	end)
 end
 
--- Every car on the town's roads right now (the player's and the townsfolk's), for getting in:
+-- Every car on the town's roads right now (the player's), for getting in:
 -- uid -> model.
 function TownLife.cars(): { [string]: Model }
 	local out = {}
@@ -1453,7 +1690,7 @@ function TownLife.take(uid: string): Model?
 	return m
 end
 
--- A car's model (the player's, from the server, or a townsfolk car) by uid.
+-- A car's model (the player's, from the server) by uid.
 function TownLife.modelOf(uid: string): Model?
 	return modelOf(uid)
 end
@@ -1500,5 +1737,21 @@ TownLife._person = person
 TownLife._figure = figure
 TownLife._draw = draw
 TownLife._updatePerson = updatePerson
+TownLife._thoughtOf = thoughtOf
+TownLife._whereOf = whereOf
+TownLife._tapped = tapped
+TownLife._queues = queues
+
+-- The townspeople's figures, for other crowds drawn the same way (client/ClubLife): a new
+-- person's look (from an id), a figure for it (`scale` for a bigger one), posing it and hiding it.
+TownLife.person = person
+TownLife.figure = figure
+TownLife.pose = pose
+TownLife.hideFigure = hide
+TownLife.LEG = LEG
+TownLife.THIGH = THIGH
+TownLife.SHIN = SHIN
+-- Studs per model unit of a grown-up's figure (LotPeople steps their legs to match the ground).
+TownLife._K = K
 
 return TownLife
