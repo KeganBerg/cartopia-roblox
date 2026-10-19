@@ -50,6 +50,12 @@ vi.mock('./scene/SkyEnv', async (load) => ({ ...((await load()) as object), SkyE
 // The Speedway's race and crowd (SpeedwayLife.tsx) move every frame, so the game draws them on each
 // player's own screen (client/SpeedwayLife.luau) instead of baking one still frame into the model.
 vi.mock('./scene/SpeedwayLife', async (load) => ({ ...((await load()) as object), SpeedwayLife: () => null }))
+// So do the campuses' people and learner cars (CampusLife.tsx Crowd and StudentCars, drawn by
+// client/CampusLife.luau; the parked LearnerCars stay in the model) and the funfair's visitors
+// (FairCrowd.tsx, client/FairCrowd.luau). Left in, they'd be baked where their first frame put them:
+// the campus crowds and the class all piled up at the middle of the lot.
+vi.mock('./scene/CampusLife', async (load) => ({ ...((await load()) as object), Crowd: () => null, StudentCars: () => null }))
+vi.mock('./scene/FairCrowd', async (load) => ({ ...((await load()) as object), FairCrowd: () => null }))
 
 // --- A canvas that remembers what was painted on it ---------------------------------------
 // Signs and other painted textures are drawn on 2D canvases. jsdom has none, so this records

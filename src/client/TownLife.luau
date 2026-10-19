@@ -425,6 +425,8 @@ type Person = {
 	colors: { shirt: string, pants: string, skin: string, hair: string, dog: string },
 	look: { top: string, hair: string, shorts: boolean, coat: string, trim: string, shoes: string, hat: string },
 	fig: Figure?,
+	-- How big the figure is drawn, 1 for a grown-up (CampusLife's schoolkids are smaller).
+	size: number?,
 }
 
 local function nodePos(n: any): Pt
@@ -840,6 +842,7 @@ local SHOULDER = Vector3.new(0.105, 0.255, 0) -- from the hips, on the torso
 local SIT_HIP = 0.26 / FIT
 
 local function figure(p: Person, parent: Instance): Figure
+	local K = K * (p.size or 1)
 	local m = Instance.new("Model")
 	m.Name = p.id
 	local c, look = p.colors, p.look
@@ -978,6 +981,7 @@ local NEAR = 90
 -- Places a person's figure (Townspeople.tsx draw()) into the lists BulkMoveTo takes. `eye` is the
 -- camera's position, if there is one.
 local function draw(origin: Vector3, p: Person, wag: number, eye: Vector3?, list: { BasePart }, cfs: { CFrame })
+	local K = K * (p.size or 1)
 	local fig = p.fig :: Figure
 	local hide = p.state == "inside"
 	if hide then
@@ -1500,5 +1504,7 @@ TownLife._person = person
 TownLife._figure = figure
 TownLife._draw = draw
 TownLife._updatePerson = updatePerson
+-- Studs per model unit of a grown-up's figure (LotPeople steps their legs to match the ground).
+TownLife._K = K
 
 return TownLife
