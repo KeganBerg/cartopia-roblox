@@ -25,6 +25,8 @@
 --                          -> ok, result or error text: playing together (see Social)
 --   GetIn  RemoteFunction  client -> server: ("enter", car) | ("exit"): getting in any car on
 --                          foot and out again (see GetIn)
+--   Visitor RemoteFunction client -> server: ("next") | ("claim", id) | ("leave", id): town
+--                          visitors, their prizes rolled here (see Visitors)
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -69,6 +71,7 @@ local Sky = require(script.Sky)
 local Prefs = require(script.Prefs)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 local GetIn = require(script.GetIn)
+local Visitors = require(script.Visitors)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
 local TICK = 1 -- seconds between town clock ticks, as on the web
@@ -107,6 +110,25 @@ local function friends(userId: number): { any }
 	friendsOf[userId] = { at = os.clock(), list = list }
 	return list
 end
+-- Surprise visitors in town: who comes and what they pay is rolled here (server/Visitors); each
+-- player's last arrival and the day's count are kept in Visitors_v1, so a rejoin doesn't reset them.
+local visitorRecords = DataStoreService:GetDataStore("Visitors_v1")
+local visitors = Visitors.new(towns, {
+	store = require(Game.store),
+	data = require(Game.data),
+	random = function(): number
+		return math.random()
+	end,
+	now = now,
+	records = {
+		get = function(userId: number): any
+			return visitorRecords:GetAsync(tostring(userId))
+		end,
+		set = function(userId: number, rec: any)
+			visitorRecords:SetAsync(tostring(userId), rec)
+		end,
+	},
+})
 local races = Races.new(towns, {
 	store = require(Game.store),
 	data = require(Game.data),
@@ -147,6 +169,7 @@ local races = Races.new(towns, {
 		}, os.clock),
 	},
 	ghosts = ghosts,
+	visitors = visitors,
 	-- Whose ghosts a player can race: everyone else in this server, then their friends.
 	people = function(userId: number): { any }
 		local out, seen = {}, { [userId] = true }
@@ -302,6 +325,9 @@ meshRemote.Parent = remotes
 local socialRemote = Instance.new("RemoteFunction")
 socialRemote.Name = "Social"
 socialRemote.Parent = remotes
+local visitorRemote = Instance.new("RemoteFunction")
+visitorRemote.Name = "Visitor"
+visitorRemote.Parent = remotes
 local prefsRemote = Instance.new("RemoteEvent")
 prefsRemote.Name = "Prefs"
 prefsRemote.Parent = remotes
@@ -569,6 +595,9 @@ Players.PlayerAdded:Connect(function(player)
 	end)
 end)
 
+-- When each player last asked for a visitor (Visitor "next"), and how often they may.
+local visitorAsked: { [Player]: number } = {}
+local VISITOR_ASK_GAP = 5
 -- Rate limit: a burst of 20 actions, refilling 10 a second.
 local budget: { [Player]: { n: number, at: number } } = {}
 local function allow(player: Player): boolean
@@ -589,6 +618,8 @@ Players.PlayerRemoving:Connect(function(player)
 	karts:close(player.UserId)
 	parties:forget(player.UserId)
 	arcade:close(player.UserId)
+	visitors:close(player.UserId)
+	visitorAsked[player] = nil
 	save(player, true)
 	towns:close(player.UserId)
 	purchases:forget(player.UserId)
@@ -771,6 +802,51 @@ crateRemote.OnServerInvoke = function(player: Player, id: any, free: any, count:
 	local ran, result, why = pcall(crates.open, crates, player.UserId, id, free, count)
 	if not ran then
 		warn(`[Cartopia] {player.Name} crate {id}: {result}`)
+		return false, "error"
+	end
+	push(player)
+	if result == nil then
+		return false, why
+	end
+	return true, result
+end
+
+-- Town visitors (server/Visitors): "next" asks for the next visitor (the one in town, a new one,
+-- or { wait = seconds }), "claim" taps tourists or the mystery car for their prize, "leave" sends
+-- the visitor on. Asking is held to once every few seconds on top of the usual budget.
+visitorRemote.OnServerInvoke = function(player: Player, op: any, id: any)
+	if not towns:isOpen(player.UserId) or leaving[player] then
+		return false, "town not loaded"
+	end
+	if not allow(player) then
+		return false, "slow down"
+	end
+	if op == "next" then
+		local last = visitorAsked[player]
+		if last and os.clock() - last < VISITOR_ASK_GAP then
+			return false, "slow down"
+		end
+		visitorAsked[player] = os.clock()
+		-- Not while visiting someone else's town (lib/visitors.ts ready()).
+		if player:GetAttribute("Visiting") ~= nil then
+			return true, { wait = 60 }
+		end
+	elseif op ~= "claim" and op ~= "leave" then
+		return false, "not a visitor call"
+	end
+	if op ~= "next" and (type(id) ~= "string" or #id > 40) then
+		return false, "no such visitor"
+	end
+	local ran, result, why = pcall(function(): (any, any)
+		if op == "next" then
+			return visitors:next(player.UserId)
+		elseif op == "claim" then
+			return visitors:claim(player.UserId, id)
+		end
+		return visitors:leave(player.UserId, id), nil
+	end)
+	if not ran then
+		warn(`[Cartopia] {player.Name} visitor {op}: {result}`)
 		return false, "error"
 	end
 	push(player)
