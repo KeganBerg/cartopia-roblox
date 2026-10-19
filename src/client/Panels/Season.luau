@@ -19,6 +19,7 @@ local raceCar = require(Game.raceCar) :: any
 local Client = script.Parent.Parent
 local Remote = require(Client.Remote)
 local Ui = require(Client.Ui)
+local SkinShop = require(Client.SkinShop)
 local Icons = require(Client.Icons)
 local PassStreet = require(Client.PassStreet)
 
@@ -77,6 +78,7 @@ function Season.swatch(parent: Instance, swatch: string?, size: number, props: {
 		end
 		Ui.new("UIGradient", { Color = ColorSequence.new(keys), Rotation = 45, Parent = f })
 	end
+	SkinShop.picture(f, swatch)
 	f.Parent = parent
 	return f
 end
@@ -211,6 +213,8 @@ function Season.open(ctx: any): Instance
 			local colors = if t.car then (if t.state == "got" then BG.got else "#311b92") else BG[t.state]
 			local fg = Color3.fromHex(if t.car then "#ffffff" else SIGN_INK[t.state])
 			local _, face = Ui.shadowed({ Name = `Tier{t.n}`, Position = UDim2.fromOffset(6 + (i - 1) * 52, 9), Size = UDim2.fromOffset(46, 46), Parent = chips }, { radius = 12, stroke = 3, drop = 3, dark = 0.3, class = "TextButton", color = Color3.fromHex(colors) })
+			-- Six pixels apart with thick outlines: no room to grow under the mouse.
+			face:SetAttribute("MaxGrow", 0)
 			local faded = if t.state == "locked" then 0.45 else 0
 			if t.car then
 				Ui.text({ Name = "Prize", Text = "🚗", TextSize = 20, TextTransparency = faded, Size = UDim2.fromScale(1, 1), Parent = face })

@@ -191,6 +191,8 @@ function Cars.open(ctx: any, tab: any): Instance
 	CallCards.reset()
 	CrateDepot.reset()
 	local overlay = Ui.new("TextButton", { Name = "Panel", Text = "", AutoButtonColor = false, ZIndex = 20, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = ctx.gui })
+	-- The whole page: it doesn't press or grow like a button (it grew past the screen's edges).
+	overlay:SetAttribute("NoMotion", true)
 	local page = Ui.new("Frame", { Name = "Cars", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0f141d"), BorderSizePixel = 0, Parent = overlay })
 	local showroom = room(page)
 	-- The title bar, as every menu's, square-cornered across the top of the screen.

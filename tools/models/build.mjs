@@ -25,6 +25,7 @@ import { polishBuilding } from './walk.mjs'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '../..')
 const OUT_DIR = join(ROOT, 'src/shared/Models')
+const LEVELS_DIR = join(ROOT, 'src/server/Levels')
 const GLB_DIR = join(ROOT, 'build/meshes')
 const TEX_DIR = join(ROOT, 'build/textures')
 const ASSETS = join(HERE, 'assets.json')
@@ -62,6 +63,16 @@ const ERROR = 0.004
 // ---------------------------------------------------------------------------------------------
 // Rendering
 
+// How far (studs, each way from its middle) the shared world's ground reaches, as server/World
+// works it out: half a plot past the last ring, and 600 more. The far land starts there.
+function worldReach() {
+  const src = readFileSync(join(ROOT, 'src/server/World.luau'), 'utf8')
+  const pitch = Number(src.match(/World\.PITCH = (\d+)/)?.[1])
+  const rings = Number(src.match(/local RINGS = (\d+)/)?.[1])
+  if (!pitch || !rings) throw new Error('server/World.luau has no PITCH or RINGS')
+  return (rings + 0.5) * pitch + 600
+}
+
 function render(web) {
   const test = join(web, 'src/__rbx_export__.test.tsx')
   const out = join(ROOT, 'build/models.json')
@@ -71,7 +82,7 @@ function render(web) {
     execFileSync('npx', ['vitest', 'run', 'src/__rbx_export__.test.tsx'], {
       cwd: web,
       stdio: 'inherit',
-      env: { ...process.env, RBX_MODELS_OUT: out },
+      env: { ...process.env, RBX_MODELS_OUT: out, RBX_WORLD_REACH: String(worldReach()) },
     })
   } finally {
     rmSync(test, { force: true })
@@ -385,7 +396,7 @@ export function convert(data) {
     if (model.kind === 'race') races.add(model.id)
     // Countryside meshes are only uploaded merged (mergeScenery), so their pieces aren't kept.
     const keep = merged ? (m) => ((m.key ??= meshKey(m)), loose.set(m.key, m), m.key) : remember
-    const name = model.kind === 'building' ? `${model.id}@${model.level ?? 1}` : model.id
+    const name = model.kind === 'building' ? `${model.id}@${model.level ?? 1}${model.block ? `/${model.block}` : ''}` : model.id
     const paint = new Set(model.paint ?? [])
     // A car's mods and custom paint panels share one pack ("mod:<car>"), which the game loads only
     // when that car needs it.
@@ -398,7 +409,7 @@ export function convert(data) {
       convertPiece(piece, i)
       partsOf[i] = Array.from({ length: parts.length - from }, (_, k) => from + k + 1)
     })
-    if (model.kind === 'car') piecesToParts[model.id] = partsOf
+    if (model.kind === 'car' || data.spinsOf?.[model.id]) piecesToParts[model.id] = partsOf
     function convertPiece(piece, i) {
       const geo = geos[piece.g]
       // The web game stacks the strip's flat layers (ground, asphalt, paint) a hundredth of a unit
@@ -672,29 +683,37 @@ export function convert(data) {
   const trim = {}
   for (const [car, byKind] of Object.entries(data.trimOf ?? {}))
     for (const [kind, list] of Object.entries(byKind)) (trim[car] ??= {})[kind] = toParts(car, list)
+  // A fly-over's turning parts: the point and axis they turn about (studs) and how fast.
+  const spins = {}
+  for (const [id, list] of Object.entries(data.spinsOf ?? {}))
+    spins[id] = list.map((s) => ({ at: s.at.map((x) => x * SCALE), axis: s.axis, speed: s.speed, parts: toParts(id, s.pieces) }))
   const stance = {}
   for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
     for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, townSizes: data.townSizes ?? {}, turbines: (data.turbines ?? []).map(([x, y, z, yaw, tint]) => [x * SCALE, y * SCALE, z * SCALE, yaw, tint]), textures: [...(data.textures ?? []), ...skinTextures()] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, spins, townSizes: data.townSizes ?? {}, turbines: (data.turbines ?? []).map(([x, y, z, yaw, tint]) => [x * SCALE, y * SCALE, z * SCALE, yaw, tint]), textures: [...(data.textures ?? []), ...skinTextures()] }
 }
 
 // The car skins baked by skins.mjs (kept in tools/models/skins/), as textures to upload: each
-// skin's base ("skin_<n>") and its glow at two moments ("skinglow_<n>", "skinglow2_<n>", with how
-// deep under the paint the glow lies), named by their content.
+// skin's base ("skin_<n>") and its glow at each moment ("skinglow_<n>", "skinglow2_<n>", ..., with
+// how deep under the paint the glow lies and the time between moments), and each skin's picker
+// swatch ("skinswatch_<id>"), named by their content.
 function skinTextures() {
   const dir = join(HERE, 'skins')
   if (!existsSync(join(dir, 'skins.json'))) return []
-  const { span, skins } = JSON.parse(readFileSync(join(dir, 'skins.json'), 'utf8'))
+  const { span, step, skins, swatches = [] } = JSON.parse(readFileSync(join(dir, 'skins.json'), 'utf8'))
   mkdirSync(TEX_DIR, { recursive: true })
   const out = []
-  for (const s of skins)
-    for (const [key, file] of [[`skin_${s.n}`, s.base], [`skinglow_${s.n}`, s.glow], [`skinglow2_${s.n}`, s.glow2]]) {
-      if (!file) continue
-      const data = readFileSync(join(dir, file))
-      const name = `${file.replace(/\.png$/, '')}-${createHash('sha1').update(data).digest('hex').slice(0, 16)}`
-      copyFileSync(join(dir, file), join(TEX_DIR, `${name}.png`))
-      out.push({ key, name, file: `${name}.png`, span, ...(key.startsWith('skinglow') && s.depth ? { depth: s.depth } : {}) })
-    }
+  const add = (key, file, extra = {}) => {
+    const data = readFileSync(join(dir, file))
+    const name = `${file.replace(/\.png$/, '')}-${createHash('sha1').update(data).digest('hex').slice(0, 16)}`
+    copyFileSync(join(dir, file), join(TEX_DIR, `${name}.png`))
+    out.push({ key, name, file: `${name}.png`, span, ...extra })
+  }
+  for (const s of skins) {
+    add(`skin_${s.n}`, s.base)
+    s.glows.forEach((file, k) => add(k === 0 ? `skinglow_${s.n}` : `skinglow${k + 1}_${s.n}`, file, { ...(s.depth ? { depth: s.depth } : {}), ...(step ? { step } : {}) }))
+  }
+  for (const w of swatches) add(`skinswatch_${w.id}`, w.file)
   return out
 }
 
@@ -713,17 +732,44 @@ const num = (x) => {
 }
 const str = (s) => JSON.stringify(s)
 
-// Meshes are uploaded one pack per model (the model that first draws them), as a .glb.
+// Meshes are uploaded as .glb packs. A car's mods (loaded when it needs them), the far land and the
+// race venues (loaded later) keep a pack per model; everything else a new server loads at once is
+// shared out into a few bigger packs per kind (buildings and cars, stripes, hats, ...), since each
+// pack is a separate load and hundreds of small ones kept a new server's first players waiting.
+// A model always lands in the same pack (picked by a hash of its name), so changing one model
+// uploads only its own pack again.
+const PACK_AIM = 40000 // triangles a shared pack is sized for
+const ownPack = (owner) => /^(mod|horizon|race):/.test(owner)
 export function packs(meshes) {
   const byOwner = new Map()
   for (const m of meshes.values()) {
     if (!byOwner.has(m.owner)) byOwner.set(m.owner, [])
     byOwner.get(m.owner).push(m)
   }
-  const out = []
+  const trisOf = (list) => list.reduce((n, m) => n + m.idx.length / 3, 0)
+  // The kind of a model: what its name starts with ("stripe:hotshot" -> stripe), or "model".
+  const kindOf = (owner) => (owner.includes(':') ? owner.split(':')[0] : 'model')
+  const kindTris = new Map()
   for (const [owner, all] of byOwner) {
+    if (!ownPack(owner)) kindTris.set(kindOf(owner), (kindTris.get(kindOf(owner)) ?? 0) + trisOf(all))
+  }
+  const groups = new Map()
+  for (const [owner, all] of byOwner) {
+    let group = owner
+    // (Big models, the countryside's, fill packs of their own.)
+    if (!ownPack(owner) && trisOf(all) < PACK_AIM / 2) {
+      const kind = kindOf(owner)
+      const count = Math.max(1, Math.ceil(kindTris.get(kind) / PACK_AIM))
+      const pick = parseInt(createHash('sha1').update(owner).digest('hex').slice(0, 8), 16) % count
+      group = `${kind}-${pick + 1}`
+    }
+    if (!groups.has(group)) groups.set(group, [])
+    groups.get(group).push(...all)
+  }
+  const out = []
+  for (const [owner, all] of groups) {
     all.sort((a, b) => (a.key < b.key ? -1 : 1))
-    // Big owners (the countryside) are split so no upload gets too large.
+    // Big ones are split so no upload gets too large.
     let list = [], tris = 0
     const flush = () => {
       if (!list.length) return
@@ -773,7 +819,7 @@ Catalog.MEADOW = ${str(result.ground.meadow)}
 -- the meadow past it, and the custom paint patterns (pattern_<id>). span = studs one image covers;
 -- image = 0 until upload.mjs uploads it.
 Catalog.TEXTURES = {
-${(result.textures ?? []).map((t) => `\t${t.key} = { image = ${imageOf(assets[`texture:${t.name}`])}, span = ${num(t.span * SCALE)}, name = ${str(t.name)}${t.depth ? `, depth = ${num(t.depth * SCALE)}` : ''} },\n`).join('')}}
+${(result.textures ?? []).map((t) => `\t${t.key} = { image = ${imageOf(assets[`texture:${t.name}`])}, span = ${num(t.span * SCALE)}, name = ${str(t.name)}${t.depth ? `, depth = ${num(t.depth * SCALE)}` : ''}${t.step ? `, step = ${num(t.step)}` : ''} },\n`).join('')}}
 
 Catalog.LOOKS = {
 `
@@ -784,10 +830,19 @@ Catalog.LOOKS = {
     cat += ' },\n'
   }
   // which: 'town' (Catalog), 'scenery' (the countryside) or 'race' (the race venues).
-  const modelList = (which) => {
+  // A building's levels above 1 and its merged blocks ("id@level/2x1x1") go to the server, one
+  // module per building (LEVELS_DIR): only TownView draws them. (Not the Speedway's levels: the
+  // players' own screens put its crowd on its stands.)
+  const grownOf = (name) => {
+    const m = /^(.+)@(\d+)(\/.+)?$/.exec(name)
+    return m && (+m[2] > 1 || m[3]) && m[1] !== 'stadium' ? m[1] : null
+  }
+  const modelList = (which, only) => {
     let s = ''
     for (const [name, parts] of Object.entries(models)) {
-      if ((races.has(name) ? 'race' : scenery.has(name) ? 'scenery' : 'town') !== which) continue
+      const grown = grownOf(name)
+      if ((races.has(name) ? 'race' : scenery.has(name) ? 'scenery' : grown ? 'level' : 'town') !== which) continue
+      if (only && grown !== only) continue
       s += `\t[${str(name)}] = {\n`
       for (const p of parts) s += `\t\t{ ${str(p[0])}, ${p.slice(1, 11).map(num).join(', ')}, ${p[11]}${p[12] ? `, ${str(p[12])}` : ''} },\n`
       s += '\t},\n'
@@ -807,12 +862,21 @@ Catalog.LOOKS = {
   for (const [car, list] of Object.entries(result.panelDrops ?? {})) cat += `\t[${str(car)}] = { ${list.map(num).join(', ')} },\n`
   cat += '}\n\n-- Each car\'s trim parts (game/trim.ts): its glass (tint), headlights and door handles.\nCatalog.TRIM = {\n'
   for (const [car, byKind] of Object.entries(result.trim ?? {})) cat += `\t[${str(car)}] = { ${lists(byKind)} },\n`
+  cat += '}\n\n-- Each fly-over\'s turning parts (rotors, props, FlyByModels.tsx): the point and axis they turn\n-- about from the model\'s middle, in studs, radians a second, and the parts (indices into MODELS).\nCatalog.SPINS = {\n'
+  for (const [id, list] of Object.entries(result.spins ?? {}))
+    cat += `\t[${str(id)}] = {\n${list.map((s) => `\t\t{ at = { ${s.at.map(num).join(', ')} }, axis = { ${s.axis.map(num).join(', ')} }, speed = ${num(s.speed)}, parts = { ${s.parts.map(num).join(', ')} } },\n`).join('')}\t},\n`
   cat += '}\n\n-- How far each stance mod moves a car\'s body up (or down), in studs.\nCatalog.STANCE = {\n'
   for (const [car, byMod] of Object.entries(result.stance ?? {})) cat += `\t[${str(car)}] = { ${Object.entries(byMod).map(([k, v]) => `${k} = ${num(v)}`).join(', ')} },\n`
   cat += '}\n\n-- Each car in town traffic (townCarSize.ts): { length, width } in web units, and the scale it\'s\n-- drawn at.\nCatalog.TOWN_SIZE = {\n'
   for (const [car, v] of Object.entries(result.townSizes ?? {})) cat += `\t[${str(car)}] = { ${v.map(num).join(', ')} },\n`
   cat += '}\n\nCatalog.MODELS = {\n' + modelList('town') + '}\n\nreturn Catalog\n'
   writeFileSync(join(OUT_DIR, 'Catalog.luau'), cat)
+  // Each building's grown levels (server/Levels/<id>.luau), loaded by TownView when a town has one.
+  rmSync(LEVELS_DIR, { recursive: true, force: true })
+  mkdirSync(LEVELS_DIR, { recursive: true })
+  for (const id of new Set(Object.keys(models).map(grownOf).filter(Boolean))) {
+    writeFileSync(join(LEVELS_DIR, `${id}.luau`), header(`${id} at the levels where its design changes (id@level) and merged (id@level/<block scale>), as Catalog.MODELS (parts and looks alike).`) + 'return {\n' + modelList('level', id) + '}\n')
+  }
   // The countryside, apart so the town's own models stay quick to load. Parts are in studs from
   // the middle of the town (not of the model), in the same form as Catalog's, with its LOOKS.
   const sc = header('The countryside round the town (Outskirts.tsx): the forest ring with its farm and lake, and each plot\'s wild meadow ("wilds:x,z").') + `local Scenery = {}

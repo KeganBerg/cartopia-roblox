@@ -99,6 +99,9 @@ function Gui.partOf(d)
 	local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = d.CFrame:GetComponents()
 	local shape = if d:IsA("MeshPart") then "mesh" elseif d:FindFirstChildOfClass("SpecialMesh") then "ellipsoid" else enumName(d.Shape)
 	local surface = d:FindFirstChildOfClass("SurfaceGui")
+	if surface and surface.Enabled == false then
+		surface = nil
+	end
 	local label = surface and surface:FindFirstChildOfClass("TextLabel")
 	return {
 		shape = shape,

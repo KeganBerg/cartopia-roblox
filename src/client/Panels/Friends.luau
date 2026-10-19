@@ -2,8 +2,8 @@
 -- The Social menu's Friends tab, as the web game's FriendsPanel (ui/Friends.tsx), with Roblox's
 -- own friends in place of the web's friend requests: Invite friends, your friends (in this server:
 -- Visit; playing Cartopia elsewhere: Join; online in another game or offline: greyed), then the
--- other drivers in this server to visit and help. Leaderboards: client/Social/Leaders. The Crew and
--- Meet tabs aren't on Roblox yet.
+-- other drivers in this server to visit and help. Leaderboards: client/Social/Leaders; the Car Meet:
+-- client/Social/Meet; Crews: client/Social/Crew.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,8 +17,16 @@ local Policy = require(ReplicatedStorage.Shared.Policy)
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local Leaders = require(script.Parent.Parent.Social.Leaders)
+local MeetTab = require(script.Parent.Parent.Social.Meet)
+local CrewTab = require(script.Parent.Parent.Social.Crew)
+local Card = require(script.Parent.Parent.Social.Card)
+local Postcards = require(script.Parent.Parent.Social.Postcards)
 
 local Friends = {}
+
+-- The invite reward (server/Invites): gems each, once the new player reaches the level.
+local INVITE_GEMS = 100
+local INVITE_LEVEL = 10
 Friends.id = "friends"
 
 local ROW_H = 52
@@ -45,12 +53,16 @@ local function avatar(parent: Instance, name: string, userId: number?, on: boole
 end
 
 -- One row: avatar, name (and friendship badge), a small line, then its buttons right to left.
+-- onTap: tapping the rest of the row (opens the player's card).
 type Button = { text: string, kind: string, width: number, onClick: () -> () }
-local function row(list: Instance, order: number, o: { name: string, userId: number?, on: boolean, line: string, badge: string?, dim: boolean?, buttons: { Button } })
+local function row(list: Instance, order: number, o: { name: string, userId: number?, on: boolean, line: string, badge: string?, dim: boolean?, buttons: { Button }, onTap: (() -> ())? })
 	local r = Ui.new("Frame", { Name = o.name, LayoutOrder = order, Size = UDim2.new(1, 0, 0, ROW_H), BackgroundColor3 = Ui.WHITE, Parent = list }, {
 		Ui.corner(12),
 		Ui.stroke(2, Color3.fromHex("#e0e0e0")),
 	})
+	if o.onTap then
+		Ui.new("TextButton", { Name = "Open", Text = "", BackgroundTransparency = 1, ZIndex = 0, Size = UDim2.fromScale(1, 1), Parent = r }).Activated:Connect(o.onTap)
+	end
 	avatar(r, o.name, o.userId, o.on)
 	local right = 10
 	for _, b in o.buttons do
@@ -129,8 +141,8 @@ end
 
 function Friends.open(ctx: any, arg: any?): Instance
 	local overlay, _sheet, body = Ui.panel(ctx.gui, "Social", { wide = true, onClose = ctx.close, bodyTop = 0 })
-	local soon = { clan = "Crews are", meet = "The Car Meet is" }
-	local first = if arg == "leaders" then "leaders" else "friends"
+	local soon: { [string]: string } = {}
+	local first = if arg == "leaders" or arg == "meet" or arg == "clan" then arg else "friends"
 	local pick: (string) -> ()
 	local show: (string) -> ()
 	_, pick = Ui.tabs(body, {
@@ -159,6 +171,10 @@ function Friends.open(ctx: any, arg: any?): Instance
 			ctx.setVisit(town)
 		end
 	end
+	-- A player's card over the menu (Social/Card).
+	local function card(userId: number, name: string, town: string?)
+		Card.open(overlay, userId, { name = name, town = town }, { visit = visit, ctx = ctx })
+	end
 	local function join(userId: number, name: string)
 		ctx.toast(`Joining {name}…`)
 		local ok, res = Remote.social("join", userId)
@@ -176,7 +192,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 		end
 	end
 
-	local leaderState = {}
+	local leaderState, meetState, crewState = {}, {}, {}
 	local shown = ""
 	local function clear()
 		for _, c in list:GetChildren() do
@@ -198,6 +214,34 @@ function Friends.open(ctx: any, arg: any?): Instance
 			end)()
 			local friends = robloxFriends()
 			local okPlayers, here = Remote.social("players", nil, true)
+			local okSent, sent = Remote.social("sent", nil, true)
+			local okInvites, stats = Remote.social("invites", nil, true)
+			sent = if okSent then sent else { gifts = {}, cards = {} }
+			-- Today's gift and postcard for a player (Social/Postcards); ✔ once sent.
+			local function mailButtons(buttons: { Button }, id: number, name: string)
+				local gifted = sent.gifts[tostring(id)] == true
+				local carded = sent.cards[tostring(id)] == true
+				table.insert(buttons, { text = if carded then "💌✔" else "💌", kind = if carded then "grey" else "garage", width = if carded then 62 else 48, onClick = function()
+					if carded then
+						ctx.toast("Postcard sent today")
+						return
+					end
+					Postcards.pick(overlay, id, name, function()
+						shown = ""
+						show("friends")
+					end)
+				end })
+				table.insert(buttons, { text = if gifted then "🎁✔" else "🎁", kind = if gifted then "grey" else "garage", width = if gifted then 62 else 48, onClick = function()
+					if gifted then
+						ctx.toast("Gift sent today")
+						return
+					end
+					Postcards.gift(overlay, id, name, function()
+						shown = ""
+						show("friends")
+					end)
+				end })
+			end
 			if not overlay.Parent or shown ~= "friends" then
 				return
 			end
@@ -208,10 +252,14 @@ function Friends.open(ctx: any, arg: any?): Instance
 				return order
 			end
 			if canInvite then
+				-- Invite rewards (server/Invites, the web's lib/invite.ts): both get the gems once a
+				-- new player who joins from the invite reaches the level.
 				local holder = Ui.new("Frame", { Name = "Invite", LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 46), BackgroundTransparency = 1, Parent = list })
-				Ui.buy({ Position = UDim2.fromOffset(0, 2), Size = UDim2.new(1, 0, 0, 40), Parent = holder }, "🔗 Invite friends", "green", function()
+				Ui.buy({ Position = UDim2.fromOffset(0, 2), Size = UDim2.new(1, 0, 0, 40), Parent = holder }, `🔗 Invite friends · 💎{INVITE_GEMS} each`, "green", function()
 					pcall(SocialService.PromptGameInvite, SocialService, me)
 				end, 18)
+				local hint = if okInvites and stats.joined > 0 then `👥 {stats.joined} joined · ⭐ {stats.reached} reached level {INVITE_LEVEL} · 💎 {stats.gems} earned` else `You both get 💎{INVITE_GEMS} when a new player you invite reaches level {INVITE_LEVEL}`
+				Ui.text({ Name = "InviteNote", LayoutOrder = nextOrder(), Text = hint, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextWrapped = true, Size = UDim2.new(1, 0, 0, 20), Parent = list })
 			end
 
 			local byId: { [number]: any } = {}
@@ -228,12 +276,12 @@ function Friends.open(ctx: any, arg: any?): Instance
 			if #friends == 0 then
 				note(list, nextOrder(), "No Roblox friends yet. Add the drivers below, or invite yours.")
 			end
-			local shown = 0
+			local listed = 0
 			for _, f in friends do
-				if shown >= 40 then
+				if listed >= 40 then
 					break
 				end
-				shown += 1
+				listed += 1
 				local p = byId[f.id]
 				local buttons: { Button } = {}
 				local line: string
@@ -253,6 +301,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 				else
 					line = "Offline"
 				end
+				mailButtons(buttons, f.id, f.name)
 				row(list, nextOrder(), { name = f.name, userId = f.id, on = f.online, line = line, badge = badge(f.id), dim = not f.online, buttons = buttons })
 			end
 
@@ -269,20 +318,25 @@ function Friends.open(ctx: any, arg: any?): Instance
 			end
 			for _, p in others do
 				local helpedAll = p.helped >= HELPS_PER_TOWN
+				local buttons: { Button } = {
+					{ text = if helpedAll then "🏠 Visit" else "🤝 Visit", kind = "garage", width = 92, onClick = function()
+						visit(p.id)
+					end },
+					{ text = "+ 👫", kind = "garage", width = 56, onClick = function()
+						addFriend(p.id)
+					end },
+				}
+				mailButtons(buttons, p.id, p.name)
 				row(list, nextOrder(), {
 					name = p.name,
 					userId = p.id,
 					on = true,
 					line = `{p.townName} · Lvl {p.level} · 🏆 {p.trophies}`,
 					badge = badge(p.id),
-					buttons = {
-						{ text = if helpedAll then "🏠 Visit" else "🤝 Visit", kind = "garage", width = 92, onClick = function()
-							visit(p.id)
-						end },
-						{ text = "+ 👫", kind = "garage", width = 56, onClick = function()
-							addFriend(p.id)
-						end },
-					},
+					onTap = function()
+						card(p.id, p.name, p.townName)
+					end,
+					buttons = buttons,
 				})
 			end
 		end)
@@ -295,7 +349,11 @@ function Friends.open(ctx: any, arg: any?): Instance
 		shown = id
 		clear()
 		if id == "leaders" then
-			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit }, leaderState)
+			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit, card = card }, leaderState)
+		elseif id == "meet" then
+			MeetTab.draw(list, { note = note, visit = visit, card = card, toast = ctx.toast }, meetState)
+		elseif id == "clan" then
+			CrewTab.draw(list, { heading = heading, note = note, card = card, toast = ctx.toast, ctx = ctx }, crewState)
 		else
 			drawFriends()
 		end

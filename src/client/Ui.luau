@@ -569,6 +569,7 @@ function Ui.tabs(parent: Instance, items: { { id: string, label: string } }, val
 			class = "TextButton",
 			colors = "white",
 		})
+		face:SetAttribute("MaxGrow", 0)
 		-- Tabs grow into spare room but never shrink below their label.
 		Ui.new("UIFlexItem", { FlexMode = Enum.UIFlexMode.Grow, Parent = shadow })
 		local gloss = Ui.new("Frame", { Name = "Gloss", ZIndex = 0, BorderSizePixel = 0, BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.5, Position = UDim2.fromOffset(8, 1), Size = UDim2.new(1, -16, 0, 2), Parent = face }, { Ui.round() })
