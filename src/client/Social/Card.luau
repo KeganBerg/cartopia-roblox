@@ -1,9 +1,9 @@
 --!strict
 -- A player's card, as the web game's PlayerCardPopup (ui/PlayerCard.tsx): their level, best PI,
 -- races won and trophies, a big look at one of their cars with its PI, a strip of all their cars
--- (the ones on show starred), a like for their Car Meet display, and Visit when they're in this
--- server. Opens over the Social menu from a driver's name or car in Leaderboards, Meet and
--- Drivers to visit (server/Meet keeps the cards of players in other servers).
+-- (the ones on show starred), a like for their Car Meet display, and Visit and ⚔️ Race when
+-- they're in this server. Opens over the Social menu from a driver's name or car in Leaderboards,
+-- Meet and Drivers to visit (server/Meet keeps the cards of players in other servers).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -11,6 +11,7 @@ local data = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local Thumb = require(script.Parent.Parent.Thumb)
+local LiveDuels = require(script.Parent.Parent.LiveDuels)
 
 local Card = {}
 
@@ -59,7 +60,7 @@ local function stat(parent: Instance, order: number, icon: string, n: number, ti
 end
 
 -- Opens the card of userId over parent. who: the name and town to show while it loads, and the car
--- to open on. kit: visit(userId).
+-- to open on. kit: visit(userId), and ctx (the HUD's) for a live race challenge.
 function Card.open(parent: Instance, userId: number, who: { name: string, town: string?, car: string? }, kit: any): Instance
 	local overlay: Instance
 	local function close()
@@ -154,6 +155,12 @@ function Card.open(parent: Instance, userId: number, who: { name: string, town: 
 				close()
 				kit.visit(userId)
 			end, 16)
+			-- A live drag race (client/LiveDuels): it waits in their 🏁 bell.
+			if not card.mine and kit.ctx then
+				Ui.buy({ Name = "Challenge", LayoutOrder = 3, Size = UDim2.fromOffset(120, 38), Parent = acts }, "⚔️ Race", "green", function()
+					task.spawn(LiveDuels.challenge, kit.ctx, userId, who.name)
+				end, 16)
+			end
 		end
 	end)
 	return overlay

@@ -168,7 +168,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 	end
 	-- A player's card over the menu (Social/Card).
 	local function card(userId: number, name: string, town: string?)
-		Card.open(overlay, userId, { name = name, town = town }, { visit = visit })
+		Card.open(overlay, userId, { name = name, town = town }, { visit = visit, ctx = ctx })
 	end
 	local function join(userId: number, name: string)
 		ctx.toast(`Joining {name}…`)
