@@ -1263,7 +1263,7 @@ local function shot(name, world, w, h)
 		end
 	end
 	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("DailySpin") or player.PlayerGui:FindFirstChild("RescueSearch")
-	if name:find("^depot%-") or name:find("^page%-") or name:find("^panel%-") then
+	if name:find("^depot%-") or name:find("^page%-") or name:find("^panel%-") or name:find("^cards") then
 		-- The crate depot, race pages and menus are on the HUD, whatever screen an earlier check
 		-- left behind.
 		raceGui = nil

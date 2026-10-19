@@ -3,7 +3,7 @@
 -- baked from the web's CSS by tools/callcards/build.mjs into pictures and motion
 -- (Shared.CallCardLooks), the tier's frame, and, on a stage, the ground and glow a car stands on.
 --
---   CallCardArt.scene(holder, id, { tint, still, g })   the scene filling `holder` (clipped to its corners)
+--   CallCardArt.scene(holder, id, { tint, still, locked, g })   the scene filling `holder` (clipped to its corners)
 --   CallCardArt.showcase(holder, id, { still, car })    CallCardShowcase: the card with a race car on it
 --   CallCardArt.frame(holder, id, inset, radius)        the tier's coloured edge inside a holder
 --
@@ -95,6 +95,7 @@ local function uploaded(look: any): boolean
 	end
 	need(look.base)
 	need(look.still)
+	need(look.lock)
 	local function walk(l: any)
 		if l.flip then
 			for _, f in l.flip do
@@ -193,10 +194,11 @@ local function aspectOf(holder: GuiObject, guess: number?): number
 	return guess or 1
 end
 
--- The card's scene filling `holder`. opts: tint (the Showroom's colour), still (no motion, the
--- picker's swatches), g (a stage: where the holder wants the card's ground, a share of its
--- height), aspect (the holder's width over height, until Roblox measures it).
-function CallCardArt.scene(holder: GuiObject, id: string?, opts: { tint: Color3?, still: boolean?, g: number?, aspect: number? }?): GuiObject
+-- The card's scene filling `holder`. opts: tint (the Showroom's colour), still (no motion: the
+-- swatch, drawn at a picker's small size), locked (the swatch greyed, as the picker shows a card
+-- you don't have), g (a stage: where the holder wants the card's ground, a share of its height),
+-- aspect (the holder's width over height, until Roblox measures it).
+function CallCardArt.scene(holder: GuiObject, id: string?, opts: { tint: Color3?, still: boolean?, locked: boolean?, g: number?, aspect: number? }?): GuiObject
 	local o = opts or {}
 	local cid = idOf(id)
 	local card = Looks.cards[cid]
@@ -209,8 +211,9 @@ function CallCardArt.scene(holder: GuiObject, id: string?, opts: { tint: Color3?
 		local function crop()
 			local a = aspectOf(holder, o.aspect)
 			local look = card[if a > 1.2 then "wide" else "tall"]
-			local im = Looks.images[look.still]
-			show(img, look.still)
+			local n = if o.locked then look.lock else look.still
+			local im = Looks.images[n]
+			show(img, n)
 			local w, h = im[4], im[5]
 			if a > w / h then
 				local vh = w / a
@@ -271,7 +274,7 @@ function CallCardArt.scene(holder: GuiObject, id: string?, opts: { tint: Color3?
 			Ui.text({ Text = callCards.callCardDef(cid).icon, TextSize = 34, TextTransparency = 0.3, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.4), Size = UDim2.fromScale(1, 0.6), ZIndex = 2, Parent = scene })
 			return
 		end
-		local base = picture(scene, if o.still then look.still else look.base, 1)
+		local base = picture(scene, look.base, 1)
 		base.Position = UDim2.fromScale(0.5, 0.5)
 		base.Size = UDim2.fromScale(1, 1)
 		if o.still then
