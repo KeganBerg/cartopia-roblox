@@ -70,6 +70,7 @@ local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
 local Social = require(script.Social)
 local Leaders = require(script.Leaders)
+local Meet = require(script.Meet)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -547,6 +548,22 @@ local function leaderStats(userId: number): any
 	return Leaders.stats(s, (require(Game.data) :: any).garagePower(s.cars or {}))
 end
 
+-- The Car Meet (server/Meet): everyone's display of three cars, and likes.
+local meet = Meet.new({
+	ordered = function(name: string): any
+		return DataStoreService:GetOrderedDataStore(name)
+	end,
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+}, os.time, function(): string
+	return os.date("!%Y-%m-%d") :: string
+end)
+local function showcase(userId: number): { any }
+	local s = towns:save(userId)
+	return (require(Game.meet) :: any).showcaseOf(s.cars or {}, s.showcase)
+end
+
 -- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
 local purchases
 local function saveId(userId: number, release: boolean?): boolean
@@ -561,6 +578,7 @@ local function saveId(userId: number, release: boolean?): boolean
 		if wrote and player then
 			local town = towns:save(userId).townName
 			task.spawn(pcall, leaders.record, leaders, userId, player.DisplayName, if type(town) == "string" then town else "My Town", leaderStats(userId), release)
+			task.spawn(pcall, meet.publish, meet, userId, player.DisplayName, if type(town) == "string" then town else "My Town", towns:save(userId).level or 1, showcase(userId))
 		end
 		return wrote
 	end
@@ -1190,6 +1208,38 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 				table.insert(out, { id = r.id, name = r.name, town = r.town, level = r.level, value = r.value, here = here ~= nil and here ~= player and views[here] ~= nil })
 			end
 			return { rows = out, mine = mine }, nil
+		elseif op == "meet" then
+			-- The Car Meet (Social's Meet tab): drivers in this server first, then recent displays.
+			local out, seen = {}, {}
+			for _, other in Players:GetPlayers() do
+				if other ~= player and towns:isOpen(other.UserId) and views[other] then
+					local cars = {}
+					for _, c in showcase(other.UserId) do
+						table.insert(cars, Meet.carOf(c))
+					end
+					if #cars > 0 then
+						local town = towns:save(other.UserId).townName
+						table.insert(out, { id = other.UserId, name = other.DisplayName, town = town, level = towns:save(other.UserId).level, cars = cars, here = true })
+						seen[other.UserId] = true
+					end
+				end
+			end
+			for _, d in meet:displays() do
+				if d.id ~= player.UserId and not seen[d.id] then
+					table.insert(out, d)
+				end
+			end
+			local owners = { player.UserId }
+			for _, d in out do
+				table.insert(owners, d.id)
+			end
+			return { displays = out, likes = meet:likesFor(player.UserId, owners) }, nil
+		elseif op == "like" and type(arg) == "number" then
+			local r = meet:like(player.UserId, arg)
+			if r ~= "liked" then
+				return nil, if r == "limit" then "like limit" elseif r == "already" then "liked" else "no"
+			end
+			return { likes = meet:likes(arg) }, nil
 		elseif op == "join" and type(arg) == "number" then
 			return join(player, arg)
 		end
