@@ -1184,9 +1184,6 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return races:list(player.UserId, arg.mode, arg.which), nil
 		elseif op == "act" and type(arg) == "table" then
 			return races:act(player.UserId, arg.mode, arg.which)
-		elseif op == "keep" then
-			races:keep(player.UserId)
-			return true, nil
 		elseif op == "start" and type(arg) == "table" then
 			return races:start(player.UserId, arg.mode, arg.which)
 		elseif op == "finish" then

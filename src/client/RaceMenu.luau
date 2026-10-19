@@ -3,7 +3,7 @@
 -- Campaign tile (its next race one tap away) and Quick Race; Quick Race's three rival cards; the
 -- Campaign's chapters, each with its five races and stars; the paint rivals (PaintRivals.tsx),
 -- each racing for their colour; and the rival in town on the front page (Rivals.tsx RivalTile),
--- with double or nothing after a win. Along the bottom, the car you race with (tap to change it).
+-- (no double or nothing after a win: Roblox doesn't allow betting). Along the bottom, the car you race with (tap to change it).
 -- The rivals and prizes come from the server (server/Races), which also starts the race and pays
 -- it.
 
@@ -97,7 +97,7 @@ local starting = false
 local race: (ctx: any, mode: string, which: any, back: string) -> boolean
 
 -- What each kind of race adds to the race screen: the title, the rival's words, and the result
--- card's buttons (Race.tsx: the paint rival's rematch, the town rival's double or nothing).
+-- card's buttons (Race.tsx: the paint rival's rematch, the town rival's rematch).
 local function extrasFor(ctx: any, mode: string, which: any, started: any, back: string): any
 	local rv = started.rival
 	local function again(m: string, w: any): () -> ()
@@ -166,39 +166,25 @@ local function extrasFor(ctx: any, mode: string, which: any, started: any, back:
 				return list
 			end,
 		}
-	elseif mode == "rival" or mode == "bet" then
+	elseif mode == "rival" then
 		local def = townRival(rv)
-		local bet = mode == "bet"
 		return {
-			title = if bet then `🎲 Double or nothing · ${Ui.commas(started.stake or rv.prize)}` else `{rv.name} · Round {(rv.visit or 0) + 1} of {rivals.RIVAL_VISITS}`,
+			title = `{rv.name} · Round {(rv.visit or 0) + 1} of {rivals.RIVAL_VISITS}`,
 			heading = function(res: any): string?
 				if res.won then
 					return if res.bonus then "RIVAL BEATEN!" else nil
 				end
-				return if bet then "BUSTED!" else "BEATEN!"
+				return "BEATEN!"
 			end,
 			quote = function(res: any): string?
 				if not def then
 					return nil
 				end
 				local l = def.lines
-				local said = if bet then (if res.won then l.betLost else l.betWon) elseif res.won then (if res.bonus then l.quit else l.sore) else l.gloat
-				if res.bet then
-					said ..= `  “{l.bet}”`
-				end
-				return said
+				return if res.won then (if res.bonus then l.quit else l.sore) else l.gloat
 			end,
 			buttons = function(res: any): { DragStrip.Button }?
-				if res.bet then
-					local offer: { DragStrip.Button } = {
-						{ text = `Keep ${Ui.commas(res.bet)}`, kind = "garage", go = function()
-							Remote.race("keep", nil, true)
-							ctx.open("race", back)
-						end },
-						{ text = "🎲 Double or nothing", go = again("bet", nil) },
-					}
-					return offer
-				elseif not res.won and not bet then
+				if not res.won then
 					local retry: { DragStrip.Button } = { { text = "Back", kind = "garage" }, { text = `↻ Rematch ⛽{data.RACE_FUEL}`, go = again("rival", nil) } }
 					return retry
 				end

@@ -462,9 +462,6 @@ local function raceDesk(op, arg)
 			return races:list(1, arg.mode, arg.which), nil
 		elseif op == "act" and type(arg) == "table" then
 			return races:act(1, arg.mode, arg.which)
-		elseif op == "keep" then
-			races:keep(1)
-			return true, nil
 		elseif op == "start" and type(arg) == "table" then
 			return races:start(1, arg.mode, arg.which)
 		elseif op == "finish" then
@@ -3226,7 +3223,7 @@ if SHOTS then
 	end
 end
 
--- The rival in town: race them from the front page, then double or nothing.
+-- The rival in town: race them from the front page (no double or nothing on Roblox).
 topUp()
 towns:_with(1, function()
 	store.useGame.setState({ level = math.max(store.useGame.getState().level, emu.require(G.rivals).RIVAL_LEVEL) })
@@ -3247,21 +3244,7 @@ end
 local tf, _, tres = runRace("rival", { [60] = true }, rivalStart)
 print(`town rival: {tf} frames; card: {cardText(tres)}`)
 print(`town rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
-local double = cardButton("Double or nothing")
-if double then
-	local coins = towns:snapshot(1).save.coins
-	signalFor(double, "Activated"):Fire()
-	Emu.resumeWaits()
-	local bf, _, bres = runRace("bet", { [60] = true }, false)
-	print(`double or nothing: {bf} frames, coins {coins} -> {towns:snapshot(1).save.coins}; card: {cardText(bres)}`)
-	local done = cardButton("Collect") or cardButton("Back")
-	if done then
-		signalFor(done, "Activated"):Fire()
-		Emu.resumeWaits()
-	end
-else
-	print("town rival: no double or nothing offered")
-end
+assert(cardButton("Double or nothing") == nil, "double or nothing offered")
 print(`rival calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
 
 -- A war race from the Crew tab's war map: back in Night Riders, race the street crew's first pick.
