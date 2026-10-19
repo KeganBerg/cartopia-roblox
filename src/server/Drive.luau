@@ -9,7 +9,7 @@
 
 local Drive = {}
 
-Drive.SPEED = 110 -- studs a second: a plot's width in about 13 seconds
+Drive.SPEED = 70 -- studs a second until the driver's own client/CarDrive takes the wheel (shared/CarFeel.TOP)
 Drive.SCALE = 0.8 -- the town's traffic draws cars at this size
 
 local function hide(character: Model, hidden: boolean)
