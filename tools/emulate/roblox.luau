@@ -111,6 +111,22 @@ roblox.implementMethod("Model", "PivotTo", function(model, cf)
 		model:SetAttribute("EmuPivoted", true)
 	end)
 end)
+-- The model's bounding box size in its pivot's frame, as Roblox's (each part's corners).
+roblox.implementMethod("Model", "GetExtentsSize", function(model)
+	local pivot = pivots[model] or pivotOf(model)
+	local lo, hi = nil, nil
+	for _, d in model:GetDescendants() do
+		if d:IsA("BasePart") then
+			local h = d.Size / 2
+			for _, c in { Vector3.new(1, 1, 1), Vector3.new(1, 1, -1), Vector3.new(1, -1, 1), Vector3.new(1, -1, -1), Vector3.new(-1, 1, 1), Vector3.new(-1, 1, -1), Vector3.new(-1, -1, 1), Vector3.new(-1, -1, -1) } do
+				local p = pivot:PointToObjectSpace(d.CFrame:PointToWorldSpace(h * c))
+				lo = if lo then lo:Min(p) else p
+				hi = if hi then hi:Max(p) else p
+			end
+		end
+	end
+	return if lo and hi then hi - lo else Vector3.new()
+end)
 -- Model scale, as Roblox keeps it: ScaleTo resizes every part about the pivot.
 roblox.implementMethod("Model", "GetScale", function(model)
 	return model:GetAttribute("EmuScale") or 1
