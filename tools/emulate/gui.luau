@@ -107,7 +107,7 @@ function Gui.partOf(d)
 		texture = (function()
 			for _, t in d:GetChildren() do
 				if t:IsA("Texture") and t:GetAttribute("Image") then
-					return { image = t:GetAttribute("Image"), span = { t.StudsPerTileU, t.StudsPerTileV }, offset = { t.OffsetStudsU, t.OffsetStudsV } }
+					return { image = t:GetAttribute("Image"), span = { t.StudsPerTileU, t.StudsPerTileV }, offset = { t.OffsetStudsU, t.OffsetStudsV }, transparency = t.Transparency, color = t.Color3:ToHex() }
 				end
 			end
 			return nil
@@ -128,7 +128,23 @@ function Gui.partOf(d)
 		color = d.Color:ToHex(),
 		transparency = d.Transparency,
 		material = enumName(d.Material),
-		text = if label then { text = label.Text, fg = label.TextColor3:ToHex(), bg = label.BackgroundColor3:ToHex() }
+		-- A strip: labels or plain frames side by side across the face (kart sponsor boards, crowds).
+		text = if surface and surface:GetAttribute("Strip") ~= nil then (function()
+				local list = {}
+				for _, c in surface:GetChildren() do
+					if c:IsA("GuiObject") then
+						table.insert(list, { x = c.Position.X.Scale, w = c.Size.X.Scale, bg = c.BackgroundColor3:ToHex(), text = if c:IsA("TextLabel") then c.Text else nil, fg = if c:IsA("TextLabel") then c.TextColor3:ToHex() else nil })
+					end
+				end
+				return { strip = list, face = enumName(surface.Face) }
+			end)()
+			elseif label then {
+				text = label.Text,
+				fg = label.TextColor3:ToHex(),
+				bg = label.BackgroundColor3:ToHex(),
+				clear = label.BackgroundTransparency >= 1 or nil,
+				stroke = if label.TextStrokeTransparency < 1 then label.TextStrokeColor3:ToHex() else nil,
+			}
 			elseif surface and surface:GetAttribute("Checker") then (function()
 				local back = surface:FindFirstChildOfClass("Frame")
 				local cell = back and back:FindFirstChildOfClass("Frame")
@@ -248,6 +264,10 @@ end
 
 local function node(g, r)
 	local n = { abs = { r.x, r.y, r.w, r.h }, visible = g.Visible, children = {}, z = g.ZIndex, rot = g.Rotation }
+	-- A harness can ask where each object ends up (the tutorial's pointing hand, in clicks.luau).
+	if Gui.onNode then
+		Gui.onNode(g, n)
+	end
 	n.bg = hex(g.BackgroundColor3)
 	n.bgT = g.BackgroundTransparency
 	local corner = child(g, "UICorner")
@@ -290,6 +310,10 @@ local function node(g, r)
 	if (g:IsA("ImageLabel") or g:IsA("ImageButton")) and g:GetAttribute("Key") then
 		-- Which picture (render.mjs finds it in build/splash), its tint and how it's fitted.
 		n.image = { key = g:GetAttribute("Key"), color = hex(g.ImageColor3), t = g.ImageTransparency, scale = enumName(g.ScaleType) }
+		-- A piece of a sheet (ImageRectOffset/Size), as the Call Cards use.
+		if g.ImageRectSize.X > 0 then
+			n.image.rect = { g.ImageRectOffset.X, g.ImageRectOffset.Y, g.ImageRectSize.X, g.ImageRectSize.Y }
+		end
 	end
 	if g:IsA("ViewportFrame") then
 		-- What it shows: its parts and camera, which render.mjs draws as a little picture.
@@ -307,7 +331,7 @@ local function node(g, r)
 			ambient = hex(g.Ambient),
 		}
 	end
-	if g.ClipsDescendants or g:IsA("ScrollingFrame") then
+	if g.ClipsDescendants or g:IsA("ScrollingFrame") or g:IsA("CanvasGroup") then
 		n.clip = true
 	end
 	return n

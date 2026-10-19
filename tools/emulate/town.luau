@@ -89,7 +89,15 @@ if process.env.NO_MESHES == nil then
 	-- Lune's instances have no ChildAdded, which useLibrary connects last: the meshes are in by then.
 	pcall(emu.require(RS.Shared.Models.Builder).useLibrary, 1)
 end
-Countryside.draw(Vector3.new(0, 0, 0), folder)(save)
+-- It waits a frame between plots (to keep the loading screen smooth): time moves on until it's done.
+local drawn = false
+coroutine.resume(coroutine.create(function()
+	Countryside.draw(Vector3.new(0, 0, 0), folder)(save)
+	drawn = true
+end))
+while not drawn do
+	Emu.resumeWaits()
+end
 -- HORIZON=<sky step>: the far land and the sky (client Horizon) as well, at that step of the day
 -- (1 is noon; see Shared.Models.SkyImages). Written to the JSON as sky and fog for render.mjs.
 -- HORIZON_T=<seconds> moves the rotors and balloons on that far.
@@ -111,6 +119,49 @@ if skyStep then
 	sky = { step = skyStep - 1, season = SkyImages.SEASON }
 	-- The web game's far fog (Horizon.tsx FarFog: 170 to 1,820 units), in the sky's horizon colour.
 	fog = { color = string.sub(step.haze, 2), start = 1700, ["end"] = 18200 }
+end
+-- FLYBY=1: every fly-over model (client SkyExtras) in a row over the town, for a look at them.
+if process.env.FLYBY then
+	local CFrame = roblox.CFrame
+	local Builder = emu.require(RS.Shared.Models.Builder)
+	local Catalog = emu.require(RS.Shared.Models.Catalog)
+	local names = {}
+	for name in Catalog.MODELS do
+		if string.sub(name, 1, 4) == "fly:" then
+			table.insert(names, name)
+		end
+	end
+	table.sort(names)
+	for i, name in names do
+		local m = Builder.build(name)
+		if m then
+			m:PivotTo(CFrame.new((i - #names / 2) * 45, 150, 0) * CFrame.Angles(0, math.pi / 2, 0))
+			m.Parent = folder
+		end
+	end
+	print(`fly-overs: {#names}`)
+end
+-- SKYX=<seconds>: the sky's extras (client SkyExtras) run that long from the town view, with
+-- stand-in picture ids; reports what flew over and the season's fliers.
+local skyx = tonumber(process.env.SKYX or "")
+if skyx then
+	local SkyImages = emu.require(RS.Shared.Models.SkyImages)
+	SkyImages.fliers = { leaf = 1, petal = 2, flake = 3 }
+	SkyImages.aurora = 4
+	local SX = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.SkyExtras)
+	SX.seasonStart(Vector3.new(0, 0, 0))
+	local seen = {}
+	for i = 1, math.floor(skyx * 10) do
+		SX.tick(i / 10, false)
+		local m = game.Workspace:FindFirstChild("FlyOver")
+		local was = seen.last
+		seen.last = m ~= nil
+		if m and not was then
+			print(`fly-over at {i / 10}s: {m:GetPivot().Position}`)
+		end
+	end
+	local area = game.Workspace:FindFirstChild("SeasonFliers")
+	print(`season fliers: {area and #area:GetChildren() or 0} emitters`)
 end
 -- LIFE=<seconds>: the town's traffic and townspeople (client TownLife), run that long.
 local life = tonumber(process.env.LIFE or "")
@@ -147,7 +198,7 @@ for _, d in game.Workspace:GetChildren() do
 		table.insert(parts, Gui.partOf(d))
 	end
 end
-for _, name in { "Townspeople", "TrafficSignals" } do
+for _, name in { "Townspeople", "TrafficSignals", "TownTraffic" } do
 	local f = game.Workspace:FindFirstChild(name)
 	for _, d in if f then f:GetDescendants() else {} do
 		if d:IsA("BasePart") and d.Transparency < 1 and d.CFrame.Position.Y > -100 then
@@ -217,7 +268,9 @@ make("RemoteFunction", "Act", remotes)
 make("RemoteEvent", "Town", remotes)
 make("RemoteFunction", "Race", remotes)
 make("RemoteFunction", "Crate", remotes)
+make("RemoteFunction", "Social", remotes)
 make("RemoteFunction", "Meshes", remotes)
+make("RemoteEvent", "Kart", remotes)
 remotes.Parent = RS
 -- The model library the server makes for shop pictures.
 local Builder = emu.require(RS.Shared.Models.Builder)

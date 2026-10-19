@@ -57,7 +57,7 @@ local CAR_SORTS = { { id = "pi", label = "Top PI" }, { id = "pi-low", label = "L
 local SALE_SORTS = { { id = "level", label = "Level" }, { id = "cheap", label = "Price ↑" }, { id = "dear", label = "Price ↓" }, { id = "pi", label = "Top PI" }, { id = "name", label = "A–Z" } }
 
 -- The showroom behind the menus: brick wall, the Cartopia Motors sign, the floor and turntable.
-local function room(parent: Instance)
+local function room(parent: Instance): Frame
 	local r = Ui.new("Frame", { Name = "Room", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0f141d"), BorderSizePixel = 0, ZIndex = 0, Parent = parent })
 	-- The showroom wall (garage-env.css): brick down to a dark baseboard, the sign in the middle
 	-- with race numbers either side.
@@ -191,7 +191,7 @@ function Cars.open(ctx: any, tab: any): Instance
 	CrateDepot.reset()
 	local overlay = Ui.new("TextButton", { Name = "Panel", Text = "", AutoButtonColor = false, ZIndex = 20, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = ctx.gui })
 	local page = Ui.new("Frame", { Name = "Cars", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0f141d"), BorderSizePixel = 0, Parent = overlay })
-	room(page)
+	local showroom = room(page)
 	-- The title bar, as every menu's, square-cornered across the top of the screen.
 	local head = Ui.new("Frame", { Name = "Head", Size = UDim2.new(1, 0, 0, 61), BackgroundColor3 = Ui.WHITE, BorderSizePixel = 0, ZIndex = 5, Parent = page }, {
 		Ui.gradient(Ui.COLORS.head[1], Ui.COLORS.head[2]),
@@ -796,6 +796,9 @@ function Cars.open(ctx: any, tab: any): Instance
 	}
 	render = function()
 		clear()
+		-- The crate depot is a real 3D room behind the menu: the page goes see-through for it.
+		showroom.Visible = current ~= "crates"
+		page.BackgroundTransparency = if current == "crates" then 1 else 0
 		local s = store.useGame.getState()
 		Ui.setText(powerText, `⚡{Ui.compact(data.garagePower(s.cars))}`)
 		if current == "shop" then

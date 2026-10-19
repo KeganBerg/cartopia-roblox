@@ -13,6 +13,7 @@ local cityLook = require(Game.cityLook) :: any
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
+local Rave = require(script.Parent.Rave)
 
 local Upgrade = {}
 
@@ -412,6 +413,12 @@ function Upgrade.open(ctx: any, uid: string?): Instance?
 		dot(0, nil, "#ffffff", "🎨")
 		for i, t in cityLook.COLOR_THEMES do
 			dot(i, t.id, t.c)
+		end
+		-- The Neon Owl's Rave button, for the DJ only (Rave.luau).
+		if d.id == "club" then
+			order += 1
+			local rh = Rave.button(list, order, ctx.close)
+			h += if rh > 0 then rh + GAP else 0
 		end
 		if data.takesDriver(d) then
 			order += 1

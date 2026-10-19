@@ -14,6 +14,7 @@ local townEvent = remotes:WaitForChild("Town") :: RemoteEvent
 local raceRemote = remotes:WaitForChild("Race") :: RemoteFunction
 local crateRemote = remotes:WaitForChild("Crate") :: RemoteFunction
 local meshRemote = remotes:WaitForChild("Meshes") :: RemoteFunction
+local socialRemote = remotes:WaitForChild("Social") :: RemoteFunction
 
 local Remote = {}
 
@@ -38,6 +39,20 @@ local WHY = {
 	["too quick"] = "That race didn't count. Try again.",
 	filter = "Couldn't check that name. Try again.",
 	["paid crates restricted"] = "Gem crates aren't available where you live",
+	["not here"] = "They've left this server",
+	["not playing"] = "They aren't playing Cartopia right now",
+	["not friends"] = "You can only join your friends",
+	["couldn't join"] = "Couldn't join their server. Try again.",
+	["already helped"] = "You already helped there today",
+	["town done"] = "That's all 5 helps here today",
+	["day done"] = "You've helped plenty of towns today. Come back tomorrow!",
+	["not a business"] = "Only businesses need a hand",
+	["already in a party"] = "You're already in a kart party",
+	["The party has already started"] = "That kart party has already started",
+	["The party is full"] = "That kart party is full",
+	["Wait for someone to join"] = "Wait for someone to join your party",
+	["Your visitor already left town."] = "Your visitor already left town.",
+	["You already raced them"] = "Your visitor already left town.",
 }
 
 -- Asks the server to run a store action, e.g. Remote.act("tapBuilding", uid).
@@ -124,6 +139,36 @@ function Remote.bank(op: string, id: string?): (boolean, any)
 	local sent, ok, result = pcall(bankRemote.InvokeServer, bankRemote, op, id)
 	if not sent then
 		warn(`[Cartopia] bank {op}: {ok}`)
+		return false, "no answer"
+	end
+	return ok, result
+end
+
+-- Playing together (server/Social): "players", "visit" (user id), "home", "help" (building uid)
+-- or "join" (a friend's user id). Returns ok and the answer, toasting why when it's refused.
+function Remote.social(op: string, arg: any?, quiet: boolean?): (boolean, any)
+	local sent, ok, result = pcall(socialRemote.InvokeServer, socialRemote, op, arg)
+	if not sent then
+		warn(`[Cartopia] social {op}: {ok}`)
+		failed:Fire("Couldn't reach the server. Try again.")
+		return false, "no answer"
+	end
+	if not ok and not quiet then
+		failed:Fire(WHY[result] or "That didn't work. Try again.")
+	end
+	return ok, result
+end
+
+-- Town visitors (server/Visitors): "next", or "claim" / "leave" with the visitor's id. Returns ok
+-- and the answer or why not, quietly (the visitors' own toasts say what happened).
+function Remote.visitor(op: string, id: string?): (boolean, any)
+	local visitorRemote = remotes:FindFirstChild("Visitor") :: RemoteFunction?
+	if not visitorRemote then
+		return false, "soon"
+	end
+	local sent, ok, result = pcall(visitorRemote.InvokeServer, visitorRemote, op, id)
+	if not sent then
+		warn(`[Cartopia] visitor {op}: {ok}`)
 		return false, "no answer"
 	end
 	return ok, result

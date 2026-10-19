@@ -8,7 +8,7 @@
 //
 // Uses the web repo's three.js and Playwright. CHROMIUM=<path> picks the browser.
 
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
@@ -20,6 +20,7 @@ const ROOT = resolve(HERE, '../..')
 export async function render({ web, scene, out, gui, width = 1280, height = 800, camera }) {
   // Lune writes an empty list as {}.
   if (!Array.isArray(scene.parts)) scene = { ...scene, parts: [] }
+  if (scene.lights && !Array.isArray(scene.lights)) scene = { ...scene, lights: [] }
   // One folder per run, so renders running side by side don't swap scenes.
   const dir = join(resolve(web), '.rbx-preview', String(process.pid))
   mkdirSync(dir, { recursive: true })
@@ -65,6 +66,18 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
     find(gui)
     for (const e of list) if (want.has(e.key)) images[e.key] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/splash', e.file)).toString('base64')
   } catch {}
+  // The Call Cards' sheets (tools/callcards/build.mjs), as "callcard:sheet-<n>".
+  const wantCards = new Set()
+  const findCards = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (typeof n.image?.key === 'string' && n.image.key.startsWith('callcard:')) wantCards.add(n.image.key)
+    for (const v of Object.values(n)) if (v && typeof v === 'object') findCards(v)
+  }
+  findCards(gui)
+  for (const key of wantCards) {
+    const file = join(ROOT, 'build/callcards', key.slice(9) + '.png')
+    if (existsSync(file)) images[key] = 'data:image/png;base64,' + readFileSync(file).toString('base64')
+  }
   // The sky's faces (tools/sky/build.mjs) for the step the scene asks for.
   const sky = {}
   if (scene.sky) {
@@ -88,8 +101,8 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
   const page = await browser.newPage({ viewport: { width, height } })
   page.on('pageerror', (e) => console.error(e))
   page.on('console', (m) => m.type() === 'error' && console.error(m.text()))
-  await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`)
-  await page.waitForFunction('window.DONE === true', null, { timeout: 180000 })
+  await page.goto(`http://127.0.0.1:${server.address().port}/scene.html`, { timeout: 180000 })
+  await page.waitForFunction('window.DONE === true', null, { timeout: 600000 })
   await page.screenshot({ path: out, timeout: 180000 })
   await browser.close()
   server.close()
@@ -113,7 +126,8 @@ document.body.prepend(renderer.domElement)
 const scene = new T.Scene()
 scene.background = new T.Color('#8ec5f0')
 scene.fog = new T.Fog('#bcd9f2', 600, 1600)
-scene.add(new T.HemisphereLight(0xdfefff, 0x5a6a40, 1.5))
+const hemi = new T.HemisphereLight(0xdfefff, 0x5a6a40, 1.5)
+scene.add(hemi)
 const sun = new T.DirectionalLight(0xfff4e0, 2.4)
 sun.position.set(300, 500, 200); sun.castShadow = true
 sun.shadow.mapSize.set(4096, 4096)
@@ -187,8 +201,19 @@ for (const p of parts) {
     const t = TEX[p.texture.image].clone()
     t.repeat.set(p.size[0] / p.texture.span[0], p.size[2] / p.texture.span[1])
     t.offset.set(p.texture.offset[0] / p.texture.span[0], p.texture.offset[1] / p.texture.span[1])
-    const top = mat.clone(); top.map = t; top.color.set('#ffffff')
+    const top = mat.clone(); top.map = t; top.color.set('#' + (p.texture.color || 'ffffff'))
     mats = [mat, mat, top, mat, mat, mat]
+    // A see-through texture (snow lying over the lawn): the part's own colour shows through it.
+    const tt = p.texture.transparency || 0
+    if (tt > 0) {
+      top.color.lerp(new T.Color('#' + p.color), tt)
+      top.map = null
+      const tinted = mat.clone(); tinted.map = t; tinted.color.set('#' + (p.texture.color || 'ffffff')); tinted.transparent = true; tinted.opacity = 1 - tt; tinted.polygonOffset = true; tinted.polygonOffsetFactor = -1
+      const over = new T.Mesh(new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0.5, 0), tinted)
+      over.userData.texturedTop = true
+      mats.overlay = over
+      top.color.set('#' + p.color)
+    }
   }
   const mesh = new T.Mesh(geo, mats)
   const [x, y, z, a, b, c, d, e, f, g, h, i] = p.cf
@@ -198,9 +223,16 @@ for (const p of parts) {
   // A real MeshPart from an uploaded pack: Roblox's glTF import turned its geometry half round.
   if (p.imported) mesh.matrix.multiply(new T.Matrix4().makeRotationY(Math.PI))
   mesh.matrix.multiply(new T.Matrix4().makeScale(...scale))
+  if (Array.isArray(mats) && mats.overlay) {
+    const o = mats.overlay
+    o.matrixAutoUpdate = false
+    o.matrix.copy(mesh.matrix)
+    scene.add(o)
+  }
   mesh.castShadow = p.transparency < 0.5 && Math.max(...p.size) < 500
   mesh.receiveShadow = true
-  scene.add(mesh)
+  // A fully see-through part only carries words on its SurfaceGui (drawn below).
+  if (p.transparency < 1) scene.add(mesh)
   // Custom paint patterns: each face's tile laid flat over the triangles facing that way, as
   // Roblox's Texture projects onto a part's face.
   for (const t of [...(p.patterns || [])].sort((a, b) => (a.z ?? 1) - (b.z ?? 1))) {
@@ -240,16 +272,38 @@ for (const p of parts) {
     over.matrix.copy(mesh.matrix)
     scene.add(over)
   }
-  if (p.text) {
+  if (p.text?.strip) {
+    // Labels or plain frames side by side across the face, clear between them.
+    const cv = document.createElement('canvas'); cv.width = Math.min(4096, 128 * Math.max(1, p.text.strip.length)); cv.height = Math.max(16, Math.min(512, Math.round(cv.width * p.size[1] / Math.max(p.text.face === 'Left' || p.text.face === 'Right' ? p.size[2] : p.size[0], 0.01))))
+    const x2 = cv.getContext('2d')
+    for (const c of p.text.strip) {
+      x2.fillStyle = '#' + c.bg; x2.fillRect(c.x * cv.width, 0, c.w * cv.width + 1, cv.height)
+      if (c.text) {
+        let fs = cv.height * 0.7; x2.font = '900 ' + fs + 'px Arial Black, sans-serif'; x2.textAlign = 'center'; x2.textBaseline = 'middle'
+        while (x2.measureText(c.text).width > c.w * cv.width * 0.88 && fs > 6) { fs -= 1; x2.font = '900 ' + fs + 'px Arial Black, sans-serif' }
+        x2.fillStyle = '#' + c.fg; x2.fillText(c.text, (c.x + c.w / 2) * cv.width, cv.height / 2 + 1)
+      }
+    }
+    const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace
+    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex, transparent: true }))
+    face.matrixAutoUpdate = false
+    // Roblox's faces: Back is +Z (the plane's own side), Right +X, Left -X, Front -Z; the label's
+    // left to right runs as Roblox lays it out, seen from outside the face.
+    const turn = { Right: Math.PI / 2, Left: -Math.PI / 2, Front: Math.PI }[p.text.face] ?? 0
+    const across = turn === 0 || turn === Math.PI ? p.size[0] : p.size[2], depth = turn === 0 || turn === Math.PI ? p.size[2] : p.size[0]
+    face.matrix.copy(m4).multiply(new T.Matrix4().makeRotationY(turn)).multiply(new T.Matrix4().makeTranslation(0, 0, depth / 2 + 0.02)).multiply(new T.Matrix4().makeScale(across, p.size[1], 1))
+    scene.add(face)
+  } else if (p.text) {
     const cv = document.createElement('canvas'); cv.width = 512; cv.height = Math.max(64, Math.round(512 * p.size[1] / Math.max(p.size[0], 0.01)))
-    const x2 = cv.getContext('2d'); x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height); x2.fillStyle = '#' + p.text.fg
+    const x2 = cv.getContext('2d'); if (!p.text.clear) { x2.fillStyle = '#' + p.text.bg; x2.fillRect(0, 0, cv.width, cv.height) } x2.fillStyle = '#' + p.text.fg
     // Chequers (the finish line): two rows of squares, as Builder draws them.
     if (p.text.checker) for (let i = 0; i < p.text.checker; i++) for (let j = 0; j < 2; j++) if ((i + j) % 2) x2.fillRect(i * cv.width / p.text.checker, j * cv.height / 2, cv.width / p.text.checker + 1, cv.height / 2 + 1)
     let fs = cv.height * 0.7; x2.font = '900 ' + fs + 'px Arial Black, sans-serif'; x2.textAlign = 'center'; x2.textBaseline = 'middle'
     while (x2.measureText(p.text.text).width > cv.width * 0.88 && fs > 10) { fs -= 2; x2.font = '900 ' + fs + 'px Arial Black, sans-serif' }
+    if (p.text.stroke) { x2.lineJoin = 'round'; x2.lineWidth = fs * 0.18; x2.strokeStyle = '#' + p.text.stroke; x2.strokeText(p.text.text, cv.width / 2, cv.height / 2 + 2) }
     if (!p.text.checker) x2.fillText(p.text.text, cv.width / 2, cv.height / 2 + 2)
     const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace
-    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex }))
+    const face = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex, transparent: !!p.text.clear }))
     face.matrixAutoUpdate = false
     face.matrix.copy(m4).multiply(new T.Matrix4().makeTranslation(0, 0, p.size[2] / 2 + 0.02)).multiply(new T.Matrix4().makeScale(p.size[0], p.size[1], 1))
     scene.add(face)
@@ -257,9 +311,24 @@ for (const p of parts) {
 }
 }
 addParts(scene, S.parts)
+// A room (the Daily Spin's tyre shop): no sun or sky light, only its ambient and its own lamps.
+if (S.room) {
+  scene.background = new T.Color('#' + (S.fog?.color ?? '120c1c'))
+  hemi.color.set('#' + S.room.ambient); hemi.groundColor.set('#' + S.room.ambient); hemi.intensity = 1.2
+  sun.visible = false
+}
+for (const l of Array.isArray(S.lights) ? S.lights : []) {
+  const color = '#' + l.color
+  const light = l.kind === 'SpotLight'
+    ? new T.SpotLight(color, l.brightness * 260, l.range * 1.6, (l.angle / 2) * Math.PI / 180, 0.5, 1.2)
+    : new T.PointLight(color, l.brightness * 180, l.range * 1.6, 1.2)
+  light.position.set(...l.at)
+  if (l.kind === 'SpotLight') { light.target.position.set(l.at[0] + l.dir[0] * 50, l.at[1] + l.dir[1] * 50, l.at[2] + l.dir[2] * 50); scene.add(light.target) }
+  scene.add(light)
+}
 // A near plane well out from the camera: the software renderer's depth buffer is coarse, and road
 // paint a tenth of a stud above the asphalt sank into it.
-const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.sky?.Up ? 40000 : 6000)
+const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.camera?.far ?? (S.sky?.Up ? 40000 : 6000))
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
 // Beams: a strip from one end to the other, turned to face the camera, fading along its length.
@@ -295,6 +364,86 @@ if (S.sky?.Up) {
     q.matrix.makeBasis(R, U, L.clone().negate()).setPosition(L.clone().multiplyScalar(D).add(cam.position))
     q.renderOrder = -1
     scene.add(q)
+  }
+}
+// Weather shots (tools/emulate/weatherShot.luau): the light the game set, relative to DayNight's
+// noon (lightingBase), and the particles and beams it set up, scattered as Roblox would have them.
+if (S.lighting && S.lightingBase) {
+  const L = S.lighting, B = S.lightingBase
+  const col = (h) => new T.Color('#' + h)
+  const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+  const sunNow = col(L.sun), sunBase = col(B.sun)
+  sun.intensity *= L.brightness / Math.max(B.brightness, 0.01)
+  sun.color.multiply(new T.Color(sunNow.r / Math.max(sunBase.r, 0.01), sunNow.g / Math.max(sunBase.g, 0.01), sunNow.b / Math.max(sunBase.b, 0.01)))
+  const amb = col(L.ambient), ambBase = col(B.ambient)
+  for (const o of scene.children) if (o.isHemisphereLight) {
+    o.intensity *= Math.min(3, lum(amb) / Math.max(lum(ambBase), 0.01))
+    o.color.lerp(amb, 0.5)
+  }
+  renderer.toneMappingExposure = 2 ** (L.exposure - B.exposure)
+  renderer.domElement.style.filter = 'saturate(' + (1 + L.saturation - B.saturation).toFixed(3) + ') contrast(' + (1 + L.contrast - B.contrast).toFixed(3) + ')'
+  if (L.air) {
+    const k = L.air.density
+    const near = reach * (1.1 - Math.min(1, Math.max(0, (k - 0.08) * 2.4)))
+    scene.fog = new T.Fog('#' + L.air.color, near, near + Math.max(200, 3000 * (0.08 / k)))
+    scene.background = new T.Color('#8ec5f0').lerp(col(L.air.color), Math.min(1, (k - 0.08) * 3)).multiplyScalar(Math.min(1, lum(amb) / Math.max(lum(ambBase), 0.01)))
+  }
+}
+if (S.effects) {
+  const interp = (list, f) => { const n = list.length - 1; const x = Math.min(n, Math.max(0, f * n)); const i = Math.floor(x); return i >= n ? list[n] : list[i] + (list[i + 1] - list[i]) * (x - i) }
+  const disc = (ring) => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); if (ring) { gr.addColorStop(0.55, 'rgba(255,255,255,0)'); gr.addColorStop(0.75, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)') } else { gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)') } g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new T.CanvasTexture(cv) }
+  const view = new T.Vector3().subVectors(cam.position, new T.Vector3(...c.at)).normalize()
+  for (const e of Array.isArray(S.effects.emitters) ? S.effects.emitters : []) {
+    const [x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22] = e.cf
+    const X = new T.Vector3(r00, r10, r20), Y = new T.Vector3(r01, r11, r21), Z = new T.Vector3(r02, r12, r22), P = new T.Vector3(x, y, z)
+    const dir = e.dir === 'Top' ? Y.clone() : Y.clone().negate()
+    const life = (e.life[0] + e.life[1]) / 2, speed = (e.speed[0] + e.speed[1]) / 2
+    const count = Math.min(6000, Math.round(e.rate * life))
+    const color = new T.Color('#' + e.color)
+    if (e.orientation === 'VelocityParallel') {
+      const pos = [], cols = []
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * life, f = a / life
+        const p = P.clone().addScaledVector(X, (Math.random() - 0.5) * e.size[0]).addScaledVector(Z, (Math.random() - 0.5) * e.size[2]).addScaledVector(dir, speed * a)
+        const len = interp(e.psize, f) * (1 + e.squash)
+        const q = p.clone().addScaledVector(dir, -len)
+        const op = 1 - interp(e.transparency, f)
+        pos.push(p.x, p.y, p.z, q.x, q.y, q.z)
+        cols.push(color.r * op, color.g * op, color.b * op, color.r * op, color.g * op, color.b * op)
+      }
+      const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(cols, 3))
+      scene.add(new T.LineSegments(g, new T.LineBasicMaterial({ vertexColors: true, transparent: true, blending: T.AdditiveBlending, depthWrite: false, fog: false })))
+    } else {
+      const ring = e.orientation === 'VelocityPerpendicular'
+      const tex = disc(ring)
+      for (const f of [0.15, 0.5, 0.85]) {
+        const pos = []
+        for (let i = 0; i < count / 3; i++) {
+          const a = (f + (Math.random() - 0.5) * 0.3) * life
+          const p = P.clone().addScaledVector(X, (Math.random() - 0.5) * e.size[0]).addScaledVector(Z, (Math.random() - 0.5) * e.size[2]).addScaledVector(dir, speed * a)
+          pos.push(p.x, p.y, p.z)
+        }
+        const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3))
+        scene.add(new T.Points(g, new T.PointsMaterial({ map: tex, color, size: interp(e.psize, f) * (ring ? 1 : 1.2), sizeAttenuation: true, transparent: true, opacity: 1 - interp(e.transparency, f), depthWrite: false, fog: false })))
+      }
+    }
+  }
+  for (const b of Array.isArray(S.effects.beams) ? S.effects.beams : []) {
+    const pts = b.points.map((p) => new T.Vector3(...p))
+    const pos = [], cols = [], idx = []
+    const color = new T.Color('#' + b.color)
+    pts.forEach((p, i) => {
+      const a = pts[Math.max(0, i - 1)], d = pts[Math.min(pts.length - 1, i + 1)]
+      const side = new T.Vector3().subVectors(d, a).cross(view).normalize()
+      const w = (b.width[0] + (b.width[1] - b.width[0]) * (i / Math.max(1, pts.length - 1))) / 2
+      const op = 1 - b.transparency[Math.min(i, b.transparency.length - 1)]
+      for (const s of [-1, 1]) { const v = p.clone().addScaledVector(side, s * w); pos.push(v.x, v.y, v.z); cols.push(color.r * op, color.g * op, color.b * op) }
+      if (i > 0) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k) }
+    })
+    const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(cols, 3)); g.setIndex(idx)
+    const m = new T.Mesh(g, new T.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: T.AdditiveBlending, depthWrite: false, depthTest: !b.name.startsWith('Bow'), side: T.DoubleSide, fog: false, toneMapped: false }))
+    m.renderOrder = 7
+    scene.add(m)
   }
 }
 renderer.render(scene, cam)
@@ -370,19 +519,24 @@ function draw(node, into = ui, ox = 0, oy = 0) {
     const fit = { Crop: 'cover', Fit: 'contain' }[node.image.scale] || 'fill'
     const wrap = document.createElement('div')
     Object.assign(wrap.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 1 - node.image.t, isolation: 'isolate' })
-    const img = document.createElement('img')
-    img.src = src
-    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit })
+    const r = node.image.rect
+    // A sheet's piece: the sheet drawn scaled so the piece fills the box.
+    const piece = r && { backgroundImage: 'url(' + src + ')', backgroundSize: (1024 * pw / r[2]) + 'px ' + (1024 * ph / r[3]) + 'px', backgroundPosition: (-r[0] * pw / r[2]) + 'px ' + (-r[1] * ph / r[3]) + 'px', backgroundRepeat: 'no-repeat' }
+    const img = document.createElement(r ? 'div' : 'img')
+    if (!r) img.src = src
+    Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit }, piece || {})
     wrap.append(img)
     if (node.image.color && node.image.color.toLowerCase() !== 'ffffff') {
       const tint = document.createElement('div')
-      const mask = { WebkitMaskImage: 'url(' + src + ')', maskImage: 'url(' + src + ')', WebkitMaskSize: '100% 100%', maskSize: '100% 100%' }
+      const mask = r
+        ? { WebkitMaskImage: piece.backgroundImage, maskImage: piece.backgroundImage, WebkitMaskSize: piece.backgroundSize, maskSize: piece.backgroundSize, WebkitMaskPosition: piece.backgroundPosition, maskPosition: piece.backgroundPosition, WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat' }
+        : { WebkitMaskImage: 'url(' + src + ')', maskImage: 'url(' + src + ')', WebkitMaskSize: '100% 100%', maskSize: '100% 100%' }
       Object.assign(tint.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', background: '#' + node.image.color, mixBlendMode: 'multiply' }, mask)
       wrap.append(tint)
     }
     el.append(wrap)
   }
-  if (node.clip) el.style.overflow = 'hidden'
+  if (node.clip || (node.image && node.corner != null)) el.style.overflow = 'hidden'
   into.append(el)
   // Children nest inside so a clipping frame (a scrolling list) hides what runs past it.
   const kids = (Array.isArray(node.children) ? node.children : []).map((k, i) => [k, i]).sort((a, b) => (a[0].z ?? 1) - (b[0].z ?? 1) || a[1] - b[1])

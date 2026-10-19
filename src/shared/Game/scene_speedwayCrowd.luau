@@ -61,10 +61,10 @@ function ____exports.speedwayStands(lvl, k)
             y = ____bindingPattern0.y
             do
                 local i = 0
-                local ____first14 = true
+                local ____first15 = true
                 while true do
-                    if ____first14 then
-                        ____first14 = false
+                    if ____first15 then
+                        ____first15 = false
                     else
                         i = i + 1
                     end

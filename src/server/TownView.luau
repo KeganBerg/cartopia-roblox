@@ -7,7 +7,8 @@
 -- starter town's middle is the lot's origin, and one web unit is Catalog.SCALE studs.
 --
 -- Buildings carry attributes the client reads for its job timers: Uid, Def, Level, JobEndsAt
--- (ms, or absent), Owner (user id). Clicking a building (its ClickDetector) taps it, as on the web.
+-- (ms, or absent), Owner (user id). Clicking a building (its ClickDetector) taps it, as on the web;
+-- another player clicking it is helping out on a visit (onVisit).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -101,6 +102,10 @@ end
 
 local TownView = {}
 TownView.__index = TownView
+-- On in the shared world (server/World), which has its own ground round every town: each town then
+-- skips the meadow round its land (it would overlap its neighbours'), keeping only the meadow on
+-- its own plots not bought yet.
+TownView.sharedGround = false
 
 export type TownView = typeof(setmetatable(
 	{} :: {
@@ -108,6 +113,7 @@ export type TownView = typeof(setmetatable(
 		origin: Vector3,
 		userId: number,
 		onTap: (uid: string) -> (),
+		onVisit: ((player: Player, uid: string) -> ())?,
 		land: { [string]: BasePart },
 		roads: { [string]: Model },
 		lawnKey: string?,
@@ -131,7 +137,7 @@ function TownView.worldToTile(self: TownView, p: Vector3): (number, number)
 	return math.round(d.X / TILE + (GRID - 1) / 2), math.round(d.Z / TILE + (GRID - 1) / 2)
 end
 
-function TownView.new(parent: Instance, name: string, origin: Vector3, userId: number, onTap: (uid: string) -> ()): TownView
+function TownView.new(parent: Instance, name: string, origin: Vector3, userId: number, onTap: (uid: string) -> (), onVisit: ((player: Player, uid: string) -> ())?): TownView
 	local folder = Instance.new("Folder")
 	folder.Name = name
 	folder:SetAttribute("Owner", userId)
@@ -155,7 +161,8 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 	local cuts = { -MEADOW_REACH, PLOT_LO, PLOT_HI, MEADOW_REACH }
 	for i = 1, 3 do
 		for j = 1, 3 do
-			if i == 2 and j == 2 then
+			-- (The shared world, server/World, has its own ground round every town.)
+			if (i == 2 and j == 2) or TownView.sharedGround then
 				continue
 			end
 			local x0, x1, z0, z1 = cuts[i], cuts[i + 1], cuts[j], cuts[j + 1]
@@ -168,6 +175,7 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 		origin = origin,
 		userId = userId,
 		onTap = onTap,
+		onVisit = onVisit,
 		land = {},
 		roads = {},
 		buildings = {},
@@ -233,7 +241,7 @@ function TownView._renderLand(self: TownView, land: { string })
 					CastShadow = false,
 					Parent = (self.folder :: any).Land,
 				})
-			else
+			elseif self.folder:FindFirstChild("Meadow") then
 				self.land[k] = meadowPart((self.folder :: any).Meadow, self.origin, c - self.origin, Vector3.new(PLOT * TILE, 0, PLOT * TILE))
 			end
 		end
@@ -903,6 +911,8 @@ function TownView._buildingModel(self: TownView, b: any, turn: number, g: any, c
 		click.MouseClick:Connect(function(player)
 			if player.UserId == self.userId then
 				self.onTap(b.uid)
+			elseif self.onVisit then
+				self.onVisit(player, b.uid)
 			end
 		end)
 		click.Parent = hit
@@ -1100,5 +1110,9 @@ function TownView.render(self: TownView, save: any)
 	self:_renderLawn(save.land or {}, list, save.buildings or {})
 	self:_renderCars(save.cars or {}, save.buildings or {}, roadSet)
 end
+
+TownView.MEADOW = MEADOW
+TownView.GRASS = GRASS
+TownView.groundTexture = groundTexture
 
 return TownView

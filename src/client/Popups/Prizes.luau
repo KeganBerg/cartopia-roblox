@@ -2,8 +2,9 @@
 -- The prize cards a race leaves behind (index.css .prize): a campaign chapter cleared or starred
 -- (Race.tsx CampaignPrizePopup), a paint rival beaten (PaintRivals.tsx), a tuner trial won
 -- (TunerTrials.tsx), a mastery step (ClassCups.tsx MasteryPrizePopup) and a class cup's free
--- crate (CupPrizePopup). They come in the snapshot's popups and show once the race screen is gone.
--- The Grand Prix, World Tour and event prizes belong to their own race pages.
+-- crate (CupPrizePopup), and a Grand Prix series won (Race.tsx PrizePopup: a mystery box to open,
+-- then the car inside). They come in the snapshot's popups and show once the race screen is gone.
+-- The World Tour and event prizes belong to their own race pages.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -20,6 +21,7 @@ local crates = require(Game.crates) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local Kit = require(script.Parent.Kit)
+local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local Prizes = {}
 
@@ -304,6 +306,64 @@ SHOW.masteryPrize = function(ctx, p, close)
 	Kit.buttons(card, y, { { text = "Nice!", go = close } })
 end
 
+-- A Grand Prix series won (Race.tsx PrizePopup): the series' mystery box, wobbling until a tap
+-- opens it, then the car that was inside with its PI and the five trophies, and a way to see it.
+SHOW.gpPrize = function(ctx, prize, close)
+	local series = nil
+	for _, sr in data.GP_SERIES do
+		if sr.id == prize.series then
+			series = sr
+		end
+	end
+	local def = data.carDef(prize.model)
+	if not series or not def then
+		close()
+		return
+	end
+	local title = `{series.name} champion!`
+	local th = if Ui.textWidth(title, 26) > W - 44 then 66 else 36
+	local overlay, card = prizeCard(ctx, 18 + th + 110 + 18)
+	local frame = card.Parent :: GuiObject
+	local y = 18
+	y += h2(card, title, y)
+	local box = Ui.new("TextButton", { Name = "Mystery", Text = "🎁", TextSize = 96, FontFace = Ui.DISPLAY, AutoButtonColor = false, BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, y), Size = UDim2.fromOffset(130, 110), Parent = card })
+	local wobble = true
+	task.spawn(function()
+		-- .mystery-box's boxwiggle: a tilt one way, back, the other way, a second round.
+		local t = 0
+		while wobble and box.Parent do
+			t += task.wait()
+			local u = (t % 1) * 4
+			local k = if u < 1 then u elseif u < 3 then 2 - u else u - 4
+			box.Rotation = -8 * k
+			box.TextSize = 96 * (1 + 0.05 * math.abs(k))
+		end
+	end)
+	box.Activated:Connect(function()
+		wobble = false
+		Sfx.win()
+		-- Everything drawn on the card, not its corner and edge.
+		for _, d in card:GetChildren() do
+			if d:IsA("GuiObject") then
+				d:Destroy()
+			end
+		end
+		local h = 18 + th + 146 + 32 + 30 + 12 + 44 + 18
+		frame.Size = UDim2.fromOffset(W, h)
+		local y2 = 18
+		y2 += h2(card, title, y2)
+		y2 += car(card, def.id, prize.color, nil, nil, y2, prize.color)
+		y2 += h3(card, def.name, y2)
+		y2 += prizeRow(card, { `PI {data.performance(def, { engine = 0, turbo = 0, tires = 0, weight = 0 })}`, "+5 🏆" }, y2)
+		y2 += 12
+		Kit.buttons(card, y2, { { text = "Nice!", kind = "garage", go = close }, { text = "See it", go = function()
+			close()
+			ctx.open("garage")
+		end } })
+	end)
+	local _ = overlay
+end
+
 -- The store's close action for each.
 local CLOSE = {
 	campaignPrize = "closeCampaignPrize",
@@ -311,8 +371,9 @@ local CLOSE = {
 	tunerPrize = "closeTunerPrize",
 	masteryPrize = "closeMasteryPrize",
 	cupPrize = "closeCupPrize",
+	gpPrize = "closePrize",
 }
-local ORDER = { "masteryPrize", "campaignPrize", "paintPrize", "tunerPrize", "cupPrize" }
+local ORDER = { "masteryPrize", "campaignPrize", "paintPrize", "tunerPrize", "cupPrize", "gpPrize" }
 
 function Prizes.start(ctx: any)
 	local function look()

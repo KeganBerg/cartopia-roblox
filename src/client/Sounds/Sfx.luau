@@ -20,6 +20,8 @@ local Assets = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Au
 local Mixer = require(script.Parent.Mixer)
 
 local Sfx = {}
+-- When (os.clock) a sound last played: a button whose handler made one doesn't click too (UIMotion).
+Sfx.lastAt = -math.huge
 
 local SPRITE = Assets.sprites.sfx
 local loaded: Sound? = nil
@@ -57,6 +59,7 @@ function Sfx.play(name: string, opts: { volume: number?, speed: number?, length:
 	s.PlaybackSpeed = speed
 	s.Volume = o.volume or 1
 	s:Play()
+	Sfx.lastAt = os.clock()
 	task.delay(length / speed + 0.5, function()
 		s:Destroy()
 	end)

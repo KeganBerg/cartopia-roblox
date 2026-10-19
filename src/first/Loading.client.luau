@@ -4,7 +4,8 @@
 --   1. the place itself (game.Loaded)
 --   2. the server's 3D shapes (it sets ShapesLoaded / ShapesTotal on Workspace as they come in)
 --   3. the player's own town, drawn by the server (their TownReady attribute), and the shop's
---      model library
+--      model library; or, in a new server, the shared world's hub where they pick a plot first
+--      (NeedsPlot: their town is built once they've claimed one, see client/Popups/Claim)
 --   4. the town's parts streamed to this client, and the countryside drawn round it
 --   5. every mesh, texture and picture in view, downloaded (ContentProvider:PreloadAsync). Only
 --      what's in view: the whole mesh library is thousands of meshes, most of them never seen
@@ -36,9 +37,15 @@ local screen = LoadingScreen.new(playerGui, {
 	end,
 })
 ReplicatedFirst:RemoveDefaultLoadingScreen()
+-- The server finds hundreds of them, often several a frame: the screen catches up once a frame.
+local refreshing = false
 workspace.AttributeChanged:Connect(function(name)
-	if string.sub(name, 1, 6) == "Splash" then
-		screen:refreshImages()
+	if string.sub(name, 1, 6) == "Splash" and not refreshing then
+		refreshing = true
+		task.defer(function()
+			refreshing = false
+			screen:refreshImages()
+		end)
 	end
 end)
 
@@ -122,8 +129,9 @@ end)
 screen:set(LABEL, 0.45)
 waitFor(function()
 	-- And the server's model library, which the shop's pictures are drawn from.
-	return player:GetAttribute("TownReady") == true and ReplicatedStorage:FindFirstChild("ModelLibrary") ~= nil
+	return (player:GetAttribute("TownReady") == true or player:GetAttribute("NeedsPlot") == true) and ReplicatedStorage:FindFirstChild("ModelLibrary") ~= nil
 end)
+local picking = player:GetAttribute("TownReady") ~= true
 
 local function myTown(): Instance?
 	local towns = workspace:FindFirstChild("Towns")
@@ -137,20 +145,20 @@ local function myTown(): Instance?
 	return nil
 end
 waitFor(function()
-	return myTown() ~= nil
+	return picking or myTown() ~= nil
 end)
 
 -- 4. Its parts streamed in round its middle, and the countryside round it.
 screen:set(LABEL, 0.5)
 local town = myTown()
-local origin = if town then town:GetAttribute("Origin") :: Vector3? else nil
+local origin = if town then town:GetAttribute("Origin") :: Vector3? elseif picking then Vector3.zero else nil
 if origin and workspace.StreamingEnabled then
 	pcall(player.RequestStreamAroundAsync, player, origin, math.max(1, math.min(30, timeLeft())))
 end
 screen:set(LABEL, 0.55)
 waitFor(function()
 	local c = workspace:FindFirstChild("Countryside")
-	return c ~= nil and c:GetAttribute("Drawn") == true
+	return picking or (c ~= nil and c:GetAttribute("Drawn") == true)
 end)
 
 -- 5. Every mesh, texture and picture in them, downloaded together.

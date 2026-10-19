@@ -454,7 +454,7 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		if input.KeyCode == Enum.KeyCode.Space then
 			spaceHeld = true
 			pressDown()
-		elseif input.KeyCode == Enum.KeyCode.B or input.KeyCode == Enum.KeyCode.Up then
+		elseif input.KeyCode == Enum.KeyCode.B or input.KeyCode == Enum.KeyCode.Up or input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 			fireBoost()
 		end
 	end))
@@ -713,6 +713,12 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		end
 		dialRing.Color = if light == "now" then hex("#76ff03") elseif light == "late" then hex("#ff1744") elseif light == "soon" then hex("#ffd54f") else hex("#cfd8dc")
 		Ui.setText(shiftText, if onLine then "HOLD ▶" else "SHIFT ▲")
+		-- Where the tutorial's hand points (client/Popups/Tutorial): the pedal on the line, then
+		-- SHIFT each time its light says now (the web's .shift-btn.launch and .shift-btn.now).
+		local tut = if me.finished ~= nil or r.done then nil elseif onLine then (if counting then "launch" else nil) elseif light == "now" then "shift-now" else nil
+		if shiftFace:GetAttribute("Tut") ~= tut then
+			shiftFace:SetAttribute("Tut", tut)
+		end
 		if shiftGrad then
 			local c = if light == "now" then Ui.COLORS.green elseif light == "late" then Ui.COLORS.red elseif light == "soon" then Ui.COLORS.gold else (if onLine then Ui.COLORS.green else { "#5aa9ff", "#2263d6" })
 			shiftGrad.Color = Ui.seq(c[1], c[2])

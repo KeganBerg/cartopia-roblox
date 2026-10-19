@@ -20,6 +20,10 @@ local FONT = Font.fromEnum(Enum.Font.FredokaOne)
 local HERO_W = 572 -- the Hot Shot's render width; other cars scale against it, as on the web
 local WORDMARK_AR = 1150 / 4070 -- height over width of the wordmark's picture
 local SETTLE = 2 -- seconds before the layout stays as it is (see LoadingScreen.centred)
+-- Screens this many points across (or more) get the sharper tiled town and sun
+-- (SplashImages.tiles); phones keep the single pictures, a smaller download.
+local BIG = 1000
+local TILES = 4 -- the most tiles a picture is cut into
 
 -- The page colour and the stand-in sun's colours by time of day (the web's --s1..--s4).
 local LOOKS = {
@@ -79,6 +83,15 @@ local function picture(props: { [string]: any }): ImageLabel
 	return new("ImageLabel", props)
 end
 
+-- Labels for a picture's sharper tiles, laid over it (SplashImages.tiles).
+local function tileLabels(over: ImageLabel): { ImageLabel }
+	local labels = {}
+	for i = 1, TILES do
+		labels[i] = picture({ Name = `Tile{i}`, ScaleType = Enum.ScaleType.Stretch, Visible = false, ZIndex = over.ZIndex, Parent = over })
+	end
+	return labels
+end
+
 export type Options = {
 	-- The content string for an uploaded image id (the server may have found its image's own id;
 	-- see Loading.client), and whether it's surely an image's (not a decal's, which shows nothing).
@@ -120,6 +133,10 @@ export type LoadingScreen = typeof(setmetatable(
 		-- (locked) once the town arrives or after a moment, so the screen doesn't jump about later.
 		centred: boolean,
 		locked: boolean,
+		-- Whether this screen gets the tiled pictures, and whether it's time to fetch them (once
+		-- the single town picture is in, so that comes first).
+		big: boolean,
+		tilesAsked: boolean,
 	},
 	LoadingScreen
 ))
@@ -145,13 +162,16 @@ function LoadingScreen.new(parent: Instance, opts: Options?): LoadingScreen
 	local scale = new("UIScale", { Parent = root })
 	local p: { [string]: any } = {}
 
-	p.town = picture({ Name = "Town", ScaleType = Enum.ScaleType.Crop, ZIndex = 1, Parent = root })
+	-- Sized to cover the screen as the web's object-fit: cover does (see step).
+	p.town = picture({ Name = "Town", ScaleType = Enum.ScaleType.Stretch, ZIndex = 1, Parent = root })
+	p.townTiles = tileLabels(p.town)
 	p.vignette = picture({ Name = "Edge", Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Stretch, ZIndex = 2, Parent = root })
 	-- The sun: the web's picture, or until it loads a rounded panel in its colours.
 	p.sunStandIn = new("Frame", { Name = "SunStandIn", BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1), ZIndex = 3, Parent = root })
 	round(p.sunStandIn)
 	p.sunGradient = new("UIGradient", { Parent = p.sunStandIn })
 	p.sun = picture({ Name = "Sun", ScaleType = Enum.ScaleType.Stretch, ZIndex = 4, Parent = root })
+	p.sunTiles = tileLabels(p.sun)
 	p.stars = {}
 	for i, s in STARS do
 		local star = new("Frame", {
@@ -221,29 +241,18 @@ function LoadingScreen.new(parent: Instance, opts: Options?): LoadingScreen
 		p.tag[i] = { l, drop }
 	end
 
-	-- The car: its render, its paint layer tinted with the player's paint, and a soft shadow.
+	-- The car: its render, its paint layer tinted with the player's paint, and a soft shadow (the
+	-- web's .car::after: an ellipse 96% of the car wide, 28% high, its bottom 3% below the car's,
+	-- fading out from its middle).
 	p.car = new("Frame", { Name = "Car", AnchorPoint = Vector2.new(0.5, 0), BackgroundTransparency = 1, ZIndex = 10, Parent = root })
-	p.shadow = new("Frame", {
+	p.shadow = picture({
 		Name = "Shadow",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.88),
-		Size = UDim2.fromScale(0.96, 0.24),
-		BackgroundColor3 = Color3.fromHex("#0a0e1e"),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
+		Position = UDim2.fromScale(0.5, 0.89),
+		Size = UDim2.fromScale(0.96, 0.28),
+		ScaleType = Enum.ScaleType.Stretch,
 		ZIndex = 10,
 		Parent = p.car,
-	})
-	round(p.shadow)
-	p.shadowFade = new("UIGradient", {
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.25, 0.55),
-			NumberSequenceKeypoint.new(0.5, 0.4),
-			NumberSequenceKeypoint.new(0.75, 0.55),
-			NumberSequenceKeypoint.new(1, 1),
-		}),
-		Parent = p.shadow,
 	})
 	p.body = picture({ Name = "Body", Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Stretch, ZIndex = 11, Parent = p.car })
 	p.paint = picture({ Name = "Paint", Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Stretch, ZIndex = 12, Parent = p.body })
@@ -343,6 +352,8 @@ function LoadingScreen.new(parent: Instance, opts: Options?): LoadingScreen
 		sure = {},
 		centred = true,
 		locked = false,
+		big = false,
+		tilesAsked = false,
 	}, LoadingScreen)
 	self:setTime("day")
 	self:set(self.text, self.progress)
@@ -408,12 +419,32 @@ function LoadingScreen.refreshImages(self: LoadingScreen)
 		end
 		self:_fetch(content)
 		-- Which picture it is, for the preview tools (tools/emulate/render.mjs).
-		image:SetAttribute("Key", key)
+		if image:GetAttribute("Key") ~= key then
+			image:SetAttribute("Key", key)
+		end
+	end
+	local function setTiles(labels: { ImageLabel }, key: string)
+		local tiles = if self.big and self.tilesAsked then (Images :: any).tiles and (Images :: any).tiles[key] else nil
+		for i, label in labels do
+			local t = tiles and tiles[i]
+			if t and t.id ~= 0 then
+				label.Visible = true
+				label.Position = UDim2.fromScale(t.x, t.y)
+				label.Size = UDim2.fromScale(t.w, t.h)
+				set(label, t.id, `{key}-t{i}`)
+			else
+				label.Visible = false
+				label.Image = ""
+			end
+		end
 	end
 	set(p.town, Images.town[self.tod][kind], `town-{self.tod}-{kind}`)
 	set(p.sun, Images.sun[self.tod][kind], `sun-{self.tod}-{kind}`)
+	setTiles(p.townTiles, `town-{self.tod}-{kind}`)
+	setTiles(p.sunTiles, `sun-{self.tod}-{kind}`)
 	set(p.vignette, Images.vignette, "vignette")
 	set(p.wordmark, Images.wordmark, "wordmark")
+	set(p.shadow, (Images :: any).shadow or 0, "shadow")
 	local car = self.model and Images.cars[self.model]
 	set(p.body, if car then car.car else 0, `car-{self.model}`)
 	set(p.paint, if car then car.paint else 0, `paint-{self.model}`)
@@ -422,7 +453,7 @@ end
 -- Every image the screen shows, for ContentProvider:PreloadAsync.
 function LoadingScreen.images(self: LoadingScreen): { Instance }
 	local p = self.parts
-	return { p.town, p.sun, p.vignette, p.wordmark, p.body, p.paint }
+	return { p.town, p.sun, p.wordmark, p.body, p.paint, p.vignette, p.shadow }
 end
 
 -- Day, dusk or night: the town render, the sun and the stars change with the town clock.
@@ -577,7 +608,9 @@ function LoadingScreen._layout(self: LoadingScreen, w: number, h: number)
 	end
 	box.car = Rect.new(ccx - cw / 2, ctop, ccx + cw / 2, ctop + cw * ar)
 	self.box = box
-	if kindChanged then
+	local big = math.max(w, h) >= BIG
+	if kindChanged or big ~= self.big then
+		self.big = big
 		self:refreshImages()
 	end
 end
@@ -616,6 +649,26 @@ function LoadingScreen.step(self: LoadingScreen, dt: number)
 		image.ImageTransparency += (want - image.ImageTransparency) * math.min(1, dt * 6)
 		return image.ImageTransparency < 0.99
 	end
+	-- A picture's sharper tiles fade in over it once every one of them is in.
+	local function showTiles(labels: { ImageLabel }, base: ImageLabel)
+		local all = self:_loaded(base) and base.ImageTransparency < 0.5
+		for _, label in labels do
+			if label.Visible and not self:_loaded(label) then
+				all = false
+			end
+		end
+		for _, label in labels do
+			if label.Visible then
+				local want = if all then 0 else 1
+				label.ImageTransparency += (want - label.ImageTransparency) * math.min(1, dt * 6)
+			end
+		end
+	end
+	-- The tiles are fetched once the single town picture is in.
+	if not self.tilesAsked and self:_loaded(p.town) then
+		self.tilesAsked = true
+		self:refreshImages()
+	end
 	-- While the screen fades away (finish) only the car still moves.
 	local fading = self.fading
 	if not fading then
@@ -626,16 +679,23 @@ function LoadingScreen.step(self: LoadingScreen, dt: number)
 		else
 			show(p.sun)
 		end
+		showTiles(p.sunTiles, p.sun)
 		p.sunStandIn.BackgroundTransparency = math.clamp(1 - p.sun.ImageTransparency, 0, 1)
 		show(p.town)
+		showTiles(p.townTiles, p.town)
 	end
 
 	-- The town pans back and forth (40 s each way), slightly zoomed so its edges never show.
 	local pan = easeInOut((t / 40) % 2 <= 1 and (t / 40) % 1 or 1 - (t / 40) % 1)
 	local tw, th = w * 1.08 * 1.1, h * 1.08 * 1.1
 	local dx, dy = (-0.03 + 0.06 * pan) * tw, (0.015 - 0.03 * pan) * th
-	p.town.Size = UDim2.fromOffset(tw, th)
-	p.town.Position = UDim2.fromOffset((w - tw) / 2 + dx, (h - th) / 2 + dy)
+	-- Covering that box, keeping the render's shape (what ScaleType.Crop does, but with a known
+	-- size so the tiles line up over it).
+	local aspect = ((Images :: any).townAspect or {})[if w >= h then "wide" else "tall"] or tw / th
+	local cover = math.max(tw / aspect, th)
+	local dw, dh = aspect * cover, cover
+	p.town.Size = UDim2.fromOffset(dw, dh)
+	p.town.Position = UDim2.fromOffset(w / 2 + dx - dw / 2, h / 2 + dy - dh / 2)
 
 	-- Stars twinkle (3 s).
 	for i, star in p.stars do
@@ -690,7 +750,7 @@ function LoadingScreen.step(self: LoadingScreen, dt: number)
 	if bodyIn and not self.carSince then
 		self.carSince = t
 	end
-	p.shadow.BackgroundTransparency = math.clamp(p.body.ImageTransparency, 0, 1)
+	p.shadow.ImageTransparency = if self:_loaded(p.shadow) then p.body.ImageTransparency else 1
 	self:_moveCar(t, w, h)
 end
 

@@ -14,6 +14,9 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = Shared:WaitForChild("Game")
 local Catalog = require(Shared:WaitForChild("Models"):WaitForChild("Catalog")) :: any
+local Builder = require(Shared.Models:WaitForChild("Builder")) :: any
+local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
+local CarDetail = require(script.Parent:WaitForChild("CarDetail"))
 local lualib = require(Game:WaitForChild("lualib_bundle")) :: any
 local data = require(Game:WaitForChild("data")) :: any
 local placement = require(Game:WaitForChild("placement")) :: any
@@ -55,6 +58,47 @@ local townKey = ""
 local carsKey = ""
 local homesKey = ""
 
+-- Townsfolk out driving: everyday cars of the town's own, on top of the player's (the web game
+-- has only the player's cars and the odd visitor, which left small towns' roads empty). Their uids
+-- start "visitor:" so the sim fades them out when they go. Drawn here, not by the server.
+local LOCALS_MAX = 14
+local LOCALS_MAX_PHONE = 8
+local localsCount = 0
+local localsPool: { any }? = nil
+
+-- The everyday cars townsfolk drive (no gem or special cars), cheapest first.
+local function everyday(): { any }
+	if localsPool then
+		return localsPool
+	end
+	local pool = {}
+	for _, c in data.CARS do
+		if not c.bucks and (c.price or 0) > 0 and c.price <= 22000 and c.colors and #c.colors > 0 and (Catalog.TOWN_SIZE or {})[c.id] then
+			table.insert(pool, c)
+		end
+	end
+	table.sort(pool, function(a, b)
+		return a.price < b.price
+	end)
+	localsPool = pool
+	return pool
+end
+
+-- Which car and colour townsfolk car `i` is, the same every time.
+local function localCar(i: number): (string, string)
+	local pool = everyday()
+	local c = pool[(i * 7) % #pool + 1]
+	return c.id, c.colors[(i * 3) % #c.colors + 1]
+end
+
+-- Cars taken off the road by the player (driving it, or just left where they parked it).
+local taken: { [string]: boolean } = {}
+
+local function phone(): boolean
+	local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 800)
+	return math.min(v.X, v.Y) < 700
+end
+
 local function updateTraffic(save: any)
 	local roads = save.roads or {}
 	local buildings = save.buildings or {}
@@ -86,6 +130,9 @@ local function updateTraffic(save: any)
 	local specs = {}
 	local sig = {}
 	for _, c in cars do
+		if taken[c.uid] then
+			continue
+		end
 		local def = data.carDef(c.model)
 		local size = (Catalog.TOWN_SIZE or {})[c.model] or { 0.8, 0.45, 0.8 }
 		scaleOf[c.uid] = size[3]
@@ -102,6 +149,23 @@ local function updateTraffic(save: any)
 		table.insert(sig, `{c.uid}:{c.model}:{pis[c.uid]}:{stalled}`)
 	end
 	local max = math.min(MAX_VISIBLE, math.max(3, math.floor(#roads * 0.5)))
+	-- One townsfolk car for every three road tiles, between 3 and the cap.
+	localsCount = math.clamp(math.floor(#roads / 3), 3, if phone() then LOCALS_MAX_PHONE else LOCALS_MAX)
+	for i = 1, localsCount do
+		local uid = `visitor:local:{i}`
+		if taken[uid] then
+			continue
+		end
+		local model = localCar(i)
+		local size = (Catalog.TOWN_SIZE or {})[model] or { 0.8, 0.45, 0.8 }
+		scaleOf[uid] = size[3]
+		table.insert(specs, { uid = uid, len = size[1], wid = size[2], cruise = (1.0 + (i % 4) * 0.12) * pace, stalled = false, low = false })
+		table.insert(sig, uid)
+	end
+	max += localsCount
+	for uid in taken do
+		table.insert(sig, `-{uid}`)
+	end
 	local ck = table.concat(sig, ";") .. `|{pace}|{max}`
 	if moved or ck ~= carsKey then
 		carsKey = ck
@@ -1023,6 +1087,13 @@ local function draw(origin: Vector3, p: Person, wag: number, eye: Vector3?, list
 end
 ---------------------------------------------------------------------------------------------------
 
+-- Set by attach: the latest save, re-running the traffic's cars, and a car's model by uid.
+local lastSave: any = nil
+local refresh: () -> () = function() end
+local modelOf: (string) -> Model? = function()
+	return nil
+end
+
 local function smallScreen(): boolean
 	local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 800)
 	return math.min(v.X, v.Y) < 700
@@ -1033,6 +1104,59 @@ end
 function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> ())
 	local origin: Vector3 = town:GetAttribute("Origin") :: any
 	local carsFolder = town:WaitForChild("Cars")
+
+	-- The townsfolk's cars, built here from the shared meshes.
+	local localsFolder = Instance.new("Folder")
+	localsFolder.Name = "TownTraffic"
+	localsFolder.Parent = workspace
+	local locals: { [string]: Model } = {}
+	-- Their pieces, for showing the small ones only up close (client/CarDetail).
+	local details: { [string]: CarDetail.Detail } = {}
+	local function localModel(id: string, color: string): (Model?, CarDetail.Detail?)
+		local m = Builder.build(id)
+		if not m then
+			return nil, nil
+		end
+		Paint.apply(m, Paint.jobOf({ color = color }))
+		for _, d in m:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+				d.CanCollide = false
+				d.CanQuery = true
+				d.CanTouch = false
+			end
+		end
+		return m, CarDetail.track(m)
+	end
+	local function buildLocals()
+		for i = 1, localsCount do
+			local uid = `visitor:local:{i}`
+			if locals[uid] then
+				continue
+			end
+			local id, color = localCar(i)
+			local m, detail = localModel(id, color)
+			if not m or not detail then
+				continue
+			end
+			details[uid] = detail
+			m.Name = uid
+			m:SetAttribute("Uid", uid)
+			m:SetAttribute("Model", id)
+			m:SetAttribute("Color", color)
+			m:PivotTo(HIDDEN)
+			m.Parent = localsFolder
+			locals[uid] = m
+		end
+		for uid, m in locals do
+			local i = tonumber(string.match(uid, "%d+$")) or 0
+			if i > localsCount then
+				m:Destroy()
+				locals[uid] = nil
+				details[uid] = nil
+			end
+		end
+	end
 
 	local peopleFolder = Instance.new("Folder")
 	peopleFolder.Name = "Townspeople"
@@ -1154,9 +1278,19 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		if not save then
 			return
 		end
+		lastSave = save
 		updateTraffic(save)
+		buildLocals()
 		drawSignals(origin, save.roads or {})
 		updatePeople(save)
+	end
+	refresh = function()
+		if lastSave then
+			updateTraffic(lastSave)
+		end
+	end
+	modelOf = function(uid: string): Model?
+		return locals[uid] or carsFolder:FindFirstChild(uid) :: Model?
 	end
 	local parked: { [string]: boolean } = {}
 	-- If the player's character ever ends up under their town's ground (fallen through before it
@@ -1189,12 +1323,29 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		if nextCheck <= 0 then
 			nextCheck = 1
 			rescueFall()
+			-- Townsfolk cars built before their meshes reached this player, built again now.
+			for uid, d in details do
+				if not taken[uid] and CarDetail.ready(d) then
+					local fresh, nd = localModel(d.model:GetAttribute("Model") :: string, d.model:GetAttribute("Color") :: string)
+					if fresh and nd then
+						details[uid] = CarDetail.swap(d, fresh, nd)
+						locals[uid] = fresh
+					end
+				end
+			end
 		end
 		traffic:step(dt)
 		stepSignals()
-		-- The cars: each server model goes where the sim has it, at its town size.
-		for _, m in carsFolder:GetChildren() do
-			if not m:IsA("Model") then
+		-- The cars: each server model (and townsfolk car) goes where the sim has it, at its town size.
+		-- A car the player has taken stays wherever they left it.
+		local cam0 = workspace.CurrentCamera
+		local eyeAt = if cam0 then cam0.CFrame.Position else nil
+		local all = carsFolder:GetChildren()
+		for _, m in locals do
+			table.insert(all, m)
+		end
+		for _, m in all do
+			if not m:IsA("Model") or taken[m.Name] then
 				continue
 			end
 			local a = traffic.agents:get(m.Name)
@@ -1215,7 +1366,12 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 				m:ScaleTo(k)
 			end
 			local tilt = if a.stalled and a.tow == 0 then 0.06 else 0
-			m:PivotTo(CFrame.new(origin + Vector3.new(a.x * S, 0.02 * S, a.z * S)) * CFrame.Angles(0, a.yaw, 0) * CFrame.Angles(0, 0, tilt))
+			local at = origin + Vector3.new(a.x * S, 0.02 * S, a.z * S)
+			m:PivotTo(CFrame.new(at) * CFrame.Angles(0, a.yaw, 0) * CFrame.Angles(0, 0, tilt))
+			local d = details[m.Name]
+			if d and eyeAt then
+				CarDetail.lod(d, (at - eyeAt).Magnitude)
+			end
 		end
 		-- The townspeople.
 		if graph and places then
@@ -1250,6 +1406,8 @@ function TownLife.start()
 				task.wait(0.5)
 			end
 		end
+		-- The townsfolk's cars are built from the meshes the server shares.
+		Builder.useLibrary(60)
 		local update, step = TownLife.attach(folder :: Folder)
 		Remote.changed:Connect(function(snap)
 			update(snap.save)
@@ -1259,6 +1417,53 @@ function TownLife.start()
 		end
 		RunService.RenderStepped:Connect(step)
 	end)
+end
+
+-- Every car on the town's roads right now (the player's and the townsfolk's), for getting in:
+-- uid -> model.
+function TownLife.cars(): { [string]: Model }
+	local out = {}
+	traffic.agents:forEach(function(_, a: any, uid: string)
+		local m = modelOf(uid)
+		if m and a.show > 0.9 and not taken[uid] then
+			out[uid] = m
+		end
+	end)
+	return out
+end
+
+-- Takes a car off the road (the player is getting in): the sim lets go of it and its model
+-- stays put for whoever moves it. Returns the model.
+function TownLife.take(uid: string): Model?
+	local m = modelOf(uid)
+	if not m then
+		return nil
+	end
+	taken[uid] = true
+	local a = traffic.agents:get(uid)
+	if a then
+		traffic:remove(a)
+	end
+	refresh()
+	return m
+end
+
+-- A car's model (the player's, from the server, or a townsfolk car) by uid.
+function TownLife.modelOf(uid: string): Model?
+	return modelOf(uid)
+end
+
+-- Gives a taken car back to the town's traffic (it fades in somewhere on the roads).
+function TownLife.give(uid: string)
+	if not taken[uid] then
+		return
+	end
+	taken[uid] = nil
+	local m = modelOf(uid)
+	if m then
+		m:PivotTo(HIDDEN)
+	end
+	refresh()
 end
 
 TownLife._traffic = traffic
