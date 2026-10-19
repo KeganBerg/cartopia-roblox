@@ -58,6 +58,10 @@ local homesKey = ""
 -- Cars taken off the road by the player (driving it, or just left where they parked it).
 local taken: { [string]: boolean } = {}
 
+-- A visitor's cars (client/VisitorCar), in the same traffic as the town's, ahead of them and on
+-- top of the usual cap (TownCars.tsx), so everyone gives way to everyone at the junctions.
+local guests: { any } = {}
+
 local function updateTraffic(save: any)
 	local roads = save.roads or {}
 	local buildings = save.buildings or {}
@@ -88,6 +92,10 @@ local function updateTraffic(save: any)
 	end
 	local specs = {}
 	local sig = {}
+	for _, g in guests do
+		table.insert(specs, g)
+		table.insert(sig, `{g.uid}:{g.cruise}`)
+	end
 	for _, c in cars do
 		if taken[c.uid] then
 			continue
@@ -107,7 +115,7 @@ local function updateTraffic(save: any)
 		})
 		table.insert(sig, `{c.uid}:{c.model}:{pis[c.uid]}:{stalled}`)
 	end
-	local max = math.min(MAX_VISIBLE, math.max(3, math.floor(#roads * 0.5)))
+	local max = math.min(MAX_VISIBLE, math.max(3, math.floor(#roads * 0.5))) + #guests
 	for uid in taken do
 		table.insert(sig, `-{uid}`)
 	end
@@ -1265,6 +1273,23 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 	return update, step
 end
 
+-- Puts a visitor's cars on the town's roads, or takes them off (empty): leaving visitors fade out
+-- where they are. Each spec: { uid, len, wid, cruise, stalled }.
+function TownLife.setGuests(list: { any })
+	guests = list
+	refresh()
+end
+
+-- For a town nobody has brought to life (attach): keeps the traffic up to date with `save` and
+-- moves it on by dt, for the visitor's cars alone.
+function TownLife.drive(save: any, dt: number)
+	lastSave = save
+	updateTraffic(save)
+	traffic:step(dt)
+end
+
+TownLife.running = false
+
 function TownLife.start()
 	local Town = require(script.Parent.Town) :: any
 	local Remote = require(script.Parent.Remote) :: any
@@ -1283,6 +1308,7 @@ function TownLife.start()
 		if Remote.last then
 			update(Remote.last.save)
 		end
+		TownLife.running = true
 		RunService.RenderStepped:Connect(step)
 	end)
 end

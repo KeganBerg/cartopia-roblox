@@ -70,9 +70,24 @@ local last = {}
 local strangers, jumps, offRoad, high, seen = {}, 0, 0, 0, {}
 -- The tightest following distance seen at speed (web units, bumper to bumper, over speed).
 local tightest, tightV = math.huge, 0
+local stuck = {}
+local waiting, moving = 0, 0
 for f = 1, math.floor(seconds / DT) do
 	step(DT)
-	TownLife._traffic.agents:forEach(function(_, a)
+	TownLife._traffic.agents:forEach(function(_, a, uid)
+		if a.parked <= 0 and not a.stalled then
+			if a.v < 0.05 then
+				waiting += 1
+			else
+				moving += 1
+			end
+		end
+		if a.wait > 15 and a.parked <= 0 and not stuck[uid] then
+			stuck[uid] = true
+			print(`  stuck {math.floor(a.wait)}s at {f * DT // 1}s: {uid} at {math.floor(a.x * 10)}, {math.floor(a.z * 10)} studs behind {a.gapTo or "nothing"} (gap {math.floor(a.gap * 100) / 100}) stalled {a.stalled} tow {a.tow} leaving {a.leaving}`)
+		elseif a.wait < 1 then
+			stuck[uid] = nil
+		end
 		if a.gapTo and a.v > 1 and not a.ot and a.gap / a.v < tightest then
 			tightest, tightV = a.gap / a.v, a.v
 		end
@@ -138,6 +153,7 @@ for _ in seen do
 end
 print(`after {seconds}s: {n} cars in the traffic, {drawn} of the player's {#save.cars} drawn, {#out} not theirs`)
 print(`  frames off the road {offRoad}, off the ground {high}, jumps {jumps}`)
+print(`  cars standing still in traffic: {math.floor(waiting / math.max(1, waiting + moving) * 100)}% of the time`)
 print(`  closest following at speed: {math.floor(tightest * 100) / 100}s behind (at {math.floor(tightV * 100) / 100} units/s)`)
 if #out > 0 then
 	print(`  not the player's: {table.concat(out, ", ")}`)
