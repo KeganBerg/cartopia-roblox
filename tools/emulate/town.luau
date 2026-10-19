@@ -270,6 +270,7 @@ make("RemoteFunction", "Race", remotes)
 make("RemoteFunction", "Crate", remotes)
 make("RemoteFunction", "Social", remotes)
 make("RemoteFunction", "Meshes", remotes)
+make("RemoteEvent", "Kart", remotes)
 remotes.Parent = RS
 -- The model library the server makes for shop pictures.
 local Builder = emu.require(RS.Shared.Models.Builder)
