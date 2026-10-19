@@ -19,7 +19,8 @@ local Dyno = {}
 -- How long the pull takes on screen, and how long the result stays up after it.
 Dyno.PULL = 2.4
 Dyno.HOLD = 1.8
--- The clock the pull runs on (swapped in the emulator to run a pull to its end at once).
+-- The clock the pull and the garage's tap window run on (the emulator pins it, so a slow run
+-- neither misses the window nor has to wait out the pull).
 Dyno.clock = os.clock
 
 export type Run = { before: number, after: number, model: string? }

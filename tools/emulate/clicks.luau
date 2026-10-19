@@ -5121,6 +5121,20 @@ do
 		return out
 	end
 
+	-- The town's own visitor clock ran through the sections before this one (the tutorial moves time
+	-- on while it waits for jobs and Rusty), so a visitor it rolled may already be in town, picked
+	-- by the seeded roll rather than the kind asked for below. See it off first, as a player who
+	-- let it leave would, so each arrival here is the one asked for.
+	if Visitors.visitor and not Visitors.visitor.gone then
+		print(`visitors: a {Visitors.visitor.kind} was already in town; seen off`)
+		Visitors.leave()
+		Emu.resumeWaits()
+	end
+	local stray = visitorDesk:current(1)
+	if stray then
+		visitorDesk:leave(1, stray.id)
+	end
+
 	-- The next visitor, of `kind`: the server's roll made to pick it, past the gap since the last.
 	local function arrive(kind)
 		visitorDesk.rollKind = function()
