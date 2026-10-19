@@ -125,6 +125,12 @@ export class JsDate {
   getHours() {
     return this.getUTCHours()
   }
+  getMinutes() {
+    return Math.floor((((this.t % 3600000) + 3600000) % 3600000) / 60000)
+  }
+  getSeconds() {
+    return Math.floor((((this.t % 60000) + 60000) % 60000) / 1000)
+  }
   toISOString() {
     const [y, m, d] = this.ymd()
     const ms = ((this.t % DAY) + DAY) % DAY

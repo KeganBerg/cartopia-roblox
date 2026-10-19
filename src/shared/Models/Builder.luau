@@ -249,11 +249,16 @@ local function addText(part: BasePart, text: { text: string, fg: string, bg: str
 	gui.Parent = part
 end
 
+-- For a part whose look isn't in Catalog.LOOKS: Catalog and the scenery files are written by the
+-- same model build, but a merge can pair one build's Catalog with another's scenery, and a grey
+-- piece is better than a race that won't start.
+local NO_LOOK = { color = "#9e9e9e", transparency = 0, material = "SmoothPlastic" }
+
 local function makePart(p: { any }): BasePart
 	local kind: string = p[1]
 	local cf = CFrame.new(p[2], p[3], p[4], p[5], p[6], p[7], p[8])
 	local size = Vector3.new(p[9], p[10], p[11])
-	local look = Catalog.LOOKS[p[12]]
+	local look = Catalog.LOOKS[p[12]] or NO_LOOK
 	local part: BasePart
 	if kind == "m" then
 		local template = meshParts[p[13]]

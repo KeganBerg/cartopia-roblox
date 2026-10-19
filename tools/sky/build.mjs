@@ -60,6 +60,14 @@ async function bake() {
   const skyText = src.match(/const SKY = (\{[\s\S]*?\n\})\n/)?.[1]
   if (!skyText) throw new Error('Horizon.tsx has no SKY colours')
   const SKY = new Function('SEASON', `return ${skyText}`)(season)
+  // The northern lights' curtains (web SkyExtras.tsx).
+  const extrasSrc = readFileSync(join(web, 'src/scene/SkyExtras.tsx'), 'utf8')
+  const NOISE = extrasSrc.match(/const NOISE = \/\* glsl \*\/ `([\s\S]*?)`/)?.[1]
+  const AURORA = extrasSrc.match(/const AURORA_FRAG = \/\* glsl \*\/ `([\s\S]*?)`/)?.[1]
+  if (!NOISE || !AURORA) throw new Error('SkyExtras.tsx has no NOISE or AURORA_FRAG')
+  const AURORA_FRAG = swap(AURORA.replace('${NOISE}', NOISE), 'gl_FragColor = vec4(c * uOpacity, 1.0);',
+    // Drawn additively on the web; Roblox pictures blend by alpha, so the glow becomes its own alpha.
+    'c *= uOpacity; float a = clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0); gl_FragColor = vec4(c / max(a, 0.001), a);')
 
   // The town clock (web game/clock.ts): d is how far the phase is from midnight (0 at midnight,
   // 0.5 at noon); dawn and dusk mirror each other.
@@ -146,6 +154,75 @@ async function bake() {
     const z = C(SKY.day.zenith).lerp(C(SKY.night.zenith), n).lerp(C(SKY.dusk.zenith), k * (1 - n) * 0.8)
     return C(SKY.day.horizon).lerp(C(SKY.night.horizon), n).lerp(C(SKY.dusk.horizon), k * (1 - n * 0.6)).lerp(z, 0.18).getHexString()
   }
+  // Extras (web SkyExtras.tsx, SeasonFx.tsx): drawn on a flat quad, alpha kept.
+  const flat = new T.WebGLRenderer({ alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true })
+  flat.outputColorSpace = T.SRGBColorSpace
+  const quad = (frag, uniforms, w, h) => {
+    flat.setSize(w, h)
+    flat.setClearColor(0x000000, 0)
+    const m = new T.ShaderMaterial({ vertexShader: 'varying vec2 vUv; varying float vEdge; uniform float uSpan; void main() { vUv = vec2(uv.x * uSpan, uv.y); vEdge = uv.x; gl_Position = vec4(position.xy * 2.0, 0.0, 1.0); }', fragmentShader: frag, uniforms, transparent: true, blending: T.NoBlending })
+    const sc = new T.Scene()
+    sc.add(new T.Mesh(new T.PlaneGeometry(1, 1), m))
+    flat.render(sc, new T.Camera())
+    m.dispose()
+    return flat.domElement.toDataURL('image/png')
+  }
+  // The northern lights as one long strip: the free view's band (14 curtains along it), foot to top.
+  window.aurora = () => quad(${JSON.stringify(AURORA_FRAG)}, { uTime: { value: 0 }, uOpacity: { value: 1.1 }, uSoft: { value: 0.025 }, uFoot: { value: 0.1 }, uSpan: { value: 14 } }, 2048, 256)
+  // The moon at a phase, as Horizon.tsx draws its disc: the terminator sweeping across (lit on the
+  // right while waxing), faint maria, the dark side barely showing, and its glow round it. On black:
+  // Roblox adds the sun's picture onto the sky, and the moon is drawn in the sun's place at night.
+  window.moon = (phase) => quad(\`
+    varying vec2 vUv;
+    uniform float uPhase;
+    float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
+    void main() {
+      vec2 q = (vUv - 0.5) * 2.0 * 1.6;
+      float r2 = dot(q, q);
+      vec3 nrm = vec3(q, sqrt(max(0.0, 1.0 - r2)));
+      float a = 6.2831853 * uPhase;
+      float lit = smoothstep(-0.04, 0.06, dot(nrm, vec3(sin(a), 0.0, -cos(a))));
+      float maria = 0.8 + 0.2 * n(q * 2.6 + 3.0);
+      vec3 disc = vec3(1.0, 0.98, 0.9) * 1.25 * maria * (0.02 + 0.98 * lit) * (1.0 - smoothstep(0.88, 1.0, r2)) * (0.45 + 0.55 * lit);
+      float full = (1.0 - cos(a)) / 2.0;
+      vec3 glow = vec3(0.8, 0.86, 1.0) * exp(-max(sqrt(r2) - 1.0, 0.0) * 3.0) * 0.18 * full * step(1.0, r2);
+      gl_FragColor = vec4(min(disc + glow, 1.0), 1.0);
+    }\`, { uPhase: { value: phase }, uSpan: { value: 1 } }, 256, 256)
+  // Season fliers (SeasonFx.tsx): a leaf or petal shape, or a soft snow dot, in white for
+  // Roblox to tint.
+  window.flier = (kind) => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 128
+    const g = c.getContext('2d')
+    g.translate(64, 64)
+    g.scale(100, -100)
+    g.fillStyle = '#fff'
+    g.beginPath()
+    if (kind === 'flake') {
+      const grad = g.createRadialGradient(0, 0, 0, 0, 0, 0.5)
+      grad.addColorStop(0, 'rgba(255,255,255,1)')
+      grad.addColorStop(0.55, 'rgba(255,255,255,0.9)')
+      grad.addColorStop(1, 'rgba(255,255,255,0)')
+      g.fillStyle = grad
+      g.arc(0, 0, 0.5, 0, Math.PI * 2)
+    } else if (kind === 'petal') {
+      g.moveTo(0, -0.5)
+      g.quadraticCurveTo(0.5, -0.1, 0.18, 0.45)
+      g.quadraticCurveTo(0, 0.3, -0.18, 0.45)
+      g.quadraticCurveTo(-0.5, -0.1, 0, -0.5)
+    } else {
+      g.moveTo(0, -0.62)
+      g.lineTo(0.03, -0.42)
+      g.quadraticCurveTo(0.42, -0.3, 0.32, 0.05)
+      g.quadraticCurveTo(0.22, 0.32, 0, 0.55)
+      g.quadraticCurveTo(-0.22, 0.32, -0.32, 0.05)
+      g.quadraticCurveTo(-0.42, -0.3, -0.03, -0.42)
+      g.lineTo(0, -0.62)
+    }
+    g.fill()
+    return c.toDataURL('image/png')
+  }
   window.READY = true
   </script></body></html>`
 
@@ -177,6 +254,18 @@ async function bake() {
       list.push({ key, name: `${key}-${hash}`, file, step: i, face })
     }
   }
+  // The extras: the moon through its month, the northern lights, and the season's fliers.
+  const MOONS = 16
+  const extra = async (key, url) => {
+    const png = Buffer.from(url.split(',')[1], 'base64')
+    const hash = createHash('sha1').update(png).digest('hex').slice(0, 8)
+    const file = `${key}.png`
+    writeFileSync(join(OUT, file), png)
+    list.push({ key, name: `${key}-${hash}`, file })
+  }
+  for (let i = 0; i < MOONS; i++) await extra(`moon-${i}`, await page.evaluate((p) => window.moon(p), i / MOONS))
+  await extra('aurora', await page.evaluate(() => window.aurora()))
+  for (const kind of ['leaf', 'petal', 'flake']) await extra(`flier-${kind}`, await page.evaluate((k) => window.flier(k), kind))
   await browser.close()
   server.close()
   writeFileSync(join(OUT, 'list.json'), JSON.stringify(list, null, 1))
@@ -199,8 +288,13 @@ const lines = [
   '\tsteps = {',
   ...steps.map((s, i) => `\t\t{ d = ${s.d}, haze = "#${s.haze}", night = ${r3(s.night)}, dusk = ${r3(s.dusk)}, faces = { ${faces.map((f) => `${f} = ${id(`${season}-${i}-${f}`)}`).join(', ')} } },`),
   '\t},',
+  '\t-- The moon through its month (phase i / #moon: 0 new, 0.5 full), for the sun\'s place at night;',
+  '\t-- the northern lights as one long strip; and the season\'s falling leaves, petals and snow.',
+  `\tmoon = { ${list.filter((e) => e.key.startsWith('moon-')).map((e) => id(e.key)).join(', ')} },`,
+  `\taurora = ${list.some((e) => e.key === 'aurora') ? id('aurora') : 0},`,
+  `\tfliers = { ${['leaf', 'petal', 'flake'].map((k) => `${k} = ${list.some((e) => e.key === `flier-${k}`) ? id(`flier-${k}`) : 0}`).join(', ')} },`,
   '}',
   '',
 ]
 writeFileSync(join(ROOT, 'src/shared/Models/SkyImages.luau'), lines.join('\n'))
-console.log(`${list.length} sky faces for ${season}, ${list.filter((e) => assets[`sky:${e.name}`]).length} uploaded`)
+console.log(`${list.length} sky pictures for ${season}, ${list.filter((e) => assets[`sky:${e.name}`]).length} uploaded`)

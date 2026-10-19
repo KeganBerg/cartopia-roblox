@@ -175,6 +175,12 @@ end
 function JsDate.prototype.getHours(self)
     return self:getUTCHours()
 end
+function JsDate.prototype.getMinutes(self)
+    return math.floor((self.t % 3600000 + 3600000) % 3600000 / 60000)
+end
+function JsDate.prototype.getSeconds(self)
+    return math.floor((self.t % 60000 + 60000) % 60000 / 1000)
+end
 function JsDate.prototype.toISOString(self)
     local y, m, d = table.unpack(
         self:ymd(),

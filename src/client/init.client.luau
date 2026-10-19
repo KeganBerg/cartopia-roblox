@@ -1,4 +1,4 @@
--- Client entry point: sets the clock, starts the town's day and night (DayNight), connects to the server (Remote), draws the countryside round the town (Countryside), the far land and sky past it (Horizon), its traffic and townspeople (TownLife), the traffic and verges on the roads between plots (WorldLife), getting in any car on foot (GetIn) and the race and crowd at a Speedway (SpeedwayLife), sets car skins moving (SkinMotion), starts the music and sounds (Sounds), and starts the HUD, which
+-- Client entry point: sets the clock, starts the town's day and night (DayNight), connects to the server (Remote), draws the countryside round the town (Countryside), the far land and sky past it (Horizon) and the sky's extras (SkyExtras: moon, northern lights, shooting stars, fly-overs, the season's falling leaves, petals or snow), its traffic and townspeople (TownLife), the traffic and verges on the roads between plots (WorldLife), getting in any car on foot (GetIn) and the race and crowd at a Speedway (SpeedwayLife), sets car skins moving (SkinMotion), starts the music and sounds (Sounds), and starts the HUD, which
 -- owns the screens, job bubbles and building placement, and the badge over Rusty's (RescueBadge).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -13,6 +13,7 @@ require(script.TownCamera).start()
 require(script.Remote)
 require(script.Countryside).start()
 require(script.Horizon).start()
+require(script.SkyExtras).start()
 require(script.TownLife).start()
 require(script.WorldLife).start()
 require(script.GetIn).start()
