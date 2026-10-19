@@ -682,7 +682,7 @@ local function needSources(ctx: any, need: any): (string, { Source })
 			{ icon = "🎁", title = "Open crates", detail = "Coin crates can pay big coin prizes.", action = { label = "Crates", run = function() ctx.open("crates") end } },
 		}
 		if hasJob and not (what and what:sub(1, 9) == "upgrading") then
-			table.insert(sources, { icon = "⬆", title = "Upgrade your businesses", detail = "Upgraded businesses pay more coins per job and finish sooner. Find them under Upgrades in the Shop.", action = { label = "Upgrades", run = function() ctx.open("shop", "upgrades") end } })
+			table.insert(sources, { icon = "⬆️", title = "Upgrade your businesses", detail = "Upgraded businesses pay more coins per job and finish sooner. Find them under Upgrades in the Shop.", action = { label = "Upgrades", run = function() ctx.open("shop", "upgrades") end } })
 		end
 		table.insert(sources, { icon = "🔍", title = "Search at Rusty's", detail = "Searches can turn up coin stashes along with cars.", action = if owned("rescue") > 0 then { label = "Rusty's", run = function() ctx.open("rescue") end } else build("rescue") })
 		table.insert(sources, { icon = "🏆", title = "Win drag races", detail = `Each race costs {data.RACE_FUEL} fuel and pays a few hundred coins.`, action = { label = "Race", run = function() ctx.open("race") end } })

@@ -258,8 +258,12 @@ local parties = emu.require(SSS.Server.KartParty).new(towns, {
 		return if userId == 1 then "You" else "Rosa"
 	end,
 })
+-- What the client sends on the Prefs remote (its settings, to be kept with the account).
+local prefsSent = {}
 roblox.implementMethod("RemoteEvent", "FireServer", function(remote, event, payload)
-	if remote.Name == "Kart" then
+	if remote.Name == "Prefs" then
+		table.insert(prefsSent, event)
+	elseif remote.Name == "Kart" then
 		partyCheck(`kart {event} from the client`, payload)
 		if event == "ready" then
 			parties:ready(1)
@@ -977,8 +981,11 @@ print(`{total} buttons pressed, {bad} problems, {silent} not wired`)
 local fs = require("@lune/fs")
 local serde = require("@lune/serde")
 local Gui = require("./gui")
+-- SHOTS_ONLY=tools-: only the pictures whose names start with it, without the real models (quick
+-- pictures of menus).
+local SHOTS_ONLY = process.env.SHOTS_ONLY
 local function shot(name, world, w, h)
-	if not SHOTS then
+	if not SHOTS and not (SHOTS_ONLY and name:sub(1, #SHOTS_ONLY) == SHOTS_ONLY) then
 		return
 	end
 	local parts = {}
@@ -4033,19 +4040,6 @@ do
 		p.Name = "Prefs"
 		p.Parent = remotes
 	end
-	local prefsSent = {}
-	roblox.implementMethod("RemoteEvent", "FireServer", function(remote, event, payload)
-		if remote.Name == "Prefs" then
-			table.insert(prefsSent, event)
-		elseif remote.Name == "Kart" then
-			partyCheck(`kart {event} from the client`, payload)
-			if event == "ready" then
-				parties:ready(1)
-			else
-				parties:relay(1, event, payload)
-			end
-		end
-	end)
 	local toasts = {}
 	local toastWas = hud.ctx.toast
 	hud.ctx.toast = function(text)
@@ -4096,6 +4090,27 @@ do
 	local function panel()
 		return root:FindFirstChild("Panel")
 	end
+	-- The flashing warning comes up once at launch when the settings arrive, waiting for the town
+	-- (not over a menu): Got it.
+	local launchSeen = false
+	local function closeLaunchWarning()
+		local w = root:FindFirstChild("FlashWarning")
+		if not w then
+			return
+		end
+		launchSeen = true
+		print("flashing warning: up at launch, over the town")
+		local ok = find(w, function(d)
+			return d.Name == "GotIt" and d:IsA("GuiButton")
+		end)
+		if ok then
+			signalFor(ok, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		if w.Parent then
+			problem("Got it didn't close the launch flashing warning")
+		end
+	end
 
 	-- The saved settings arrive (as server/Prefs sets them on the player).
 	player:SetAttribute("UiPrefs", serde.encode("json", { graphics = "auto", fps = false, flashHide = false, askLeave = true, askSell = true, tips = {} }))
@@ -4104,16 +4119,11 @@ do
 		problem("the saved settings didn't load")
 	end
 	-- The flashing warning may come up once they're in (it waits for them at launch).
-	local fw = root:FindFirstChild("FlashWarning")
-	if fw then
-		local ok = find(fw, function(d)
-			return d.Name == "GotIt" and d:IsA("GuiButton")
-		end)
-		if ok then
-			signalFor(ok, "Activated"):Fire()
-			Emu.resumeWaits()
-		end
+	for _ = 1, 3 do
+		Emu.resumeWaits()
 	end
+	closeLaunchWarning()
+	local fw
 	Fps.start()
 	TapTip.start()
 
@@ -4266,6 +4276,8 @@ do
 
 	-- The season recap card, as a new season starts.
 	hud.ctx.close()
+	Emu.resumeWaits()
+	closeLaunchWarning()
 	towns:_with(1, function()
 		store.useGame.setState({ recap = { n = 3, name = "Season 3", icon = "🌸", races = 14, wins = 9, trophies = 42, coins = 18250, cars = 2, stars = 31, tiers = 4, repFrom = 1, repTo = 2 } })
 	end)
@@ -4313,9 +4325,11 @@ do
 		problem("the season recap card didn't come up")
 	end
 
-	-- A one-time tip over the plain town, with the pulse on what it points at.
+	-- A one-time tip over the plain town, with the pulse on what it points at. (The flashing
+	-- warning comes up once at launch when the settings arrive, after the menus above: Got it.)
 	hud.ctx.close()
 	Emu.resumeWaits()
+	closeLaunchWarning()
 	local relRects = {}
 	Gui.onNode = function(g, n)
 		relRects[idOf(g)] = n
@@ -4330,7 +4344,14 @@ do
 		end
 	end
 	if not Tips.calm({ level = 5, tutorial = 99 }) then
-		problem("a tip wouldn't show over the plain town")
+		local Kit = emu.require(client.Popups.Kit)
+		local kids = {}
+		for _, n in { "Popup", "FlashWarning", "Tutorial", "Panel" } do
+			if root:FindFirstChild(n) then
+				table.insert(kids, n)
+			end
+		end
+		problem(`a tip wouldn't show over the plain town: panel {tostring(hud.ctx.panel())}, visit {tostring(hud.ctx.visiting)}, edit {tostring(Placement.active())}, pop-up {tostring(Kit.showing())}, hud {tostring(Kit.hudUp())}, over it [{table.concat(kids, ",")}], NeedsPlot {tostring(player:GetAttribute("NeedsPlot"))}`)
 	end
 	if Tips.calm({ level = 5, tutorial = 4 }) then
 		problem("a tip would show during the tutorial")
@@ -4373,9 +4394,21 @@ do
 		return d:IsA("TextButton") and d.Name == "TipTap" and d.Parent and tostring(d.Parent:GetAttribute("Tip") or ""):find("^Fuel refill") ~= nil
 	end)
 	if fuelTap then
+		local n = relRects[idOf(fuelTap.Parent)]
+		if n then
+			fuelTap.Parent.AbsoluteSize = roblox.Vector2.new(n.abs[3], n.abs[4])
+			fuelTap.Parent.AbsolutePosition = roblox.Vector2.new(n.abs[1], n.abs[2])
+		end
+		-- (Read before the waits run: the bubble goes by itself after a few seconds.)
 		signalFor(fuelTap, "Activated"):Fire()
-		Emu.resumeWaits()
 		local b = TapTip.showing()
+		if b then
+			-- Its picture, drawn with the HUD.
+			local layer = b.Parent
+			b.Parent = hud.gui
+			shot("tools-taptip")
+			b.Parent = layer
+		end
 		local words = {}
 		if b then
 			for _, d in b:GetDescendants() do
@@ -4386,7 +4419,8 @@ do
 		end
 		print(`tap tip: {if b then "showing" else "none"} "{table.concat(words, " ")}"`)
 		if not b then
-			problem("tapping the fuel rate didn't explain it")
+			local okShow, err = pcall(TapTip.show, fuelTap.Parent, TapTip.bodyFor("Fuel refill rate"))
+			problem(`tapping the fuel rate didn't explain it (tap tips layer {if player.PlayerGui:FindFirstChild("TapTips") then "up" else "missing"}; shown by hand: {okShow} {tostring(err)}; handler errors {table.concat(handlerErrors, " / ")})`)
 		end
 		TapTip.hide()
 	else
@@ -4399,7 +4433,15 @@ do
 	end
 
 	-- Screenshot mode: the shutter hides every menu, a tap brings them back; Save says why not.
+	-- (Its buttons sit with the Drive button, which comes with Social at a higher level.)
+	towns:_with(1, function(s)
+		store.useGame.setState({ level = math.max(s.level, 20) })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
 	local dock = root:FindFirstChild("ShotDock", true)
+	local walkB = root:FindFirstChild("WalkButton", true)
+	print(`shot mode: Drive button {if walkB and walkB.Visible then "shown" else "hidden"}, level {towns:snapshot(1).save.level}`)
 	local shutter = dock and find(dock, function(d)
 		return d:IsA("GuiButton") and d.Parent and d.Parent.Name == "ShotShutter"
 	end)
@@ -4407,7 +4449,7 @@ do
 		return d:IsA("GuiButton") and d.Parent and d.Parent.Name == "ShotSave"
 	end)
 	if not (dock and dock.Visible and shutter and saveB) then
-		problem("the screenshot buttons aren't by the camera button")
+		problem(`the screenshot buttons aren't by the camera button: dock {if dock then (if dock.Visible then "shown" else "hidden") else "none"}, shutter {shutter ~= nil}, save {saveB ~= nil}`)
 	else
 		signalFor(shutter, "Activated"):Fire()
 		Emu.resumeWaits()
@@ -4424,7 +4466,10 @@ do
 			shotMode.exit()
 		end
 		signalFor(saveB, "Activated"):Fire()
-		Emu.resumeWaits()
+		-- (It waits two frames with the menus off before taking the picture.)
+		for _ = 1, 3 do
+			Emu.resumeWaits()
+		end
 		local said = lastToast()
 		print(`shot mode: Save -> "{said}", HUD {if hud.gui.Enabled then "showing" else "hidden"}`)
 		if said == "" or not hud.gui.Enabled then

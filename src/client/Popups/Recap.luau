@@ -79,7 +79,7 @@ function Recap.show(ctx: any, r: any, close: () -> ())
 	Ui.text({ Name = "Title", Text = `{r.icon} {r.name}`, TextSize = 26, TextColor3 = H2, Position = UDim2.fromOffset(22, y), Size = UDim2.new(1, -44, 0, 30), Parent = face })
 	y += 30 + 10
 	local grid = Ui.new("Frame", { Name = "Stats", Position = UDim2.fromOffset(22, y), Size = UDim2.new(1, -44, 0, cellH * 2 + gap), BackgroundTransparency = 1, Parent = face }, {
-		Ui.new("UIGridLayout", { CellSize = UDim2.new(1 / 3, -4, 0, cellH), CellPadding = UDim2.fromOffset(gap, gap), SortOrder = Enum.SortOrder.LayoutOrder }),
+		Ui.new("UIGridLayout", { CellSize = UDim2.new(1 / 3, -5, 0, cellH), CellPadding = UDim2.fromOffset(gap, gap), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	for i, st in Recap.stats(r) do
 		local cell = Ui.new("Frame", { Name = st[2], LayoutOrder = i, BackgroundColor3 = Kit.GOLD, BackgroundTransparency = 0.86, Parent = grid }, { Ui.corner(12) })

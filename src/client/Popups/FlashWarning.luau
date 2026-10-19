@@ -118,8 +118,11 @@ function FlashWarning.start(ctx: any)
 	if not Prefs.loaded or Prefs.get().flashHide then
 		return
 	end
+	-- (Not over a menu opened in the first moments: it waits for the town.)
 	Kit.push(ctx, "flashWarning", 0, function(done)
 		FlashWarning.show(ctx.gui, done)
+	end, function()
+		return not Kit.menuOpen(ctx)
 	end)
 end
 
