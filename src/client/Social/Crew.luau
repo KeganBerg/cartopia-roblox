@@ -130,26 +130,46 @@ function Crew.goal(parent: Instance, nextOrder: () -> number, goal: any, open: (
 	end)
 end
 
--- A crew battle's chests from last week (victory, MVP), while they wait. claim(kind) opens one.
-function Crew.battleChests(parent: Instance, nextOrder: () -> number, battle: any, claim: (string) -> ())
+-- A crew war's chests from last week (victory, MVP, war chests), while they wait. claim(op, arg)
+-- opens one.
+function Crew.battleChests(parent: Instance, nextOrder: () -> number, battle: any, claim: (string, any) -> ())
 	local last = battle and battle.last
 	for _, kind in (last and last.claimable) or {} do
-		local title = if kind == "mvp" then "⭐ Battle MVP chest" else "⚔️ Battle victory chest"
+		local title = if kind == "mvp" then "⭐ War MVP chest" else "⚔️ War victory chest"
 		chestRow(parent, nextOrder(), if kind == "mvp" then "MvpChest" else "BattleChest", title, chestPay(), "Open", "green", function()
-			claim(kind)
+			claim("crewBattleChest", kind)
 		end)
 	end
+	for _, t in (last and last.tiers) or {} do
+		if t.claimable then
+			chestRow(parent, nextOrder(), `LastWarChest{t.tier}`, `🧰 Last week's war chest {t.tier}`, chestPay(), "Open", "green", function()
+				claim("crewWarChest", { week = last.week, tier = t.tier })
+			end)
+		end
+	end
+end
+
+-- "3W 1L · 🔥2": a crew's war record.
+local function recordText(r: any): string
+	return `{r.wins}W {r.losses}L{if r.draws > 0 then ` {r.draws}D` else ""}{if r.streak > 1 then ` · 🔥{r.streak}` else ""}`
 end
 
 -- This week's crew battle (web CrewBattle): both crews and their scores, the tug bar, how points
 -- are made, the player's points towards a victory chest, and each side's top drivers.
-function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me: number, heading: (Instance, number, string) -> ())
+function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me: number, heading: (Instance, number, string) -> (), claim: ((string, any) -> ())?)
 	local x = battle and battle.current
 	if not x then
 		return
 	end
 	local rules = battle.rules or {}
-	heading(parent, nextOrder(), "⚔️ Crew battle")
+	heading(parent, nextOrder(), "⚔️ Crew war")
+	-- The crew's league (web warLeague): its rating from wins and losses, and the next one up.
+	local lg = battle.league
+	if lg then
+		local leagueRow = box(parent, nextOrder(), 44, "League")
+		Ui.text({ Name = "LeagueName", Text = `{lg.icon} {lg.name} league · {Ui.commas(lg.rating)}`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.55, -12, 1, 0), Parent = leagueRow })
+		Ui.text({ Text = if lg.next then `Next {lg.next.icon} {lg.next.name} at {Ui.commas(lg.next.min)}` else "Top league!", Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.new(0.45, -12, 1, 0), Parent = leagueRow })
+	end
 	local card = box(parent, nextOrder(), 176, "Battle")
 	local us, them = x.us, x.them
 	-- The two crews, face to face.
@@ -175,17 +195,46 @@ function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me:
 	Ui.text({ Text = `🏁 +{rules.race or 1} a race, +{rules.win or 3} a win · ⚔️ live win +{rules.live or 10}, +{rules.h2h or 25} vs {them.tag}`, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(12, 130), Size = UDim2.new(1, -24, 0, 34), Parent = card })
 	-- The top drivers on each side.
 	local shown = math.max(math.min(#us.members, 5), math.min(#them.members, 5))
-	if shown == 0 then
-		return
+	if shown > 0 then
+		local roster = box(parent, nextOrder(), 16 + shown * 22, "Rosters")
+		for side, list in { us.members, them.members } do
+			for i = 1, math.min(#list, 5) do
+				local m = list[i]
+				local xPos = if side == 1 then UDim2.new(0, 12, 0, 8 + (i - 1) * 22) else UDim2.new(0.5, 6, 0, 8 + (i - 1) * 22)
+				local name = if side == 1 and m.id == me then "You" else m.name
+				Ui.text({ Name = `Driver{side}_{i}`, Text = `{if i == 1 then "⭐" else `{i}.`} {name}`, Body = true, Weight = if side == 1 and m.id == me then "heavy" else nil, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = xPos, Size = UDim2.new(0.5, -62, 0, 20), Parent = roster })
+				Ui.text({ Text = Ui.commas(m.points), Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, Position = xPos + UDim2.new(0.5, -62, 0, 0), Size = UDim2.fromOffset(44, 20), Parent = roster })
+			end
+		end
 	end
-	local roster = box(parent, nextOrder(), 16 + shown * 22, "Rosters")
-	for side, list in { us.members, them.members } do
-		for i = 1, math.min(#list, 5) do
-			local m = list[i]
-			local xPos = if side == 1 then UDim2.new(0, 12, 0, 8 + (i - 1) * 22) else UDim2.new(0.5, 6, 0, 8 + (i - 1) * 22)
-			local name = if side == 1 and m.id == me then "You" else m.name
-			Ui.text({ Name = `Driver{side}_{i}`, Text = `{if i == 1 then "⭐" else `{i}.`} {name}`, Body = true, Weight = if side == 1 and m.id == me then "heavy" else nil, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = xPos, Size = UDim2.new(0.5, -62, 0, 20), Parent = roster })
-			Ui.text({ Text = Ui.commas(m.points), Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, Position = xPos + UDim2.new(0.5, -62, 0, 0), Size = UDim2.fromOffset(44, 20), Parent = roster })
+	-- The war chest track (web WarTrack): the crew's score climbing to par, a chest at 40% and 100%.
+	if x.par and x.tiers then
+		local track = box(parent, nextOrder(), 64, "WarTrack")
+		Ui.text({ Text = "🧰 War chests", Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(0.5, -12, 0, 18), Parent = track })
+		Ui.text({ Name = "Par", Text = `{Ui.commas(us.score)} / {Ui.commas(x.par)}`, Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 7), Size = UDim2.new(0.5, -12, 0, 17), Parent = track })
+		-- (The bar stops short of the right edge, where the last chest sits.)
+		local bar = Ui.new("Frame", { Name = "Bar", Position = UDim2.fromOffset(12, 38), Size = UDim2.new(1, -60, 0, 12), BackgroundColor3 = Color3.fromHex("#e3e8ef"), Parent = track }, { Ui.corner(6) })
+		local pct = math.clamp(us.score / math.max(1, x.par), 0, 1)
+		Ui.new("Frame", { Name = "Fill", Size = UDim2.fromScale(pct, 1), Visible = pct > 0, BackgroundColor3 = hex(us.color or "#ff7043"), Parent = bar }, { Ui.corner(6) })
+		for _, t in x.tiers do
+			local f = t.need / math.max(1, x.par)
+			local label = if t.claimed then "✔" elseif t.claimable then "🧰" else "🔒"
+			Ui.buy({ Name = `WarChest{t.tier}`, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(f, 12 - 48 * f, 0, 44), Size = UDim2.fromOffset(40, 32), ZIndex = 3, Parent = track }, label, if t.claimable then "green" elseif t.claimed then "grey" else "broke", function()
+				if t.claimable and claim then
+					claim("crewWarChest", { week = x.week, tier = t.tier })
+				end
+			end, 16)
+		end
+	end
+	-- The war log (web WarLogList): the last wars, newest first.
+	local log = battle.log or {}
+	if #log > 0 then
+		heading(parent, nextOrder(), `📜 War log · {recordText(battle.record)}`)
+		for i, w in log do
+			local row = box(parent, nextOrder(), 40, `War{i}`)
+			local icon = if w.result == "win" then "🏆" elseif w.result == "loss" then "💥" else "🤝"
+			Ui.text({ Text = `{icon} vs {w.rival.emblem} {w.rival.tag} · {w.rival.name}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0), Parent = row })
+			Ui.text({ Text = `{Ui.commas(w.us)} – {Ui.commas(w.them)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = if w.result == "win" then Color3.fromHex("#2e7d32") elseif w.result == "loss" then Color3.fromHex("#c62828") else Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.fromOffset(110, 40), Parent = row })
 		end
 	end
 end
@@ -380,8 +429,8 @@ function Crew.draw(list: Instance, kit: any, state: any)
 		local function openChest(week: string)
 			call("crewChest", week)
 		end
-		local function claimBattle(kind: string)
-			call("crewBattleChest", kind)
+		local function claimBattle(op: string, arg: any)
+			call(op, arg)
 		end
 
 		-- ── In a crew ─────────────────────────────────────────────────────────────────────────
@@ -400,7 +449,7 @@ function Crew.draw(list: Instance, kit: any, state: any)
 			end
 			Crew.goal(list, nextOrder, res.goal, openChest)
 			Crew.battleChests(list, nextOrder, res.battle, claimBattle)
-			Crew.battle(list, nextOrder, res.battle, me, kit.heading)
+			Crew.battle(list, nextOrder, res.battle, me, kit.heading, claimBattle)
 
 			-- Crew chat: the crew's tab in Roblox's chat (server/CrewChat), for players Roblox lets chat.
 			local lp = Players.LocalPlayer

@@ -14,6 +14,12 @@
 --     claim a victory chest during the following week, and the winner's top scorer an MVP chest
 --     too. Both are crew chests (data.CREW_CHEST), counted with the weekly goal's (server/CrewGoals).
 --
+-- The war chests and war log (web 0113): once the crew's score reaches 40% of its par (45 points a
+-- member, counting everyone in the crew or who scored for it, at least 2), and again at 100%, each
+-- member who scored at least 20 claims a war chest, win or lose, that week or the next. Each crew
+-- keeps its last wars ("h:<crewId>", results filled in once a week is over) for its record, its
+-- league and the log.
+--
 -- In Roblox it's one DataStore, "CrewBattles_v1", changed with UpdateAsync: "m:<week>" the week's
 -- battles ({ of = { [crewId] = battleId }, b = { [battleId] = battle } }), "p:<crewId>:<week>" a
 -- crew's points ({ [userId] = { p, r, w, l, h, name } }) and "k:<userId>" a player's bank and live
@@ -22,7 +28,15 @@
 local CrewBattles = {}
 CrewBattles.__index = CrewBattles
 
-CrewBattles.RULES = { race = 1, win = 3, live = 10, h2h = 25, livePerRival = 3, memberCap = 500, minPoints = 20, bankMax = 300, bankSeconds = 3, botPerMember = 45, botMinMembers = 2 }
+CrewBattles.RULES = { race = 1, win = 3, live = 10, h2h = 25, livePerRival = 3, memberCap = 500, minPoints = 20, bankMax = 300, bankSeconds = 3, botPerMember = 45, botMinMembers = 2, par = 45, tiers = { 0.4, 1 } }
+-- The war league (web lib/battles LEAGUES): a rating from the crew's record.
+CrewBattles.LEAGUES = {
+	{ id = "bronze", icon = "🥉", name = "Bronze", min = 0 },
+	{ id = "silver", icon = "🥈", name = "Silver", min = 1050 },
+	{ id = "gold", icon = "🥇", name = "Gold", min = 1150 },
+	{ id = "platinum", icon = "💠", name = "Platinum", min = 1300 },
+	{ id = "diamond", icon = "💎", name = "Diamond", min = 1500 },
+}
 local RULES = CrewBattles.RULES
 local STORE = "CrewBattles_v1"
 local DAY = 86400
@@ -258,8 +272,120 @@ function CrewBattles.battleOf(self: CrewBattles, crewId: string, which: string?)
 	end)
 	if made then
 		self.known[`{crewId}:{week}`] = made
+		self:_note(crewId, made)
+		if made.b then
+			self:_note(made.b, made)
+		end
 	end
 	return made
+end
+
+-- Adds a war to a crew's history (newest first, 52 kept), once.
+function CrewBattles._note(self: CrewBattles, crewId: string, x: any)
+	self:_update(`h:{crewId}`, function(h: any): any
+		h.wars = h.wars or {}
+		for _, w in h.wars do
+			if w.week == x.week then
+				return nil
+			end
+		end
+		table.insert(h.wars, 1, { week = x.week, venue = x.venue })
+		while #h.wars > 52 do
+			table.remove(h.wars)
+		end
+		return h
+	end)
+end
+
+-- A crew's finished wars, newest first ({ week, venue, result, us, them, rival }); fills in the
+-- results of weeks that have ended since it last looked (they never change after).
+function CrewBattles.history(self: CrewBattles, crewId: string): { any }
+	local h = self:_get(`h:{crewId}`) or {}
+	local this = CrewBattles.weeks(self.mods.clock())
+	local done, filled = {}, {}
+	for _, w in h.wars or {} do
+		if w.week < this then
+			if w.result == nil then
+				local x = self:battleOf(crewId, w.week)
+				if x then
+					local us = self:score(crewId, w.week)
+					local them = self:rivalScore(x, crewId)
+					local other = if x.bot then nil else self.mods.crew(if crewId == x.a then x.b else x.a)
+					w.us, w.them = us, them
+					w.result = if us > them then "win" elseif us < them then "loss" else "draw"
+					w.rival = if x.bot
+						then { bot = true, name = x.bot.name, tag = x.bot.tag, emblem = x.bot.emblem, color = x.bot.color }
+						else { bot = false, id = if crewId == x.a then x.b else x.a, name = if other then other.name else "A crew", tag = if other then other.tag else "??", emblem = if other then other.emblem else "🏁", color = if other then other.color else "#546e7a" }
+					filled[w.week] = w
+				end
+			end
+			if w.result then
+				table.insert(done, w)
+			end
+		end
+	end
+	if next(filled) then
+		self:_update(`h:{crewId}`, function(r: any): any
+			for _, w in r.wars or {} do
+				local f = filled[w.week]
+				if f and w.result == nil then
+					w.result, w.us, w.them, w.rival = f.result, f.us, f.them, f.rival
+				end
+			end
+			return r
+		end)
+	end
+	return done
+end
+
+-- A crew's record (wins, losses, draws and its winning streak) and league from its finished wars.
+function CrewBattles.record(wars: { any }): (any, any)
+	local r = { wins = 0, losses = 0, draws = 0, streak = 0 }
+	local counting = true
+	for _, w in wars do
+		if w.result == "win" then
+			r.wins += 1
+		elseif w.result == "loss" then
+			r.losses += 1
+		else
+			r.draws += 1
+		end
+		if counting and w.result == "win" then
+			r.streak += 1
+		else
+			counting = false
+		end
+	end
+	local rating = math.max(0, 1000 + r.wins * 30 - r.losses * 15)
+	local at = 1
+	for i, l in CrewBattles.LEAGUES do
+		if rating >= l.min then
+			at = i
+		end
+	end
+	local l = CrewBattles.LEAGUES[at]
+	local nxt = CrewBattles.LEAGUES[at + 1]
+	return r, { id = l.id, icon = l.icon, name = l.name, rating = rating, next = if nxt then { name = nxt.name, icon = nxt.icon, min = nxt.min } else nil }
+end
+
+-- The war score a crew aims for in a week: par a member, counting everyone in it now and everyone
+-- who scored for it that week (so members leaving mid-war don't lower the bar), at least two.
+function CrewBattles.par(self: CrewBattles, crewId: string, week: string): number
+	local seen = {}
+	local n = 0
+	local c = self.mods.crew(crewId)
+	for uid in (c and c.members) or {} do
+		seen[tostring(uid)] = true
+		n += 1
+	end
+	local _, pts = self:score(crewId, week)
+	for uid in pts do
+		if not seen[tostring(uid)] then
+			seen[tostring(uid)] = true
+			n += 1
+		end
+	end
+	return RULES.par * math.max(n, RULES.botMinMembers)
 end
 
 -- The rival's score: the other crew's, or the street crew's so far (all of it once the week is over).
@@ -432,7 +558,16 @@ function CrewBattles.view(self: CrewBattles, x: any, crewId: string, userId: num
 			table.insert(claimable, kind)
 		end
 	end
-	return { week = x.week, venue = x.venue, result = result, mine = mine, mvp = mvp, us = us, them = them, due = due, claimable = claimable }
+	-- The war chest track: a chest at each tier of par, win or lose.
+	local par = self:par(crewId, x.week)
+	local tiers = {}
+	for i, f in RULES.tiers do
+		local need = math.ceil(par * f)
+		local reached = us.score >= need
+		local got = claimed ~= nil and claimed[`tier{i}:{x.week}`] == true
+		table.insert(tiers, { tier = i, need = need, reached = reached, claimed = got, claimable = reached and not got and mine >= RULES.minPoints })
+	end
+	return { week = x.week, venue = x.venue, result = result, mine = mine, mvp = mvp, us = us, them = them, due = due, claimable = claimable, par = par, tiers = tiers }
 end
 
 -- The player's crew battle: this week's (when they're in a crew) and last week's, for its result and
@@ -461,7 +596,13 @@ function CrewBattles.battle(self: CrewBattles, userId: number, crewId: string?, 
 			lastView = self:view(x, lastCrew, userId, claimed)
 		end
 	end
-	return { week = this, rules = RULES, left = (weekDay(now) + 7) * DAY - now, current = current, last = lastView }
+	local wars = if crewId then self:history(crewId) else {}
+	local record, league = CrewBattles.record(wars)
+	local log = {}
+	for i = 1, math.min(#wars, 8) do
+		table.insert(log, wars[i])
+	end
+	return { week = this, rules = RULES, left = (weekDay(now) + 7) * DAY - now, current = current, last = lastView, record = record, league = league, log = log }
 end
 
 -- Notes which crew a player scored for this week (for last week's chest after changing crews).

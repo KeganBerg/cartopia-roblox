@@ -116,4 +116,51 @@ return function(test)
 		-- This week is a new battle.
 		expectEq(w.b:battle(1, "a").current.week, "2026-10-26", "next week's battle")
 	end)
+
+	test("crew battles: war chests at 40% and 100% of par, win or lose", function()
+		local w = make({ row("a", 1000, 3), row("b", 1000, 3) })
+		-- (Crew "a" from make() has no members listed, so its par counts the scorers, at least 2.)
+		w.b:races(1, "a", "Ann", 10, 0)
+		local v = w.b:battle(1, "a").current
+		expectEq(v.par, R.par * 2, "par for two")
+		expectEq(v.tiers[1].need, math.ceil(R.par * 2 * 0.4), "first tier")
+		expectEq(v.tiers[1].reached, false, "not yet")
+		w.b:races(1, "a", "Ann", 30, 10)
+		w.b:races(2, "a", "Bo", 5, 0)
+		v = w.b:battle(1, "a").current
+		expectEq(v.par, R.par * 2, "still two")
+		expectEq(v.tiers[1].claimable, true, "first war chest")
+		expectEq(v.tiers[2].reached, false, "second not yet")
+		expectEq(w.b:battle(2, "a").current.tiers[1].claimable, false, "too few points of his own")
+		expectEq(w.b:battle(1, "a", { ["tier1:2026-10-19"] = true }).current.tiers[1].claimable, false, "claimed")
+	end)
+
+	test("crew battles: the war log, record and league", function()
+		local w = make({ row("a", 1000, 3) })
+		expectEq(w.b:battle(1, "a").league.name, "Bronze", "a new crew")
+		-- Three weeks: two big wins against street crews, then a quiet loss.
+		for week = 1, 3 do
+			if week < 3 then
+				for _ = 1, 6 do
+					w.b:races(1, "a", "Ann", 100, 100)
+					w.now += R.bankMax * R.bankSeconds
+				end
+			else
+				w.b:battleOf("a")
+			end
+			w.now = MONDAY + week * 7 * DAY
+		end
+		local b = w.b:battle(1, "a")
+		expectEq(#b.log, 3, "three wars")
+		expectEq(b.log[1].result, "loss", "newest first")
+		expectEq(b.log[2].result, "win", "a win")
+		expectEq(b.log[2].rival.bot, true, "against a street crew")
+		expectEq(b.record.wins, 2, "wins")
+		expectEq(b.record.losses, 1, "losses")
+		expectEq(b.record.streak, 0, "the streak broke")
+		expectEq(b.league.rating, 1000 + 2 * 30 - 15, "rating")
+		expectEq(b.league.name, "Bronze", "league (1045)")
+		expectEq(b.league.next.name, "Silver", "next league")
+		expectEq(#w.b:battle(1, "a").log, 3, "results kept")
+	end)
 end
