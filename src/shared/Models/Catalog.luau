@@ -1938,8 +1938,6 @@ Catalog.LOOKS = {
 	{ color = "#8c9a7e", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#e0b646", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#b6382a", transparency = 0, material = "SmoothPlastic" },
-	{ color = "#ffc070", transparency = 0.26, material = "SmoothPlastic" },
-	{ color = "#fcc470", transparency = 0.26, material = "SmoothPlastic" },
 	{ color = "#7c858c", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#646769", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#989895", transparency = 0, material = "SmoothPlastic" },
@@ -36873,11 +36871,11 @@ Catalog.MODELS = {
 		{ "m", -6, 0.7, 6.6, 0.382, -0.595, 0.595, 0.382, 1.2, 2.4, 1.04, 1674, "6bff142aef01488f" },
 	},
 	["rescue:loot:coins"] = {
-		{ "c", 0, -2, 0, 0, 0, 0.707, 0.707, 0.7, 4, 4, 1772 },
-		{ "c", 0, -1.2, 0, 0, 0, 0.707, 0.707, 0.7, 4, 4, 1772 },
-		{ "c", 0, -0.4, 0, 0, 0, 0.707, 0.707, 0.7, 4, 4, 1772 },
-		{ "c", 0, 0.4, 0, 0, 0, 0.707, 0.707, 0.7, 4, 4, 1772 },
-		{ "c", 0.8, 2, 0, 0.5, -0.5, 0.5, 0.5, 0.6, 4, 4, 1773 },
+		{ "c", 0, -2, 0, 0, 0, 0.707, 0.707, 0.7, 4, 4, 1770 },
+		{ "c", 0, -1.2, 0, 0, 0, 0.707, 0.707, 0.7, 4, 4, 1770 },
+		{ "c", 0, -0.4, 0, 0, 0, 0.707, 0.707, 0.7, 4, 4, 1770 },
+		{ "c", 0, 0.4, 0, 0, 0, 0.707, 0.707, 0.7, 4, 4, 1770 },
+		{ "c", 0.8, 2, 0, 0.5, -0.5, 0.5, 0.5, 0.6, 4, 4, 1771 },
 	},
 	["rescue:loot:parts"] = {
 		{ "c", 0, 0, 0, 0.5, -0.5, 0.5, 0.5, 1, 5.2, 5.2, 38 },
@@ -36899,7 +36897,7 @@ Catalog.MODELS = {
 	["rescue:loot:trophy"] = {
 		{ "b", 0, -2.4, 0, 0, 0, 0, 1, 2.6, 0.8, 2.6, 112 },
 		{ "m", 0, -1, 0, 0, 0, 0, 1, 1, 2.2, 1, 720, "4a07de37e6e0d151" },
-		{ "m", 0, 1.2, 0, 0, 0, 0, 1, 3.9, 2.6, 4, 1772, "50392e0c934cd096" },
+		{ "m", 0, 1.2, 0, 0, 0, 0, 1, 3.9, 2.6, 4, 1770, "50392e0c934cd096" },
 	},
 }
 
