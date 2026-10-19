@@ -343,8 +343,14 @@ local function node(g, r)
 	return n
 end
 
+-- Set while Gui.dump runs for rects only (noBoards): hidden branches are skipped, not laid out.
+local lean = false
+
 local function layout(g, r)
 	local n = node(g, r)
+	if lean and not g.Visible then
+		return n
+	end
 	local area = inner(g, r)
 	local kids = guiKids(g)
 	local list = child(g, "UIListLayout")
@@ -462,7 +468,10 @@ end
 
 -- screen: { w, h }. Returns a list of top-level nodes (one per ScreenGui child), then one node per
 -- BillboardGui beside the ScreenGui (job bubbles) with `at`, its spot in the world.
-function Gui.dump(screenGui, w: number, h: number)
+-- lean: only where things sit on screen (the tutorial walk calls this twice a frame): no boards and
+-- nothing under a hidden frame. Laying all of those out made the tutorial's race take hours.
+function Gui.dump(screenGui, w: number, h: number, leanDump: boolean?)
+	lean = leanDump == true
 	local out = {}
 	local screen = rect(0, 0, w, h)
 	for _, k in guiKids(screenGui) do
@@ -470,7 +479,7 @@ function Gui.dump(screenGui, w: number, h: number)
 		local x, y = udim2(k.Position, screen)
 		table.insert(out, layout(k, rect(x - k.AnchorPoint.X * kw, y - k.AnchorPoint.Y * kh, kw, kh)))
 	end
-	if screenGui.Parent then
+	if screenGui.Parent and not lean then
 		for _, b in screenGui.Parent:GetDescendants() do
 			if b:IsA("BillboardGui") and b.Adornee then
 				local bw, bh = b.Size.X.Offset, b.Size.Y.Offset
@@ -488,6 +497,7 @@ function Gui.dump(screenGui, w: number, h: number)
 			end
 		end
 	end
+	lean = false
 	return out
 end
 

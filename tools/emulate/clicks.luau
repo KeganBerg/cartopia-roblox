@@ -4447,9 +4447,11 @@ do
 	local function relayout()
 		table.clear(rects)
 		local race = player.PlayerGui:FindFirstChild("Race")
-		Gui.dump(hud.gui, cam.ViewportSize.X, cam.ViewportSize.Y)
+		-- Lean: Tut.rectOf below finds board rects itself, and laying out every badge and hidden
+		-- frame twice a frame made the race after "camp-go" crawl in a full run.
+		Gui.dump(hud.gui, cam.ViewportSize.X, cam.ViewportSize.Y, true)
 		if race then
-			Gui.dump(race, cam.ViewportSize.X, cam.ViewportSize.Y)
+			Gui.dump(race, cam.ViewportSize.X, cam.ViewportSize.Y, true)
 		end
 		local rescue = player.PlayerGui:FindFirstChild("RescueSearch")
 		if rescue then
@@ -4596,8 +4598,13 @@ do
 	local pressed = {}
 	local waited = 0
 	local raceFrames, launches, shiftTaps = 0, 0, 0
+	-- A race frame lays the screen out after its step, so the next turn of the loop needn't again.
+	local laidOut = false
 	for i = 1, 3000 do
-		relayout()
+		if not laidOut then
+			relayout()
+		end
+		laidOut = false
 		Tut.refresh()
 		local s = store.useGame.getState()
 		if s.tutorial ~= lastStep then
@@ -4628,6 +4635,7 @@ do
 			end
 			Emu.resumeWaits()
 			relayout()
+			laidOut = true
 			local b = Tut.press(s, layer())
 			local what = b and b:GetAttribute("Tut")
 			if what == "launch" and not holding then
@@ -4664,6 +4672,7 @@ do
 				print("  (no pointer on the result card: collect and go back)")
 				closeRace()
 				draw()
+				laidOut = false
 			end
 			continue
 		end
