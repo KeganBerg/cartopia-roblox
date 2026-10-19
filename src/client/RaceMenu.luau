@@ -1238,4 +1238,10 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 	return overlay
 end
 
+-- Starts a race from outside the menu (the Crew ladder's ghost races); `back` is the race menu's
+-- page to come back to. False when the server didn't start it.
+function RaceMenu.start(ctx: any, mode: string, which: any, back: string): boolean
+	return race(ctx, mode, which, back)
+end
+
 return RaceMenu

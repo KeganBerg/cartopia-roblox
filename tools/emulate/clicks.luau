@@ -724,6 +724,22 @@ local function socialDesk(op, arg)
 				return mine, nil
 			end
 			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1, goal = goalDesk:goal(1, nil, 0) }, nil
+		elseif op == "crewLadder" then
+			-- Rosa has a run, Mina a par, and I have no time yet.
+			local c = crewDesk:crew(crewDesk:mineId(1) or "")
+			if not c then
+				return nil, "no crew"
+			end
+			local rows = {}
+			for uid, m in c.members do
+				local id = tonumber(uid)
+				if id == 2 then
+					table.insert(rows, 1, { id = id, name = m.name, t = 9.512, par = false, car = "Comet GT", pi = 340 })
+				else
+					table.insert(rows, { id = id, name = m.name, t = if id == 1 then nil else 14.2, par = true, car = if id == 1 then nil else "Pip", pi = 120 })
+				end
+			end
+			return { rows = rows, fuel = 5 }, nil
 		elseif op == "crewPartsAsk" then
 			local r = partsDesk:ask(1, crewDesk:mineId(1), "You")
 			return if r == "asked" then true else nil, r
@@ -2074,6 +2090,16 @@ if SHOTS then
 				table.insert(problems, `the parts Rosa gave weren't collected: {partsBefore} -> {towns:save(1).parts}`)
 			end
 			shot("crew-parts", nil)
+			if not hud.gui:FindFirstChild("Rung2", true) or not (hud.gui:FindFirstChild("Rung2", true) :: any):FindFirstChild("Race", true) then
+				table.insert(problems, "the crew ladder doesn't list Rosa with a Race button")
+			end
+			-- Scrolled down to the ladder.
+			local scroll = hud.gui:FindFirstChild("Ladder", true)
+			local sf = scroll and scroll:FindFirstAncestorWhichIsA("ScrollingFrame")
+			if sf then
+				sf.CanvasPosition = roblox.Vector2.new(0, 600)
+			end
+			shot("crew-ladder", nil)
 		end
 		crewDesk:leave(1)
 		hud.ctx.close()
