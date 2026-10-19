@@ -413,18 +413,6 @@ end
 -- to the meadow's own flat colour once the camera is high.
 -- (Off, not faded: a part's Texture drawn see-through can show over the roads lying on it.)
 local TEXTURE_OFF = 1500 -- camera height, in studs
-local function groundTextures(world: Instance): { Texture }
-	local out = {}
-	local ground = world:FindFirstChild("Ground")
-	if ground then
-		for _, d in ground:GetDescendants() do
-			if d:IsA("Texture") then
-				table.insert(out, d)
-			end
-		end
-	end
-	return out
-end
 
 local function buildStretch(g: Grid, folder: Folder, along: "x" | "z", line: number, from: number): Model
 	local m = Instance.new("Model")
@@ -534,8 +522,16 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 	verges.Parent = workspace
 	spawnCars(g, folder)
 	dressHub(g)
-	local textures = groundTextures(world)
-	local textureFade = -1
+	-- (A free plot's meadow comes back when its town leaves: it takes the setting as it arrives.)
+	local ground = world:FindFirstChild("Ground")
+	local textureFade = 0
+	if ground then
+		ground.DescendantAdded:Connect(function(d)
+			if d:IsA("Texture") then
+				d.Transparency = textureFade
+			end
+		end)
+	end
 	local wildsFolder = Instance.new("Folder")
 	wildsFolder.Name = "WorldWilds"
 	wildsFolder.Parent = workspace
@@ -589,8 +585,10 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 		local hide = if eye.Y > TEXTURE_OFF then 1 else 0
 		if hide ~= textureFade then
 			textureFade = hide
-			for _, t in textures do
-				t.Transparency = hide
+			for _, t in (if ground then ground:GetDescendants() else {}) :: { Instance } do
+				if t:IsA("Texture") then
+					t.Transparency = hide
+				end
 			end
 		end
 		-- Where the camera looks on the ground.

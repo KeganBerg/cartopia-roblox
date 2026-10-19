@@ -102,8 +102,9 @@ end
 
 local TownView = {}
 TownView.__index = TownView
--- On in the shared world (server/World), whose own ground runs under every town: each town then
--- skips its meadow, which would overlap its neighbours'.
+-- On in the shared world (server/World), which has its own ground round every town: each town then
+-- skips the meadow round its land (it would overlap its neighbours'), keeping only the meadow on
+-- its own plots not bought yet.
 TownView.sharedGround = false
 
 export type TownView = typeof(setmetatable(
@@ -160,16 +161,13 @@ function TownView.new(parent: Instance, name: string, origin: Vector3, userId: n
 	local cuts = { -MEADOW_REACH, PLOT_LO, PLOT_HI, MEADOW_REACH }
 	for i = 1, 3 do
 		for j = 1, 3 do
-			if i == 2 and j == 2 then
+			-- (The shared world, server/World, has its own ground round every town.)
+			if (i == 2 and j == 2) or TownView.sharedGround then
 				continue
 			end
 			local x0, x1, z0, z1 = cuts[i], cuts[i + 1], cuts[j], cuts[j + 1]
 			meadowPart(meadows, origin, Vector3.new((x0 + x1) / 2, 0, (z0 + z1) / 2), Vector3.new(x1 - x0, 0, z1 - z0))
 		end
-	end
-	-- The shared world (server/World) has its own ground under every town instead.
-	if TownView.sharedGround then
-		meadows:Destroy()
 	end
 	folder.Parent = parent
 	return setmetatable({
@@ -244,7 +242,6 @@ function TownView._renderLand(self: TownView, land: { string })
 					Parent = (self.folder :: any).Land,
 				})
 			elseif self.folder:FindFirstChild("Meadow") then
-				-- (In the shared world its ground already covers land not bought yet.)
 				self.land[k] = meadowPart((self.folder :: any).Meadow, self.origin, c - self.origin, Vector3.new(PLOT * TILE, 0, PLOT * TILE))
 			end
 		end
