@@ -207,7 +207,10 @@ for (const p of parts) {
     scale = p.size.map((v, i) => (m.size[i] < 1e-4 ? 1 : v / m.size[i]))
   }
   const look = MAT[p.material] || {}
-  const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
+  // See-through neon glows in Roblox, adding its light to what's behind it.
+  const mat = p.material === 'Neon' && p.transparency > 0
+    ? new T.MeshBasicMaterial({ color: '#' + p.color, transparent: true, opacity: 1 - p.transparency, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false })
+    : new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
   if (p.shape === 'Wedge') mat.side = T.DoubleSide
   let mats = !p.mesh && (p.shape === 'Block' || !p.shape) ? patterned(mat, p.material, p.size) : mat
   if (p.texture && TEX[p.texture.image] && !p.mesh && (p.shape === 'Block' || !p.shape)) {
@@ -344,6 +347,20 @@ for (const l of Array.isArray(S.lights) ? S.lights : []) {
 const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.camera?.far ?? (S.sky?.Up ? 40000 : 6000))
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
+// Beams: a strip from one end to the other, turned to face the camera, fading along its length.
+for (const b of S.beams || []) {
+  const p0 = new T.Vector3(...b.from), p1 = new T.Vector3(...b.to)
+  const mid = p0.clone().add(p1).multiplyScalar(0.5)
+  const side = p1.clone().sub(p0).cross(cam.position.clone().sub(mid)).normalize()
+  const v = [p0.clone().addScaledVector(side, -b.width[0] / 2), p0.clone().addScaledVector(side, b.width[0] / 2), p1.clone().addScaledVector(side, b.width[1] / 2), p1.clone().addScaledVector(side, -b.width[1] / 2)]
+  const g = new T.BufferGeometry()
+  g.setAttribute('position', new T.Float32BufferAttribute(v.flatMap((q) => [q.x, q.y, q.z]), 3))
+  const col = new T.Color('#' + b.color)
+  const a = [1 - b.fade[0], 1 - b.fade[0], 1 - b.fade[1], 1 - b.fade[1]]
+  g.setAttribute('color', new T.Float32BufferAttribute(a.flatMap((x) => [col.r, col.g, col.b, x]), 4))
+  g.setIndex([0, 1, 2, 0, 2, 3])
+  scene.add(new T.Mesh(g, new T.MeshBasicMaterial({ vertexColors: true, transparent: true, side: T.DoubleSide, depthWrite: false, blending: b.glow > 0.5 ? T.AdditiveBlending : T.NormalBlending, toneMapped: false })))
+}
 // Haze starts past what the camera looks at, as the game's light Atmosphere does.
 const reach = cam.position.distanceTo(new T.Vector3(...c.at))
 scene.fog = S.fog ? new T.Fog('#' + S.fog.color, S.fog.start, S.fog.end) : new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
