@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local store = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game"):WaitForChild("store")) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
+local Crew = require(script.Parent.Crew)
 
 local Leaders = {}
 
@@ -101,7 +102,7 @@ function Leaders.draw(list: Instance, kit: any, state: any)
 		local below = false
 		if board.mine ~= nil then
 			local s = store.useGame.getState()
-			local mine = { id = me.UserId, name = me.DisplayName, town = s.townName or "My Town", level = s.level or 1, value = board.mine }
+			local mine = { id = me.UserId, name = me.DisplayName, town = s.townName or "My Town", level = s.level or 1, value = board.mine, crew = board.crew }
 			if #rows < 50 then
 				table.insert(rows, mine)
 				table.sort(rows, function(a, b)
@@ -138,8 +139,9 @@ function Leaders.draw(list: Instance, kit: any, state: any)
 				end })
 			end
 			local place = if below and i == #rows then "50+" else (MEDALS[i] or `#{i}`)
-			kit.row(list, order, {
-				name = `{r.name}{if mine then " (you)" else ""}`,
+			local name = `{r.name}{if mine then " (you)" else ""}`
+			local rowFrame = kit.row(list, order, {
+				name = name,
 				userId = r.id,
 				on = r.here == true or mine,
 				line = `{place} · {icon} {plus}{n(r.value)} · {r.town} · Lvl {r.level}`,
@@ -148,6 +150,20 @@ function Leaders.draw(list: Instance, kit: any, state: any)
 					kit.card(r.id, r.name, r.town)
 				end,
 			})
+			-- Their crew's tag after the name (web ClanTag on leaderboard rows).
+			-- (At the row's right, before its buttons; the name gives up the room.)
+			if r.crew and rowFrame then
+				local right = 10
+				for _, b in buttons do
+					right += b.width + 6
+				end
+				local pill = Crew.tag(rowFrame, r.crew, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -right, 0, 8) })
+				for _, d in rowFrame:GetChildren() do
+					if d:IsA("TextLabel") and d.Text == name then
+						d.Size = UDim2.new(1, -54 - right - pill.Size.X.Offset - 8, 0, 20)
+					end
+				end
+			end
 		end
 	end)
 end

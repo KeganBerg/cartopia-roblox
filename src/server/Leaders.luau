@@ -20,8 +20,8 @@ local WRITE_GAP = 60
 local TOP = 50
 
 export type Stats = { power: number, race_wins: number, trophies: number, level: number }
-export type Info = { name: string, town: string, level: number, stats: Stats }
-export type Row = { id: number, name: string, town: string, level: number, value: number, place: number }
+export type Info = { name: string, town: string, level: number, stats: Stats, crew: any? }
+export type Row = { id: number, name: string, town: string, level: number, value: number, place: number, crew: any? }
 export type Backend = {
 	ordered: (name: string) -> any,
 	plain: (name: string) -> any,
@@ -35,7 +35,7 @@ export type Leaders = typeof(setmetatable(
 		mem: { [string]: { [number]: number } },
 		memPlain: { [string]: { [number]: any } },
 		cache: { [string]: { at: number, value: any } },
-		last: { [number]: { at: number, key: string } },
+		last: { [number]: { at: number, key: string, crew: string? } },
 		bases: { [string]: Stats },
 	},
 	Leaders
@@ -111,21 +111,25 @@ function Leaders._base(self: Leaders, week: string, userId: number, now: Stats):
 	return base
 end
 
--- Puts a player's numbers on the boards (on save). force skips the once-a-minute limit.
-function Leaders.record(self: Leaders, userId: number, name: string, town: string, stats: Stats, force: boolean?)
+-- Puts a player's numbers on the boards (on save). force skips the once-a-minute limit; crew: the
+-- crew's badge ({ tag, emblem, color }) shown on their rows.
+function Leaders.record(self: Leaders, userId: number, name: string, town: string, stats: Stats, force: boolean?, crew: any?)
 	if userId <= 0 then
 		return
 	end
-	local key = `{stats.power}:{stats.race_wins}:{stats.trophies}:{stats.level}:{town}:{name}`
+	local badge = if type(crew) == "table" then { tag = crew.tag, emblem = crew.emblem, color = crew.color } else nil
+	local key = `{stats.power}:{stats.race_wins}:{stats.trophies}:{stats.level}:{town}:{name}:{badge and badge.tag or ""}:{badge and badge.emblem or ""}:{badge and badge.color or ""}`
 	local now = self.clock()
 	local last = self.last[userId]
 	if last and last.key == key then
 		return
 	end
-	if last and not force and now - last.at < WRITE_GAP then
+	-- (A new crew badge goes up at once.)
+	local look = `{badge and badge.tag or ""}:{badge and badge.emblem or ""}:{badge and badge.color or ""}`
+	if last and not force and now - last.at < WRITE_GAP and last.crew == look then
 		return
 	end
-	self.last[userId] = { at = now, key = key }
+	self.last[userId] = { at = now, key = key, crew = look }
 	local week = self.week()
 	local base = self:_base(week, userId, stats)
 	for _, m in Leaders.METRICS do
@@ -133,7 +137,7 @@ function Leaders.record(self: Leaders, userId: number, name: string, town: strin
 		self:_set(Leaders._board(m), userId, v)
 		self:_set(Leaders._board(m, week), userId, math.max(0, v - ((base :: any)[m] or v)))
 	end
-	self:_setPlain("LeadersInfo", userId, { name = name, town = town, level = stats.level, stats = stats })
+	self:_setPlain("LeadersInfo", userId, { name = name, town = town, level = stats.level, stats = stats, crew = badge })
 end
 
 -- The top rows of a board: { id, value } best first.
@@ -199,6 +203,7 @@ function Leaders.board(self: Leaders, metric: string, period: string, me: number
 				level = tonumber(info.level) or 1,
 				value = e.value,
 				place = #rows + 1,
+				crew = if type(info.crew) == "table" and type(info.crew.tag) == "string" then info.crew else nil,
 			})
 		end
 		self.cache[board] = { at = now, value = rows }
