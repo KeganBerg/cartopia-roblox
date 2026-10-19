@@ -431,6 +431,8 @@ type Person = {
 	look: { top: string, hair: string, shorts: boolean, coat: string, trim: string, shoes: string, hat: string },
 	queue: string?, -- the club whose line they're standing in
 	fig: Figure?,
+	-- How big the figure is drawn, 1 for a grown-up (CampusLife's schoolkids are smaller).
+	size: number?,
 }
 
 local inLine: (p: any, dt: number) -> ()
@@ -1005,7 +1007,7 @@ local SHOULDER = Vector3.new(0.105, 0.255, 0) -- from the hips, on the torso
 local SIT_HIP = 0.26 / FIT
 
 local function figure(p: Person, parent: Instance, scale: number?): Figure
-	local K = K * (scale or 1) -- studs per figure unit, for this figure (a bouncer's bigger)
+	local K = K * (scale or p.size or 1) -- studs per figure unit, for this figure (a bouncer's bigger)
 	local m = Instance.new("Model")
 	m.Name = p.id
 	local c, look = p.colors, p.look
@@ -1838,5 +1840,7 @@ TownLife.hideFigure = hide
 TownLife.LEG = LEG
 TownLife.THIGH = THIGH
 TownLife.SHIN = SHIN
+-- Studs per model unit of a grown-up's figure (LotPeople steps their legs to match the ground).
+TownLife._K = K
 
 return TownLife

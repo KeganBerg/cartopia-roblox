@@ -52,6 +52,12 @@ vi.mock('./scene/SkyEnv', async (load) => ({ ...((await load()) as object), SkyE
 vi.mock('./scene/SpeedwayLife', async (load) => ({ ...((await load()) as object), SpeedwayLife: () => null }))
 // The nightclub's dancers, bouncer and searchlights (ClubLife.tsx) too: client/ClubLife.luau.
 vi.mock('./scene/ClubLife', async (load) => ({ ...((await load()) as object), ClubLife: () => null }))
+// So do the campuses' people and learner cars (CampusLife.tsx Crowd and StudentCars, drawn by
+// client/CampusLife.luau; the parked LearnerCars stay in the model) and the funfair's visitors
+// (FairCrowd.tsx, client/FairCrowd.luau). Left in, they'd be baked where their first frame put them:
+// the campus crowds and the class all piled up at the middle of the lot.
+vi.mock('./scene/CampusLife', async (load) => ({ ...((await load()) as object), Crowd: () => null, StudentCars: () => null }))
+vi.mock('./scene/FairCrowd', async (load) => ({ ...((await load()) as object), FairCrowd: () => null }))
 
 // --- A canvas that remembers what was painted on it ---------------------------------------
 // Signs and other painted textures are drawn on 2D canvases. jsdom has none, so this records
