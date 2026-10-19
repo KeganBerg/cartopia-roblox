@@ -2839,6 +2839,27 @@ do
 	end
 	view:render(snap.save)
 	-- The toasts shown (the client's own, and the server's in each snapshot), newest last.
+	-- A clean noon over the town for the pictures (an earlier screen can leave its own light or
+	-- its gui behind).
+	local spin = player.PlayerGui:FindFirstChild("DailySpin")
+	if spin then
+		spin:Destroy()
+	end
+	do
+		local clock = emu.require(G.clock)
+		emu.require(client.DayNight).apply(clock.nextPhaseAt(0, NOW))
+	end
+	-- The town and the visitor's cars, as one picture.
+	local function townShot(name)
+		local cars = game.Workspace:FindFirstChild("Visitors")
+		if cars then
+			cars.Parent = view.folder
+		end
+		shot(name, view.folder)
+		if cars then
+			cars.Parent = game.Workspace
+		end
+	end
 	local toastsSeen = {}
 	local clientToast = hud.ctx.toast
 	hud.ctx.toast = function(text)
@@ -2922,7 +2943,7 @@ do
 		if not gui or text ~= "🏁 Race me!" then
 			problem(`the racer's badge says "{text}"`)
 		end
-		shot("visitor-town", game.Workspace)
+		townShot("visitor-town")
 		-- Its badge opens the Street challenge card.
 		if face then
 			signalFor(face, "Activated"):Fire()
@@ -3035,7 +3056,7 @@ do
 		if m then
 			aim(m:GetPivot().Position)
 		end
-		shot("visitor-mystery", game.Workspace)
+		townShot("visitor-mystery")
 		local parts0 = towns:snapshot(1).save.parts
 		if face then
 			signalFor(face, "Activated"):Fire()
