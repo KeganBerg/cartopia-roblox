@@ -17,6 +17,7 @@ local data = require(Game:WaitForChild("data")) :: any
 local Builder = require(Shared:WaitForChild("Models"):WaitForChild("Builder")) :: any
 local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
 local Catalog = require(Shared.Models:WaitForChild("Catalog")) :: any
+local TownCamera = require(script.Parent:WaitForChild("TownCamera")) :: any
 
 -- Leaves for the season the models were made in (Catalog.SEASON), like the countryside's trees.
 local LEAVES: { [string]: { string } } = {
@@ -32,7 +33,8 @@ local CARS = 26
 local CARS_PHONE = 14
 local SCALE = 0.8 -- the size cars are drawn at (server/Drive.SCALE)
 local LANE = 0.25 -- of the road's width, right of the middle
-local GAP = 40 -- studs kept behind the car in front
+local GAP = 22 -- studs between the middles of a stopped car and the one in front
+local HEADWAY = 0.8 -- and seconds kept behind it on the move, so nobody rides a bumper
 local SHOWN = 1400 -- studs from the camera a car is drawn within; past it, it comes back nearer
 local RESPAWN_NEAR, RESPAWN_FAR = 500, 1200 -- how far from the camera it comes back
 local VERGE_NEAR = 1100 -- verge stretches within this are built...
@@ -51,6 +53,7 @@ type Car = {
 	cruise: number,
 	shown: CFrame?, -- where it's drawn (eases after the sim through turns)
 	taken: boolean,
+	away: boolean, -- off the roads while the player looks down on their town
 }
 
 local cars: { Car } = {}
@@ -161,6 +164,7 @@ local function spawnCars(g: Grid, folder: Folder)
 			cruise = cruise,
 			shown = nil,
 			taken = false,
+			away = false,
 		}
 		table.insert(cars, c)
 		byUid[uid] = c
@@ -227,7 +231,8 @@ end
 
 local function stepCar(g: Grid, c: Car, dt: number, me: Vector3?, rng: Random)
 	local room = clearAhead(g, c, me)
-	local want = if room < GAP then 0 elseif room < GAP * 3 then c.cruise * (room - GAP) / (GAP * 2) else c.cruise
+	-- The speed it can go and still keep its distance: the gap grows with speed.
+	local want = math.clamp((room - GAP) / HEADWAY, 0, c.cruise)
 	c.v += math.clamp(want - c.v, -90 * dt, 25 * dt)
 	local before = c.s
 	c.s += c.v * c.dir * dt
@@ -509,8 +514,10 @@ function WorldLife.give(uid: string)
 end
 
 -- Brings the world's roads to life: returns a function that moves everything on by dt seconds,
--- for a camera at `eye` and the player at `me`.
-function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Vector3?) -> ()
+-- for a camera at `eye` and the player at `me`. `board` is true while the player looks down on
+-- their town (the web game's view of it): the road traffic stays off then, as the camera up there
+-- is far enough off that cars would keep popping in and out round the edge of the town.
+function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Vector3?, board: boolean?) -> ()
 	local g = gridOf(world)
 	local folder = Instance.new("Folder")
 	folder.Name = "RoadTraffic"
@@ -529,11 +536,23 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 	local rng = Random.new()
 	local stretches: { [string]: Model } = {}
 	local nextVerge = 0
-	return function(rawDt: number, eye: Vector3, me: Vector3?)
+	return function(rawDt: number, eye: Vector3, me: Vector3?, board: boolean?)
 		local dt = math.min(rawDt, 0.1)
 		for _, c in cars do
 			if c.taken then
 				continue
+			end
+			if board then
+				if not c.away then
+					c.away = true
+					c.shown = nil
+					c.model:PivotTo(HIDDEN)
+				end
+				continue
+			elseif c.away then
+				-- Back out in the world: on a road a little way off.
+				c.away = false
+				respawn(g, c, eye, rng)
 			end
 			stepCar(g, c, dt, me, rng)
 			local pose = poseOf(g, c)
@@ -655,7 +674,7 @@ function WorldLife.start()
 			local cam = workspace.CurrentCamera
 			local character = Players.LocalPlayer.Character
 			local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-			step(rawDt, if cam then cam.CFrame.Position else Vector3.zero, if root then root.Position else nil)
+			step(rawDt, if cam then cam.CFrame.Position else Vector3.zero, if root then root.Position else nil, not TownCamera.isWalking())
 		end)
 	end)
 end
