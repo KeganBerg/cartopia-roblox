@@ -96,14 +96,18 @@ const skyList = existsSync(join(SKY_DIR, 'list.json')) ? JSON.parse(readFileSync
 // The Call Cards' picture sheets (tools/callcards/build.mjs).
 const CARD_DIR = join(ROOT, 'build/callcards')
 const cardList = existsSync(join(CARD_DIR, 'list.json')) ? JSON.parse(readFileSync(join(CARD_DIR, 'list.json'), 'utf8')) : []
+// The HUD's currency icons (tools/icons/build.mjs).
+const ICON_DIR = join(ROOT, 'build/icons')
+const iconList = existsSync(join(ICON_DIR, 'list.json')) ? JSON.parse(readFileSync(join(ICON_DIR, 'list.json'), 'utf8')) : []
 // Textures and pictures share assets.json with the packs, as "texture:<name>", "splash:<name>",
-// "sky:<name>" and "callcard:<name>".
+// "sky:<name>", "callcard:<name>" and "icons:<name>".
 const packs = [
   ...JSON.parse(readFileSync(join(GLB_DIR, 'packs.json'), 'utf8')).map((p) => ({ ...p, path: join(GLB_DIR, p.file) })),
   ...texList.map((t) => ({ name: `texture:${t.name}`, path: join(TEX_DIR, t.file), image: true })),
   ...splashList.map((t) => ({ name: `splash:${t.name}`, path: join(SPLASH_DIR, t.file), image: true })),
   ...skyList.map((t) => ({ name: `sky:${t.name}`, path: join(SKY_DIR, t.file), image: true })),
   ...cardList.map((t) => ({ name: `callcard:${t.name}`, path: join(CARD_DIR, t.file), image: true })),
+  ...iconList.map((t) => ({ name: `icons:${t.name}`, path: join(ICON_DIR, t.file), image: true })),
 ]
 // The game's music and sounds (tools/audio/build.mjs), as "audio:<file>:<hash>". Roblox caps
 // how many sounds an account uploads a month, so they go up after everything else, the effects and

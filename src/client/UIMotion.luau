@@ -44,7 +44,9 @@ UIMotion.Timing = {
 	shake = 0.3, -- pitShake: 5px left and right
 }
 UIMotion.Panel = { rise = 24, drop = 18, scaleIn = 0.94, scaleOut = 0.95 }
-UIMotion.Button = { pressDown = 2, pressScale = 0.96, hoverScale = 1.04 }
+-- maxGrow: the most a button grows past its edges under a mouse, in pixels a side. A 4% grow is
+-- a few pixels on a small button but sticks out of the menu (and over the next tab) on a wide one.
+UIMotion.Button = { pressDown = 2, pressScale = 0.96, hoverScale = 1.04, maxGrow = 3 }
 -- Phones get the bottom sheet: narrow screens, or touch screens short enough to be a phone.
 UIMotion.SheetWidth = 700
 UIMotion.SheetHeight = 500
@@ -297,8 +299,20 @@ function UIMotion.bindButton(button, sfxName)
 	local B, T = UIMotion.Button, UIMotion.Timing
 	local scale = scaleOf(button)
 	local hovering = false
+	-- The hover grow for this button's size, and whether the release may spring past it (Back
+	-- overshoots by about a tenth of the change, too much for a wide button).
+	local function grow(): number
+		local w = math.max(button.AbsoluteSize.X, button.AbsoluteSize.Y)
+		if w <= 0 then
+			return B.hoverScale
+		end
+		return math.min(B.hoverScale, 1 + 2 * B.maxGrow / w)
+	end
 	local function rest()
-		return hovering and B.hoverScale or 1
+		return if hovering then grow() else 1
+	end
+	local function springy(): boolean
+		return grow() >= B.hoverScale
 	end
 	button.MouseButton1Down:Connect(function()
 		if not button.Active or reducedMotion() then
@@ -311,7 +325,7 @@ function UIMotion.bindButton(button, sfxName)
 	local function release()
 		local home = homeOf(button)
 		tween(button, T.release, Enum.EasingStyle.Back, OUT, { Position = home })
-		tween(scale, T.release, Enum.EasingStyle.Back, OUT, { Scale = rest() })
+		tween(scale, T.release, if springy() then Enum.EasingStyle.Back else Enum.EasingStyle.Quad, OUT, { Scale = rest() })
 	end
 	button.MouseButton1Up:Connect(release)
 	button.MouseLeave:Connect(function()
@@ -324,7 +338,7 @@ function UIMotion.bindButton(button, sfxName)
 		end
 		hovering = true
 		if not reducedMotion() then
-			tween(scale, T.release, Enum.EasingStyle.Quad, OUT, { Scale = B.hoverScale })
+			tween(scale, T.release, Enum.EasingStyle.Quad, OUT, { Scale = grow() })
 		end
 	end)
 	button.Activated:Connect(function()

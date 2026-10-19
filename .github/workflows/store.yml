@@ -1,9 +1,15 @@
-# Shows what the Roblox game page has for its icon and thumbnails (tools/store/check.mjs). The
-# pictures in store/ are uploaded by hand in the Creator Dashboard; Open Cloud can't set them.
+# Shows what the Roblox game page has for its icon and thumbnails (tools/store/check.mjs), and with
+# "describe" sets its description (tools/store/describe.mjs). The pictures in store/ are uploaded by
+# hand in the Creator Dashboard; Open Cloud can't set them.
 name: Game page pictures
 
 on:
   workflow_dispatch:
+    inputs:
+      describe:
+        description: Also set the game page description from store/description.txt
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -16,6 +22,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+      - if: inputs.describe
+        run: node tools/store/describe.mjs
+        env:
+          API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          UNIVERSE: ${{ vars.ROBLOX_UNIVERSE_ID || '10771588518' }}
+          PLACE: ${{ vars.ROBLOX_PLACE_ID || '82604390904451' }}
       - run: node tools/store/check.mjs
         env:
           API_KEY: ${{ secrets.ROBLOX_API_KEY }}

@@ -304,6 +304,10 @@ if SHOTS and require("@lune/fs").isFile("build/callcards/list.json") then
 		looks.sheets[i] = i
 	end
 end
+-- And the HUD's currency icons from build/icons (tools/icons/build.mjs), the same way.
+if SHOTS and require("@lune/fs").isFile("build/icons/list.json") then
+	emu.require(RS.Shared.IconImages).sheet = 1
+end
 if SHOTS then
 	local Builder = emu.require(RS.Shared.Models.Builder)
 	Builder.previewMeshes = true
@@ -529,6 +533,17 @@ end)
 roblox.implementMethod("SocialService", "PromptGameInvite", function() end)
 local Social = emu.require(SSS.Server.Social)
 local social = Social.new({ towns = towns, data = emu.require(G.data), today = store.today })
+-- The leaderboards (server/Leaders, kept in memory): a few drivers, Rosa in this server.
+local Leaders = emu.require(SSS.Server.Leaders)
+local leaders = Leaders.new(nil, function()
+	return 0
+end, function()
+	return "2026-W42"
+end)
+for i, d in { { 2, "Rosa", "Rosaville", 640, 31, 52, 14 }, { 7, "Kai", "Kai Harbour", 910, 77, 120, 23 }, { 8, "Mina", "Mina Falls", 455, 12, 30, 9 } } do
+	leaders:record(d[1], d[2], d[3], { power = d[4], race_wins = d[5], trophies = d[6], level = d[7] })
+	local _ = i
+end
 local function socialDesk(op, arg)
 	local ran, result, why = pcall(function()
 		if op == "players" then
@@ -538,6 +553,14 @@ local function socialDesk(op, arg)
 			player:SetAttribute("Visiting", 2)
 			player:SetAttribute("Helped", table.concat(social:helped(1, 2), ","))
 			return social:townInfo(1, 2), nil
+		elseif op == "leaders" and type(arg) == "table" then
+			local save = towns:save(1)
+			local stats = Leaders.stats(save, emu.require(G.data).garagePower(save.cars))
+			local rows, mine = leaders:board(arg.metric, arg.period, 1, stats)
+			for _, r in rows do
+				r.here = r.id == 2
+			end
+			return { rows = rows, mine = mine }, nil
 		elseif op == "home" then
 			player:SetAttribute("Driving", nil)
 			player:SetAttribute("Visiting", nil)
@@ -1028,8 +1051,8 @@ local function shot(name, world, w, h)
 		end
 	end
 	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("DailySpin")
-	if name:find("^depot%-") or name:find("^page%-") then
-		-- The crate depot and the race pages are menus on the HUD, whatever screen an earlier check
+	if name:find("^depot%-") or name:find("^page%-") or name:find("^panel%-") then
+		-- The crate depot, race pages and menus are on the HUD, whatever screen an earlier check
 		-- left behind.
 		raceGui = nil
 	end
@@ -1046,6 +1069,27 @@ do
 	local walkButton = walkShadow and (if walkShadow:IsA("GuiButton") then walkShadow else walkShadow:FindFirstChildWhichIsA("GuiButton", true))
 	assert(walkButton, "no Walk button")
 	shot("hud", nil)
+	-- MENU_SHOTS=1: just the HUD and a few menus (Deals, Star Pass, the garage), then stop.
+	if process.env.MENU_SHOTS then
+		local data = emu.require(RS.Shared.Game.data)
+		towns:_with(1, function()
+			store.useGame.setState({ coins = 4215, bucks = 145, parts = 35, deals = { day = "2000-01-01", used = {} }, season = { n = data.seasonNumber(NOW), stars = 45, claimed = { 0, 1 } } })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		-- The coin, gem and parts pills, whatever this point of the run hides.
+		local left = hud.gui:FindFirstChild("Left", true)
+		if left then
+			left.Visible = true
+		end
+		shot("m-hud", nil)
+		for _, p in { "deals", "season", "cars" } do
+			hud.ctx.close()
+			hud.openPanel(p)
+			shot(`m-{p}`, nil)
+		end
+		hud.ctx.close()
+		process.exit(0)
+	end
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Custom, "walking didn't hand the camera to the avatar")
 	-- Their town on a plot out in the shared world (a stand-in folder, as TownView marks it).
@@ -1436,6 +1480,17 @@ if SHOTS then
 	player:SetAttribute("CanChat", true)
 	hud.openPanel("friends")
 	shot("panel-friends", nil)
+	hud.ctx.close()
+	-- The Leaderboards tab (the trophy pill and Top racers open it).
+	hud.openPanel("friends", "leaders")
+	local boardRows = 0
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and string.find(d.Text, "Kai", 1, true) then
+			boardRows += 1
+		end
+	end
+	assert(boardRows > 0, "the leaderboard shows no rows")
+	shot("panel-leaders", nil)
 	hud.ctx.close()
 	local info = select(2, socialDesk("visit", 2))
 	hud.ctx.setVisit(info)
