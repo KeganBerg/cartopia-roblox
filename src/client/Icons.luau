@@ -160,6 +160,37 @@ DRAW.goals = function(c)
 	bar(c, 11, 16.5, 16.5, 10, 2.2, c.cut)
 end
 
+-- Free camera: a house with an arrow sweeping round it (the web's orbit icon).
+DRAW.orbit = function(c)
+	part(c, 7.8, 8.8, 8.4, 6.2, 0.4)
+	-- The roof: a turned square, only its top half showing.
+	local roof = clip(c, 6, 4, 12, 4.9)
+	part(inClip(c, roof, 6, 4, 12, 4.9), 9.03, 6.03, 5.94, 5.94, 0.3, 45)
+	-- The sweep: the lower half of a flat ring round the house.
+	local sweep = clip(c, 0, 10.6, 24, 9)
+	local sub = inClip(c, sweep, 0, 10.6, 24, 9)
+	local ell = part(sub, 2, 9, 20, 9, 4.5)
+	ell.BackgroundTransparency = 1
+	local k = ell:FindFirstChildOfClass("UICorner")
+	if k then
+		k.CornerRadius = UDim.new(0.5, 0)
+	end
+	local s = Instance.new("UIStroke")
+	s.Thickness = 2.2 / 24 * c.size
+	s.Color = c.color
+	s.Parent = ell
+	-- Its arrow head, pointing on round: a turned square, only its right half showing.
+	local head = clip(c, 10.6, 14.8, 4.4, 6.4)
+	part(inClip(c, head, 10.6, 14.8, 4.4, 6.4), 8.6, 16, 4, 4, 0.2, 45)
+end
+
+-- Back to the bird's-eye view: town blocks seen from above (the web's birdseye icon).
+DRAW.birdseye = function(c)
+	for _, at in { { 12, 7 }, { 6.5, 12.5 }, { 17.5, 12.5 }, { 12, 18 } } do
+		part(c, at[1] - 3, at[2] - 3, 6, 6, 0.6, 45)
+	end
+end
+
 DRAW.bolt = function(c)
 	bar(c, 13.5, 2, 5.5, 12.5, 4.2)
 	part(c, 5, 10.8, 13, 3.6, 1)

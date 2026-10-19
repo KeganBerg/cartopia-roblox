@@ -14,6 +14,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -373,6 +374,7 @@ function Hud.start()
 	local editButton = iconButton(5, "edit", "cone", "EDIT", function()
 		close()
 		TownCamera.setWalking(false)
+		TownCamera.setFree(false)
 		-- During the tutorial edit mode opens on Move (roads and the rest come after), as the web.
 		local s = store.useGame.getState()
 		Placement.edit(root, ctx, if (s.tutorial or 99) >= 99 then nil else "move")
@@ -411,6 +413,39 @@ function Hud.start()
 		if not on or Players.LocalPlayer:GetAttribute("Driving") ~= true then
 			task.spawn(Remote.social, if on then "drive" else "home", nil, true)
 		end
+	end)
+	-- The free camera (the web's FreeCamButton): swaps the bird's-eye view for one you can zoom,
+	-- pan, turn and tilt down to street level; tapped again, back to the bird's-eye view. It sits
+	-- over Drive, which it leaves as it is. The first couple of times a toast says how to steer.
+	local cam = Ui.new("Frame", { Name = "FreeCam", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -334), Size = UDim2.fromOffset(60, 62), BackgroundTransparency = 1, Parent = root })
+	local camTips = 0
+	local _, camFace = Ui.button({ Name = "FreeCamButton", Position = UDim2.fromOffset(2.5, 5.5), Size = UDim2.fromOffset(55, 55), Parent = cam }, "white", function()
+		local on = not TownCamera.isFree()
+		TownCamera.setFree(on)
+		if on and TownCamera.isFree() and camTips < 2 then
+			camTips += 1
+			toast(if UserInputService.TouchEnabled then "Pinch to zoom · two fingers to turn and tilt" else "WASD to fly · Space up, Shift down · Ctrl for speed")
+		end
+	end, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
+	local camIcon = Icons.draw("orbit", camFace, 32, Ui.BLUE, Color3.fromHex("#f3f7fc"), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	TownCamera.onFree(function(on: boolean)
+		camIcon:Destroy()
+		camIcon = Icons.draw(if on then "birdseye" else "orbit", camFace, 32, if on then Ui.WHITE else Ui.BLUE, Color3.fromHex("#f3f7fc"), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		local g = camFace:FindFirstChildOfClass("UIGradient")
+		if g then
+			g:Destroy()
+		end
+		local c = if on then { "#6ab4ff", "#3a86ea" } else Ui.colors("white")
+		Ui.gradient(c[1], c[2], 0.5).Parent = camFace
+	end)
+	TownCamera.onWalking(function(on: boolean)
+		if on then
+			cam.Visible = false
+		end
+	end)
+	-- The keys fly the free camera only over the plain town, not while a menu is open.
+	TownCamera.setFreeKeys(function()
+		return current == nil
 	end)
 	-- The server can start a drive too (Visit in the Social menu drives you over). Getting out of
 	-- the car (client/GetIn) leaves them on foot, still out in the world; Town goes back.
@@ -682,6 +717,11 @@ function Hud.start()
 		race.Visible = not editing and not visiting and not picking and on("race")
 		dock.Visible = not editing and not visiting and not picking and on("gems")
 		walk.Visible = not editing and not picking and on("social")
+		-- Building tools need the bird's-eye view (the web's FreeCam turns off out of play mode).
+		if editing and TownCamera.isFree() then
+			TownCamera.setFree(false)
+		end
+		cam.Visible = not editing and not picking and on("social") and not TownCamera.isWalking()
 		socialButton.Visible = on("social")
 		chatButton.Visible = on("social") and Players.LocalPlayer:GetAttribute("CanChat") == true
 	end

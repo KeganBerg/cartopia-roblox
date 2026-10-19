@@ -2321,7 +2321,7 @@ if SHOTS then
 	shot("paint-locked", nil)
 	tap("#1e88e5")
 	local paintShop = hud.gui:FindFirstChild("PaintShop", true)
-	local paintBar = paintShop and paintShop:FindFirstChild("TryBar")
+	local paintBar = paintShop and paintShop.Parent:FindFirstChild("TryBar")
 	local paintGo = paintBar and paintBar:FindFirstChild("Go", true)
 	assert(paintGo, "no buy button for the paint job")
 	signalFor(paintGo, "Activated"):Fire()
@@ -5553,3 +5553,428 @@ do
 end
 
 adminCheck()
+
+-- Custom Colour, track skins and the free camera (client/ColourPicker, SkinShop.tracks, the
+-- TownCamera's free mode): drag over the picker's square and bar in the Paint and Custom tabs and
+-- buy the colour; the locked dot's way to the crates; a Tomahawk's track skin tried on and put on
+-- (and the links it recolours); the free camera's button, one-finger drag, pinch, wheel and keys,
+-- and back to the bird's-eye view. SHOTS=1 writes build/shot-colour-*.json and shot-tracks-*.json.
+do
+	hud.ctx.close()
+	local problems = 0
+	local function problem(msg)
+		problems += 1
+		print(`[colour/tracks/freecam] PROBLEM {msg}`)
+	end
+	local function checkCalls(what)
+		for _, c in calls do
+			if c:sub(1, 2) ~= "ok" then
+				problem(`{what}: {c}`)
+			end
+		end
+		for _, e in handlerErrors do
+			problem(`{what}: ERROR {e}`)
+		end
+		calls = {}
+		handlerErrors = {}
+	end
+	local UIS = game:GetService("UserInputService")
+	local V3, V2 = roblox.Vector3, roblox.Vector2
+	local data = emu.require(RS.Shared.Game.data)
+	-- Looked for in the Cars page first when it's open (pop-ups and pages left by the sections
+	-- above can hold buttons of the same names).
+	local function carsPage()
+		for _, p in hud.gui:GetChildren() do
+			local page = p.Name == "Panel" and p:FindFirstChild("Cars")
+			if page then
+				return page
+			end
+		end
+		return nil
+	end
+	local function find(name)
+		local page = carsPage()
+		return page and page:FindFirstChild(name, true) or hud.gui:FindFirstChild(name, true)
+	end
+	local function tap(name)
+		local b = find(name)
+		if not b then
+			problem(`no {name} button`)
+			return
+		end
+		signalFor(b, "Activated"):Fire()
+	end
+	-- What's on screen, when a check fails: the open panel, the car's name and the shop's lists.
+	local function where()
+		local page = carsPage()
+		local bits = { `panel {tostring(hud.ctx.panel())}` }
+		if page then
+			for _, d in page:GetDescendants() do
+				if d:IsA("TextLabel") and d.TextSize == 22 or d.Name == "ModShop" or d.Name == "CustomShop" or d.Name == "PaintShop" then
+					table.insert(bits, if d:IsA("TextLabel") then d.Text else d.Name)
+				end
+			end
+		end
+		for _, p in hud.gui:GetChildren() do
+			if p:IsA("GuiObject") and p.Visible and p.Name ~= "Root" then
+				table.insert(bits, `top {p.Name}`)
+			end
+		end
+		return table.concat(bits, ", ")
+	end
+	-- A picture with the shop's list scrolled down to what's being shown, wide and on a phone.
+	local function look(name, list, y)
+		local s = list and find(list)
+		if s then
+			s.CanvasPosition = V2.new(0, y)
+		end
+		shot(name, nil)
+		local root = hud.gui:FindFirstChild("Root")
+		root.Size = roblox.UDim2.fromOffset(1535, 709)
+		shot(`{name}-phone`, nil, 1535, 709)
+		root.Size = roblox.UDim2.fromOffset(1280, 800)
+	end
+	local function onChart(c)
+		for _, p in data.PAINTS do
+			if p.color == c then
+				return true
+			end
+		end
+		return false
+	end
+	-- A drag over one of the picker's areas, laid out at a made-up place (nothing is laid out here).
+	local function drag(area, from, to)
+		area.AbsolutePosition = V2.new(100, 100)
+		area.AbsoluteSize = V2.new(300, if area.Name == "SV" then 150 else 26)
+		local down = { UserInputType = roblox.Enum.UserInputType.MouseButton1, KeyCode = roblox.Enum.KeyCode.Unknown, Position = V3.new(from[1], from[2], 0) }
+		signalFor(area, "InputBegan"):Fire(down)
+		signalFor(UIS, "InputChanged"):Fire({ UserInputType = roblox.Enum.UserInputType.MouseMovement, KeyCode = roblox.Enum.KeyCode.Unknown, Position = V3.new(to[1], to[2], 0) }, false)
+		signalFor(UIS, "InputEnded"):Fire(down)
+	end
+	local function carOf(uid)
+		for _, c in towns:snapshot(1).save.cars do
+			if c.uid == uid then
+				return c
+			end
+		end
+		return {}
+	end
+	calls = {}
+	handlerErrors = {}
+
+	-- Paint: Custom Colour won; open its picker, drag the square and the bar, and buy the colour.
+	local first
+	towns:_with(1, function()
+		local s = store.useGame.getState()
+		local skins = table.clone(s.skins or {})
+		if not table.find(skins, data.CUSTOM_PAINT.id) then
+			table.insert(skins, data.CUSTOM_PAINT.id)
+		end
+		first = s.cars[1].uid
+		store.useGame.setState({ coins = 1000000, bucks = 1000, skins = skins, selectedCar = first })
+	end)
+	local colours0 = {}
+	for _, c in towns:snapshot(1).save.cars do
+		colours0[c.uid] = c.color
+	end
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.openPanel("cars", "garage")
+	tap("paint")
+	-- The picker starts open when the car's colour is already off the chart.
+	if not (find("CustomColourPicker") and find("CustomColourPicker").Visible) then
+		tap("CustomColour")
+	end
+	local fly = find("CustomColourPicker")
+	if not fly or not fly.Visible then
+		problem("the Custom Colour dot didn't open its picker")
+	end
+	look("colour-open", "PaintShop", 800)
+	local sv = fly and fly:FindFirstChild("SV")
+	if sv then
+		drag(sv, { 250, 130 }, { 330, 110 })
+	else
+		problem("no colour square in the picker")
+	end
+	local hue = find("CustomColourPicker") and find("CustomColourPicker"):FindFirstChild("Hue")
+	if hue then
+		drag(hue, { 160, 113 }, { 262, 113 })
+	else
+		problem("no hue bar in the picker")
+	end
+	look("colour-try", "PaintShop", 800)
+	local bar = find("PaintShop") and find("PaintShop").Parent:FindFirstChild("TryBar")
+	local label = bar and bar:FindFirstChildWhichIsA("TextLabel")
+	if not label or not string.find(label.Text, "Custom colour", 1, true) then
+		problem(`the try-on bar doesn't say Custom colour: {label and label.Text or "no bar"}`)
+	end
+	local go = bar and bar:FindFirstChild("Go", true)
+	if go then
+		signalFor(go, "Activated"):Fire()
+	else
+		problem("no buy button for the custom colour")
+	end
+	-- The garage keeps showing the car it showed before: whichever car the new colour went on.
+	local painted = nil
+	for _, c in towns:snapshot(1).save.cars do
+		if colours0[c.uid] ~= c.color then
+			painted, first = c.color, c.uid
+		end
+	end
+	if type(painted) ~= "string" or not painted:match("^#%x%x%x%x%x%x$") or onChart(painted) then
+		problem(`the custom colour didn't stick: {tostring(painted)}`)
+	end
+	print(`custom colour: painted {tostring(painted)}`)
+	shot("colour-bought", nil)
+	checkCalls("paint custom colour")
+
+	-- Custom: the hood in a custom colour.
+	hud.ctx.close()
+	hud.openPanel("cars", "garage")
+	local hoods0 = {}
+	for _, c in towns:snapshot(1).save.cars do
+		hoods0[c.uid] = c.panels and c.panels.hood and c.panels.hood.color
+	end
+	tap("custom")
+	tap("hood")
+	local cfly = find("CustomColourPicker")
+	if cfly and not cfly.Visible then
+		tap("CustomColour")
+	end
+	cfly = find("CustomColourPicker")
+	local csv = cfly and cfly:FindFirstChild("SV")
+	if csv then
+		drag(csv, { 120, 140 }, { 140, 120 })
+	else
+		problem("no colour square in the Custom tab")
+	end
+	look("colour-custom", "CustomShop", 600)
+	local cbar = find("CustomShop") and find("CustomShop").Parent:FindFirstChild("TryBar")
+	local cgo = cbar and cbar:FindFirstChild("Go", true)
+	if cgo then
+		signalFor(cgo, "Activated"):Fire()
+	else
+		problem("no buy button for the custom hood")
+	end
+	-- Whichever car the garage shows gets the hood.
+	local hood = nil
+	for _, c in towns:snapshot(1).save.cars do
+		local h = c.panels and c.panels.hood
+		if h and h.color ~= hoods0[c.uid] then
+			hood = h
+		end
+	end
+	if not hood or type(hood.color) ~= "string" or onChart(hood.color) then
+		problem(`the custom hood colour didn't stick: {hood and tostring(hood.color) or "none"} ({where()})`)
+	end
+	checkCalls("custom tab custom colour")
+
+	-- Locked: not won yet, the picker points at the crates.
+	towns:_with(1, function()
+		local s = store.useGame.getState()
+		local skins = {}
+		for _, id in s.skins or {} do
+			if id ~= data.CUSTOM_PAINT.id then
+				table.insert(skins, id)
+			end
+		end
+		store.useGame.setState({ skins = skins })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("cars", "garage")
+	tap("paint")
+	local lfly = find("CustomColourPicker")
+	if lfly and not lfly.Visible then
+		tap("CustomColour")
+	end
+	look("colour-locked", "PaintShop", 800)
+	tap("Crates")
+	if hud.ctx.panel() ~= "crates" then
+		problem(`the locked picker's Crates button opened {tostring(hud.ctx.panel())}`)
+	end
+	checkCalls("locked custom colour")
+
+	-- Track skins: a Tomahawk at level 40 tries Magma (level 44: says where it comes from), then
+	-- puts on Hazard.
+	towns:_with(1, function()
+		local s = store.useGame.getState()
+		local cars = table.clone(s.cars)
+		local tank = table.clone(cars[1])
+		tank.uid, tank.model, tank.color, tank.mods, tank.modSkin, tank.panels = "tank-emu", "tomahawk", "#556b2f", nil, nil, nil
+		table.insert(cars, tank)
+		store.useGame.setState({ cars = cars, level = 40, selectedCar = "tank-emu" })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	hud.ctx.close()
+	hud.openPanel("cars", "garage")
+	-- The garage keeps the car it showed: pick the tank from its list.
+	tap("mods")
+	tap("rims")
+	local picker = find("TrackSkins")
+	if not picker then
+		for _, d in hud.gui:GetDescendants() do
+			if d:IsA("TextLabel") and d.Text == data.carDef("tomahawk").name and d.Parent and d.Parent:IsA("GuiButton") then
+				signalFor(d.Parent, "Activated"):Fire()
+				break
+			end
+		end
+		tap("mods")
+		tap("rims")
+		picker = find("TrackSkins")
+	end
+	if not picker then
+		problem(`no track skins under the Tomahawk's tracks ({where()})`)
+	else
+		tap("magma")
+		local mbar = find("TrackSkins") and find("TrackSkins"):FindFirstChild("TryBar")
+		local mgo = mbar and mbar:FindFirstChild("Go", true)
+		local mtext = mgo and mgo:FindFirstChildWhichIsA("TextLabel", true)
+		if not mtext or not string.find(mtext.Text, "Lv 44", 1, true) then
+			problem(`a locked track skin's bar says {mtext and mtext.Text or "nothing"}`)
+		end
+		look("tracks-locked", "ModShop", 700)
+		tap("hazard")
+		look("tracks-try", "ModShop", 700)
+		local hbar = find("TrackSkins") and find("TrackSkins"):FindFirstChild("TryBar")
+		local hgo = hbar and hbar:FindFirstChild("Go", true)
+		if hgo then
+			signalFor(hgo, "Activated"):Fire()
+		else
+			problem("no Put on button for the track skin")
+		end
+		local worn = carOf("tank-emu").modSkin
+		if not worn or worn.tracks ~= "hazard" then
+			problem("the track skin didn't stick")
+		end
+		shot("tracks-on", nil)
+	end
+	checkCalls("track skins")
+	-- The links it recolours on a built Tomahawk: Hazard's yellow and black, pair by pair.
+	local Builder = emu.require(RS.Shared.Models.Builder)
+	local Skins = emu.require(RS.Shared.Models.Skins)
+	local tank = Builder.build("tomahawk")
+	if tank then
+		tank.Name = "tomahawk"
+		Skins.apply(tank, nil, { tracks = "hazard" })
+		local yellow, dark = 0, 0
+		for _, p in tank:GetDescendants() do
+			if p:IsA("BasePart") then
+				local hex = string.lower(p.Color:ToHex())
+				if hex == "ffcc00" then
+					yellow += 1
+				elseif hex == "2a2a2a" then
+					dark += 1
+				end
+			end
+		end
+		print(`track skin: {yellow} yellow and {dark} black link plates`)
+		if yellow == 0 or dark == 0 then
+			problem("Hazard didn't paint the Tomahawk's links")
+		end
+	else
+		print("track skin: no Tomahawk model in this build to recolour")
+	end
+
+	-- The free camera: on, the swoop, a drag, a pinch, the wheel, keys, and back.
+	hud.ctx.close()
+	local TownCamera = emu.require(client.TownCamera)
+	TownCamera.start()
+	local cam = game:GetService("Workspace").CurrentCamera
+	local function frames(n)
+		for _ = 1, n do
+			if renderSteps.TownCamera then
+				renderSteps.TownCamera(1 / 30)
+			end
+		end
+	end
+	-- A crate scene above may still hold the camera.
+	TownCamera.setPaused(false)
+	local camButton = find("FreeCamButton")
+	local face = camButton and camButton:FindFirstChild("Face")
+	if not face then
+		problem("no free camera button")
+	else
+		signalFor(face, "Activated"):Fire()
+	end
+	if not TownCamera.isFree() then
+		problem("the free camera didn't come on")
+	end
+	frames(70)
+	local start = cam.CFrame
+	if math.abs(cam.FieldOfView - 42) > 0.01 then
+		problem(`the free camera's field of view is {cam.FieldOfView}`)
+	end
+	look("freecam-on")
+	local touch = roblox.Enum.UserInputType.Touch
+	local a = { UserInputType = touch, KeyCode = roblox.Enum.KeyCode.Unknown, Position = V3.new(400, 300, 0) }
+	signalFor(UIS, "InputBegan"):Fire(a, false)
+	a.Position = V3.new(520, 340, 0)
+	signalFor(UIS, "InputChanged"):Fire(a, false)
+	signalFor(UIS, "InputEnded"):Fire(a)
+	frames(20)
+	local dragged = cam.CFrame
+	if (dragged.Position - start.Position).Magnitude < 1 then
+		problem("a one-finger drag didn't move the free camera")
+	end
+	-- Two fingers spread apart: zooms in.
+	local p = { UserInputType = touch, KeyCode = roblox.Enum.KeyCode.Unknown, Position = V3.new(500, 400, 0) }
+	local q = { UserInputType = touch, KeyCode = roblox.Enum.KeyCode.Unknown, Position = V3.new(700, 400, 0) }
+	signalFor(UIS, "InputBegan"):Fire(p, false)
+	signalFor(UIS, "InputBegan"):Fire(q, false)
+	local function gap()
+		return (cam.CFrame.Position - cam.Focus.Position).Magnitude
+	end
+	local before = gap()
+	for i = 1, 6 do
+		q.Position = V3.new(700 + i * 30, 400, 0)
+		signalFor(UIS, "InputChanged"):Fire(q, false)
+	end
+	signalFor(UIS, "InputEnded"):Fire(q)
+	signalFor(UIS, "InputEnded"):Fire(p)
+	frames(30)
+	if gap() >= before then
+		problem(`a pinch out didn't zoom in ({before} -> {gap()})`)
+	end
+	-- The wheel zooms out again.
+	local zoomed = gap()
+	signalFor(UIS, "InputChanged"):Fire({ UserInputType = roblox.Enum.UserInputType.MouseWheel, KeyCode = roblox.Enum.KeyCode.Unknown, Position = V3.new(0, 0, -3) }, false)
+	frames(30)
+	if gap() <= zoomed then
+		problem("the wheel didn't zoom out")
+	end
+	-- W flies forward.
+	local w = { UserInputType = roblox.Enum.UserInputType.Keyboard, KeyCode = roblox.Enum.KeyCode.W, Position = V3.new(0, 0, 0) }
+	local was = cam.Focus.Position
+	signalFor(UIS, "InputBegan"):Fire(w, false)
+	frames(15)
+	signalFor(UIS, "InputEnded"):Fire(w)
+	frames(15)
+	if (cam.Focus.Position - was).Magnitude < 1 then
+		problem("W didn't fly the free camera")
+	end
+	-- Never under the ground.
+	if cam.CFrame.Position.Y < cam.Focus.Position.Y then
+		problem("the free camera went under the ground")
+	end
+	shot("freecam-moved", nil)
+	-- Escape goes back to the bird's-eye view; the button brings it back, and takes it away again.
+	signalFor(UIS, "InputBegan"):Fire({ UserInputType = roblox.Enum.UserInputType.Keyboard, KeyCode = roblox.Enum.KeyCode.Escape, Position = V3.new(0, 0, 0) }, false)
+	if TownCamera.isFree() then
+		problem("Escape didn't end the free camera")
+	end
+	frames(2)
+	if math.abs(cam.FieldOfView - 30) > 0.01 then
+		problem(`back on the bird's-eye view the field of view is {cam.FieldOfView}`)
+	end
+	if face then
+		signalFor(face, "Activated"):Fire()
+		frames(5)
+		signalFor(face, "Activated"):Fire()
+		if TownCamera.isFree() then
+			problem("the button didn't take the free camera away again")
+		end
+	end
+	checkCalls("free camera")
+	print(`colour, tracks and free camera: {problems} problems`)
+	bad += problems
+end

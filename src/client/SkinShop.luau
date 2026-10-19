@@ -1,6 +1,6 @@
 --!strict
 -- Skin pickers (the web's Skins.tsx): body skins in the garage's Paint tab, mod skins for the part
--- in a slot in the Mods tab. Tapping a skin tries it on the car on the turntable; owned skins go on
+-- in a slot in the Mods tab, and a tank's track skins under its Tracks slot. Tapping a skin tries it on the car on the turntable; owned skins go on
 -- free from the bar, gem skins are bought there, and the rest say where they come from.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -124,6 +124,46 @@ local function chip(parent: Instance, d: any?, tier: Color3?, locked: boolean)
 	return c
 end
 
+-- A track skin drawn small (the web's swatch, a CSS stripe of its link colours): stripes across
+-- the chip in the swatch's colours and widths, or a slant of its colours for a smooth one.
+local function trackChip(parent: Instance, d: any, tier: Color3?): Frame
+	local c = Ui.new("Frame", { Name = "Chip", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.fromOffset(36, 36), BackgroundColor3 = Color3.fromHex(d.look.plate), ClipsDescendants = true, ZIndex = 3, Parent = parent }, {
+		Ui.round(),
+		Ui.stroke(2, tier or Ui.WHITE),
+	})
+	local sw: string = d.swatch or ""
+	local stops = {}
+	for color, a, b in sw:gmatch("(#%x%x%x%x%x%x) (%d+)p?x? (%d+)px") do
+		table.insert(stops, { color = color, from = tonumber(a) :: number, to = tonumber(b) :: number })
+	end
+	if sw:find("^repeating") and #stops > 0 then
+		local period = stops[#stops].to
+		local x = 0
+		while x < 36 do
+			for _, st in stops do
+				if st.to > st.from then
+					Ui.new("Frame", { Position = UDim2.fromOffset(x + st.from, 0), Size = UDim2.new(0, st.to - st.from, 1, 0), BackgroundColor3 = Color3.fromHex(st.color), BorderSizePixel = 0, ZIndex = 3, Parent = c })
+				end
+			end
+			x += period
+		end
+	else
+		local list = {}
+		for color in sw:gmatch("#%x%x%x%x%x%x") do
+			table.insert(list, color)
+		end
+		if #list >= 2 then
+			local keys = {}
+			for i, color in list do
+				table.insert(keys, ColorSequenceKeypoint.new((i - 1) / (#list - 1), Color3.fromHex(color)))
+			end
+			c.BackgroundColor3 = Ui.WHITE
+			Ui.new("UIGradient", { Rotation = 45, Color = ColorSequence.new(keys), Parent = c })
+		end
+	end
+	return c
+end
+
 export type Trying = string | false | nil
 
 -- One picker into the list `parent` at `order`. `trying`: the skin being tried (false: none; nil:
@@ -138,6 +178,8 @@ local function chooser(parent: Instance, order: number, opts: {
 	trying: Trying,
 	setTrying: (Trying) -> (),
 	apply: (string?) -> boolean,
+	-- Draws a skin's chip instead of its baked tiles (the track skins').
+	chip: ((Instance, any, Color3?) -> Frame)?,
 })
 	local has: { [string]: boolean } = {}
 	for _, id in opts.owned do
@@ -207,7 +249,15 @@ local function chooser(parent: Instance, order: number, opts: {
 		if tier then
 			Ui.new("Frame", { Name = "Tier", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 6, 1, -1), Size = UDim2.new(1, -12, 0, 3), BackgroundColor3 = tier, BorderSizePixel = 0, ZIndex = 3, Parent = b }, { Ui.corner(2) })
 		end
-		local c = chip(b, d, tier, locked)
+		local c
+		if d and opts.chip then
+			c = opts.chip(b, d, tier)
+			if locked then
+				Ui.new("Frame", { Name = "Dim", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#6d7378"), BackgroundTransparency = 0.45, ZIndex = 3, Parent = c }, { Ui.round() })
+			end
+		else
+			c = chip(b, d, tier, locked)
+		end
 		if not d then
 			Ui.text({ Text = "∅", TextSize = 16, TextColor3 = Color3.fromHex("#90a4ae"), Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = c })
 		end
@@ -263,6 +313,27 @@ function SkinShop.mod(parent: Instance, order: number, car: any, slot: string, t
 			local ok, done = Remote.act("skinMod", car.uid, slot, id)
 			return ok and done == true
 		end,
+	})
+end
+
+-- Track skins for a tracked car (the Tomahawk), under its Tracks slot in the Mods tab: free by
+-- level, kept in the car's modSkin.tracks.
+function SkinShop.tracks(parent: Instance, order: number, car: any, trying: Trying, setTrying: (Trying) -> ())
+	local s = store.useGame.getState()
+	chooser(parent, order, {
+		name = "TrackSkins",
+		title = "Track skin",
+		defs = data.TRACK_SKINS,
+		owned = data.ownedTrackSkins(s.level),
+		now = car.modSkin and car.modSkin.tracks,
+		color = data.TRACK_STEEL.look.plate,
+		trying = trying,
+		setTrying = setTrying,
+		apply = function(id: string?): boolean
+			local ok, done = Remote.act("skinTracks", car.uid, id)
+			return ok and done == true
+		end,
+		chip = trackChip,
 	})
 end
 
