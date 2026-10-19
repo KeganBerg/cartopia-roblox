@@ -4292,26 +4292,31 @@ do
 	end)
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 	Emu.resumeWaits()
-	local recapPop = nil
-	for _ = 1, 6 do
-		local p = root:FindFirstChild("Popup")
-		if not p then
-			break
+	-- Pop-ups queued by the sections before (a level-up, say): closed the way a player would, once
+	-- each one's button is in, until `stop` matches the one up.
+	local OK = { Continue = true, ["Nice!"] = true, ["Awesome!"] = true, Later = true, Collect = true }
+	local function drainPopups(stop)
+		for _ = 1, 16 do
+			local p = root:FindFirstChild("Popup")
+			if not p then
+				return nil
+			end
+			if stop and stop(p) then
+				return p
+			end
+			local b = find(p, function(d)
+				return d:IsA("TextButton") and d.Name == "Face" and OK[label(d)] == true
+			end)
+			if b then
+				signalFor(b, "Activated"):Fire()
+			end
+			Emu.resumeWaits()
 		end
-		if p:FindFirstChild("Recap", true) then
-			recapPop = p
-			break
-		end
-		-- Something queued ahead of it: close it the way a player would.
-		local b = find(p, function(d)
-			return d:IsA("TextButton") and d.Name == "Face"
-		end)
-		if not b then
-			break
-		end
-		signalFor(b, "Activated"):Fire()
-		Emu.resumeWaits()
+		return nil
 	end
+	local recapPop = drainPopups(function(p)
+		return p:FindFirstChild("Recap", true) ~= nil
+	end)
 	if recapPop then
 		local stats = {}
 		for _, d in recapPop:GetDescendants() do
@@ -4339,6 +4344,14 @@ do
 	hud.ctx.close()
 	Emu.resumeWaits()
 	closeLaunchWarning()
+	drainPopups()
+	-- The crate depot hides the HUD's corners while it's up; the sections before close its menu in
+	-- ways that can leave the left corner (which the HUD itself never hides) hidden: show it again.
+	local leftCorner = root:FindFirstChild("Left")
+	if leftCorner and not leftCorner.Visible then
+		print("tips: (the HUD's left corner was still hidden by an earlier menu; shown again)")
+		leftCorner.Visible = true
+	end
 	local relRects = {}
 	Gui.onNode = function(g, n)
 		relRects[idOf(g)] = n
@@ -4369,25 +4382,40 @@ do
 		Tips.pick()
 	end
 	local tipNow = Tips.current()
-	if renderSteps.Tips then
-		renderSteps.Tips()
+	if renderSteps.Tips or Tips.frame then
+		(renderSteps.Tips or Tips.frame)()
 	end
 	local card = root:FindFirstChild("Tip")
 	local ring = root:FindFirstChild("TipPulse")
 	print(`tips: "{tipNow and tipNow.id or "none"}", card {if card then "up" else "none"}, pulse {if ring and ring.Visible then "on" else "off"}`)
 	if not tipNow or not card then
-		problem("no tip came up over the plain town")
+		local st = store.useGame.getState()
+		problem(`no tip came up over the plain town (calm {tostring(Tips.calm(st))}: level {tostring(st.level)}, tutorial {tostring(st.tutorial)}, visiting {tostring(st.visiting)})`)
 	else
 		shot("tools-tip")
 		phone("tools-tip")
 		if not (ring and ring.Visible) then
-			problem("the tip's pulse isn't on its button")
+			local why = {}
+			for _, d in hud.gui:GetDescendants() do
+				if d:GetAttribute("Tut") == tipNow.target and d:IsA("GuiObject") then
+					local hidden = {}
+					local p = d
+					while p and p ~= hud.gui do
+						if p:IsA("GuiObject") and not p.Visible then
+							table.insert(hidden, p.Name)
+						end
+						p = p.Parent
+					end
+					table.insert(why, `{d:GetFullName()} size {d.AbsoluteSize.X} hidden [{table.concat(hidden, ",")}]`)
+				end
+			end
+			problem(`the tip's pulse isn't on its button ({table.concat(why, "; ")})`)
 		end
 		if not press(card, if tipNow.go then "Later" else "Got it") then
 			Tips.close()
 		end
-		if renderSteps.Tips then
-			renderSteps.Tips()
+		if renderSteps.Tips or Tips.frame then
+			(renderSteps.Tips or Tips.frame)()
 		end
 		if root:FindFirstChild("Tip") or not Prefs.seen(tipNow.id) then
 			problem("closing the tip didn't mark it seen")

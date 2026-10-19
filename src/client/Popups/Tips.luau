@@ -213,11 +213,12 @@ function Tips.start(ctx: any)
 	end
 	Tips.pick = pick
 	-- Every frame: the card shows only while the town is calm, and the ring pulses on the target.
-	RunService:BindToRenderStep("Tips", Enum.RenderPriority.Last.Value - 1, function()
+	local function frame()
 		local t = tip
 		local s = store.useGame.getState()
 		local show = t ~= nil and Tips.calm(s)
-		if show and t and not card then
+		-- (Drawn again if something cleared it off the screen meanwhile.)
+		if show and t and (not card or not card.Parent) then
 			card = drawCard(root, t)
 		elseif not show and card then
 			card:Destroy()
@@ -240,7 +241,9 @@ function Tips.start(ctx: any)
 			st.Transparency = f * 0.95
 		end
 		r.Visible = true
-	end)
+	end
+	Tips.frame = frame
+	RunService:BindToRenderStep("Tips", Enum.RenderPriority.Last.Value - 1, frame)
 	Remote.changed:Connect(function()
 		task.defer(pick)
 	end)
