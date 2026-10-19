@@ -534,20 +534,37 @@ local function carNear(at: Pt, r: number): boolean
 	return near
 end
 
-local function walkDog(p: Person, dt: number)
-	if p.type ~= "dog" then
-		return
-	end
+-- Where a walked dog heads for: behind and beside its walker, or beside them while they stop.
+local function dogSpot(p: Person): (number, number)
 	local sin, cos = math.sin(p.heading), math.cos(p.heading)
 	local still = p.state == "linger"
 	local back = (if still then -0.1 else 0.4) * FIT
 	local side = (if still then 0.35 else 0.22) * FIT
-	local tx = p.pos[1] - sin * back + cos * side
-	local tz = p.pos[2] - cos * back - sin * side
+	return p.pos[1] - sin * back + cos * side, p.pos[2] - cos * back - sin * side
+end
+
+-- Closest a dog comes to its walker's middle: any nearer and it would show inside their legs.
+local DOG_CLEAR = 0.3 * FIT
+
+local function walkDog(p: Person, dt: number)
+	if p.type ~= "dog" then
+		return
+	end
+	local tx, tz = dogSpot(p)
 	local dx, dz = tx - p.dogPos[1], tz - p.dogPos[2]
 	local k = math.min(1, dt * 6)
 	p.dogPos[1] += dx * k
 	p.dogPos[2] += dz * k
+	-- Catching up round a sharp turn, it goes round its walker rather than through them.
+	local ox, oz = p.dogPos[1] - p.pos[1], p.dogPos[2] - p.pos[2]
+	local off = math.sqrt(ox * ox + oz * oz)
+	if off < DOG_CLEAR then
+		if off < 1e-6 then
+			ox, oz, off = tx - p.pos[1], tz - p.pos[2], math.sqrt((tx - p.pos[1]) ^ 2 + (tz - p.pos[2]) ^ 2)
+		end
+		p.dogPos[1] = p.pos[1] + ox / off * DOG_CLEAR
+		p.dogPos[2] = p.pos[2] + oz / off * DOG_CLEAR
+	end
 	local target = if math.sqrt(dx * dx + dz * dz) > 0.03 then math.atan2(dx, dz) else p.heading
 	local diff = target - p.dogHeading
 	diff = math.atan2(math.sin(diff), math.cos(diff))
@@ -792,8 +809,10 @@ local function setOff(g: any, places: Places, p: Person, night: boolean)
 				p.heading = math.atan2(first.p[1] - from[1], first.p[2] - from[2])
 				p.si = 2
 			end
+			-- The dog comes out at their heels (walkDog keeps it clear of their legs).
 			p.dogPos = { p.pos[1], p.pos[2] }
 			p.dogHeading = p.heading
+			walkDog(p, 0)
 		end
 		p.state = "walk"
 		p.outings += 1
