@@ -76,6 +76,7 @@ local Duels = require(script.Duels)
 local Invites = require(script.Invites)
 local Crews = require(script.Crews)
 local CrewGoals = require(script.CrewGoals)
+local CrewBattles = require(script.CrewBattles)
 local CrewParts = require(script.CrewParts)
 local CrewChat = require(script.CrewChat)
 local World = require(script.World)
@@ -685,14 +686,29 @@ local crewGoals = CrewGoals.new({
 	end,
 	clock = os.time,
 })
--- The jobs and races each player's town had when last counted.
-local crewSeen: { [number]: { jobs: number, races: number } } = {}
+-- Crew battles (server/CrewBattles): a rival crew each week, scored by races and live wins.
+local crewBattles = CrewBattles.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+	clock = os.time,
+	crews = function(): { any }
+		return crews:browse()
+	end,
+	crew = function(id: string): any?
+		return crews:crew(id)
+	end,
+	emblems = (require(Game.data) :: any).CLAN_EMBLEMS,
+	colors = (require(Game.data) :: any).CLAN_COLORS,
+})
+-- The jobs, races and race wins each player's town had when last counted.
+local crewSeen: { [number]: { jobs: number, races: number, wins: number } } = {}
 -- now: counted before this returns (else in the background, as a save goes on).
 local function crewPoints(userId: number, now: boolean?)
 	local stats = towns:save(userId).stats or {}
-	local jobs, races = tonumber(stats.jobs) or 0, tonumber(stats.races) or 0
+	local jobs, races, wins = tonumber(stats.jobs) or 0, tonumber(stats.races) or 0, tonumber(stats.racesWon) or 0
 	local seen = crewSeen[userId]
-	crewSeen[userId] = { jobs = jobs, races = races }
+	crewSeen[userId] = { jobs = jobs, races = races, wins = wins }
 	if not seen or (jobs <= seen.jobs and races <= seen.races) then
 		return
 	end
@@ -705,6 +721,14 @@ local function crewPoints(userId: number, now: boolean?)
 		local members = 0
 		for _ in c.members do
 			members += 1
+		end
+		if races > seen.races then
+			local player = Players:GetPlayerByUserId(userId)
+			pcall(function()
+				if crewBattles:races(userId, c.id, if player then player.DisplayName else "Driver", races - seen.races, wins - seen.wins) > 0 then
+					crewBattles:scoredFor(userId, c.id)
+				end
+			end)
 		end
 		local _, reached = crewGoals:add(userId, c.id, members, jobs - seen.jobs, races - seen.races)
 		if not reached then
@@ -767,6 +791,16 @@ local function syncCrewChat(player: Player)
 	if player.Parent then
 		crewChat:set(player.UserId, if c then c.id else nil, if c then c.tag else nil)
 	end
+end
+
+-- The crew chests a player has opened (CrewGoals' keys: "<week>", "battle:<week>", "mvp:<week>").
+local function crewOpened(userId: number): { [string]: boolean }
+	local k = crewGoals:_get(`k:{userId}`) or {}
+	local out = {}
+	for key in (if type(k.opened) == "table" then k.opened else {}) :: { [string]: any } do
+		out[key] = true
+	end
+	return out
 end
 
 -- Pays the crew chests a player has opened that their town hasn't had yet (one per chest).
@@ -1092,7 +1126,17 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 		if DragRace.valid(arg) then
 			myTime = DragRace.times(DragRace.replay(live.spec, arg))
 		end
+		local _, vs = duels:racing(player.UserId)
 		live.extra.their = duels:finish(player.UserId, myTime)
+		-- A live win counts for the winner's crew battle (more against the rival crew).
+		if vs and myTime < live.extra.their then
+			task.spawn(pcall, function()
+				local id = crews:mineId(player.UserId)
+				if id and crewBattles:live(player.UserId, id, player.DisplayName, vs, crews:mineId(vs)) > 0 then
+					crewBattles:scoredFor(player.UserId, id)
+				end
+			end)
+		end
 	end
 	local ran, result, why = pcall(function(): (any, any)
 		if op == "rivals" then
@@ -1678,9 +1722,12 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 				-- What crewmates gave is collected on the way in, as the web game's crew home.
 				pcall(collectCrewParts, player)
 				mine.parts = crewParts:list(mine.crew.id, player.UserId)
+				local okB, b = pcall(crewBattles.battle, crewBattles, player.UserId, mine.crew.id, crewOpened(player.UserId))
+				mine.battle = if okB then b else nil
 				return mine, nil
 			end
-			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1, goal = crewGoals:goal(player.UserId, nil, 0) }, nil
+			local okB, b = pcall(crewBattles.battle, crewBattles, player.UserId, nil, crewOpened(player.UserId))
+			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1, goal = crewGoals:goal(player.UserId, nil, 0), battle = if okB then b else nil }, nil
 		elseif op == "crewLadder" then
 			-- The crew ladder (web CrewLadder): every crewmate's ghost, fastest real run first,
 			-- then pars, then no car yet. Racing one is a ghost race (Modes/Ghost).
@@ -1751,6 +1798,23 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 		elseif op == "crewPartsCollect" then
 			collectCrewParts(player)
 			return true, nil
+		elseif op == "crewBattleChest" and type(arg) == "string" then
+			-- A crew battle's victory or MVP chest (last week's), counted with the crew chests.
+			local id = crews:mineId(player.UserId)
+			local b = crewBattles:battle(player.UserId, id, crewOpened(player.UserId))
+			local last = b.last
+			if not last or not table.find(last.due, arg) then
+				return nil, "battle locked"
+			end
+			if not table.find(last.claimable, arg) then
+				return nil, "chest opened"
+			end
+			local total = crewGoals:addChest(player.UserId, `{arg}:{last.week}`, last.us.id or "")
+			if not total then
+				return nil, "chest opened"
+			end
+			payCrewChests(player)
+			return { chests = total }, nil
 		elseif op == "crewChest" and type(arg) == "string" then
 			-- Opening a crew chest: recorded first, then paid (data.CREW_CHEST, store.openCrewChest).
 			local total, no = crewGoals:open(player.UserId, arg)

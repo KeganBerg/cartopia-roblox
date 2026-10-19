@@ -78,6 +78,7 @@ local WHY = {
 	["chest opened"] = "You already opened that crew chest",
 	["chest points"] = "Add 30 crew points to earn the chest",
 	["chest locked"] = "Your crew has not reached its goal yet",
+	["battle locked"] = "That battle chest isn't yours to open",
 	["try again"] = "That didn't work. Try again.",
 	["not playing"] = "They aren't playing Cartopia right now",
 	["not friends"] = "You can only join your friends",
