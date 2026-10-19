@@ -115,6 +115,7 @@ jobs:
         if: env.CAN_PUBLISH == 'true' || github.event_name != 'schedule'
         run: |
           luau-analyze src/shared/RaceFloors.luau src/server/Towns.luau
+          node tools/check/globals.mjs
           luau tests/run.luau
 
       - name: Commit regenerated files
