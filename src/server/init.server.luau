@@ -74,6 +74,7 @@ local Meet = require(script.Meet)
 local Mail = require(script.Mail)
 local Duels = require(script.Duels)
 local Invites = require(script.Invites)
+local Crews = require(script.Crews)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -650,6 +651,26 @@ local function cardOf(userId: number): any
 	end)
 end
 
+-- Crews (server/Crews): kept in one DataStore every server shares.
+local crews = Crews.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+	clock = os.time,
+	newId = function(): string
+		return HttpService:GenerateGUID(false)
+	end,
+	emblems = (require(Game.data) :: any).CLAN_EMBLEMS,
+	colors = (require(Game.data) :: any).CLAN_COLORS,
+})
+-- What a crew keeps of a player: their name, town and numbers.
+local function crewWho(userId: number): Crews.Who
+	local player = Players:GetPlayerByUserId(userId)
+	local st = leaderStats(userId)
+	local town = towns:save(userId).townName
+	return { name = if player then player.DisplayName else "Driver", town = if type(town) == "string" then town else nil, level = st.level, power = st.power, wins = st.race_wins, trophies = st.trophies }
+end
+
 -- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
 local purchases
 local function saveId(userId: number, release: boolean?): boolean
@@ -668,6 +689,7 @@ local function saveId(userId: number, release: boolean?): boolean
 			task.spawn(pcall, function()
 				meet:saveCard(userId, player.DisplayName, cardOf(userId))
 			end)
+			task.spawn(pcall, crews.touch, crews, userId, crewWho(userId))
 		end
 		return wrote
 	end
@@ -1478,6 +1500,72 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			push(player)
 			task.spawn(pcall, mailCount, to)
 			return { sent = true }, nil
+		elseif op == "crew" then
+			-- The Crew tab: the player's crew (and its requests, for officers), or the browser.
+			local mine = crews:mine(player.UserId)
+			local house = Purchases.hasCrewHouse(towns:save(player.UserId))
+			if mine then
+				mine.house = house
+				return mine, nil
+			end
+			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1 }, nil
+		elseif op == "crewCreate" and type(arg) == "table" then
+			-- Starting a crew: a Crew House and $2,000 (data.CLAN_COST), charged once it's made.
+			local data = require(Game.data) :: any
+			local s = towns:save(player.UserId)
+			if not Purchases.hasCrewHouse(s) then
+				return nil, "crew house"
+			end
+			if (s.coins or 0) < data.CLAN_COST then
+				return nil, "coins"
+			end
+			local spec = table.clone(arg)
+			for _, k in { "name", "motto" } do
+				if type(spec[k]) ~= "string" then
+					return nil, k
+				end
+				local clean = filtered(player, spec[k])
+				if not clean or clean ~= spec[k] then
+					return nil, if k == "name" then "name filtered" else "motto filtered"
+				end
+			end
+			local tag = Crews.cleanTag(spec.tag)
+			local cleanTag = tag and filtered(player, tag)
+			if tag and cleanTag ~= tag then
+				return nil, "tag filtered"
+			end
+			local id, no = crews:create(player.UserId, crewWho(player.UserId), spec)
+			if not id then
+				return nil, no
+			end
+			towns:_with(player.UserId, function(st: any)
+				(require(Game.store) :: any).useGame.setState({ coins = math.max(0, (st.coins or 0) - data.CLAN_COST) })
+			end)
+			push(player)
+			return { id = id }, nil
+		elseif op == "crewAsk" and type(arg) == "string" then
+			return crews:ask(player.UserId, crewWho(player.UserId), arg)
+		elseif op == "crewCancel" and type(arg) == "string" then
+			crews:cancel(player.UserId, arg)
+			return true, nil
+		elseif op == "crewRespond" and type(arg) == "table" and type(arg.id) == "number" then
+			return crews:respond(player.UserId, arg.id, arg.yes == true)
+		elseif op == "crewLeave" then
+			local ok, no = crews:leave(player.UserId)
+			return if ok then true else nil, no
+		elseif op == "crewKick" and type(arg) == "number" then
+			local ok, no = crews:kick(player.UserId, arg)
+			return if ok then true else nil, no
+		elseif op == "crewRank" and type(arg) == "table" and type(arg.id) == "number" then
+			local ok, no = crews:setRank(player.UserId, arg.id, arg.rank)
+			return if ok then true else nil, no
+		elseif op == "crewSettings" and type(arg) == "table" then
+			local spec = table.clone(arg)
+			if type(spec.motto) ~= "string" or filtered(player, spec.motto) ~= spec.motto then
+				return nil, "motto filtered"
+			end
+			local ok, no = crews:settings(player.UserId, spec)
+			return if ok then true else nil, no
 		elseif op == "card" and type(arg) == "number" then
 			-- Another player's card: from their town when they're in this server, else as last saved.
 			local other = Players:GetPlayerByUserId(arg)
@@ -1495,6 +1583,7 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			card.here = other ~= nil and other ~= player and views[other] ~= nil
 			card.mine = arg == player.UserId
 			card.likes = meet:likesFor(player.UserId, { arg })[tostring(arg)]
+			card.crew = crews:badge(arg)
 			return card, nil
 		elseif op == "join" and type(arg) == "number" then
 			return join(player, arg)
