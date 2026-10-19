@@ -56,9 +56,10 @@ local DUST_SUN = Color3.fromHex("#ffb070")
 local HEAT_SUN = Color3.fromHex("#fff1d0")
 local BOLT = Color3.fromHex("#eef0ff")
 
--- Built-in particle pictures every Roblox client has: a star (squashed into a streak for rain),
--- a soft round glow (snowflakes) and a ring (splashes).
-local TEX_RAIN = "rbxasset://textures/particles/sparkles_main.dds"
+-- Built-in particle pictures every Roblox client has: a soft round glow (squashed into a streak
+-- for rain, and as it is for snowflakes) and a ring (splashes). The rain used to be a squashed
+-- star, whose thin arms all but vanished from the town view: the rain barely read as rain.
+local TEX_RAIN = "rbxasset://textures/particles/forcefield_glow_main.dds"
 local TEX_SNOW = "rbxasset://textures/particles/forcefield_glow_main.dds"
 local TEX_RING = "rbxasset://textures/particles/explosion01_shockwave_main.dds"
 
@@ -226,8 +227,11 @@ local function light(w: any, night: number, fx: { banks: number, low: number, ra
 	local k = clamp01(math.max(far, fx.banks * (1 - 0.35 * fx.low)))
 	if air then
 		local haze = TownWeather.hazeColor(w, night)
+		-- DayNight thins the air the further back the camera stands (0.08 by the streets), so the
+		-- weather's haze thins with it: from the town view a shower used to drown the town in murk.
 		nudge(air, "Density", function(v)
-			return v + (0.42 - v) * k
+			local thick = 0.42 * math.clamp(v / 0.08, 0, 1)
+			return v + (thick - v) * k
 		end)
 		nudge(air, "Haze", function(v)
 			return v + (2.6 - v) * k
@@ -455,15 +459,20 @@ local function precip(k: Kit, w: any, night: number, fr: Frame, sizes: { rain: n
 	local fall = fr.top / rainV.Magnitude
 	local alive = sizes.rain * rain
 	local len = 1.3 * U * (0.6 + 0.4 * w.rain)
-	local opacity = math.min(1, 0.32 + 0.25 * w.rain + (w.flash or 0) * 0.3)
+	-- The glow is soft, its edges see-through, so it carries a little more than the web's streak.
+	local opacity = math.min(1, 0.55 + 0.3 * w.rain + (w.flash or 0) * 0.3)
 	local rainColor = RAIN_DAY:Lerp(RAIN_NIGHT, night)
 	for _, e in k.rain do
 		e.Enabled = alive > 1
 		e.Rate = alive / fall / #k.rain
 		e.Lifetime = NumberRange.new(fall * 0.95, fall * 1.05)
 		e.Speed = NumberRange.new(rainV.Magnitude)
-		-- Squash 3 makes a particle about four times taller and a quarter as wide.
-		e.Size = NumberSequence.new(math.max(len / 4, fr.px * 1.5))
+		-- Squash 3 makes a particle about four times taller and a quarter as wide. The web draws
+		-- 1.5 pixels wide; the glow's visible core is only about half its square, and Roblox drops
+		-- anything thinner than a pixel or so, so from the town view it's kept three pixels across
+		-- (a streak about 30 pixels long, as the web's). On foot it is that much thicker than the
+		-- web's thin streak, so the core comes out the web's width.
+		e.Size = NumberSequence.new(if fr.free then math.max(len / 4 * 1.5, fr.px * 6) else math.max(len / 4, fr.px * 12))
 		e.Color = ColorSequence.new(rainColor)
 		e.Transparency = seq({ { 0, 1 }, { 0.06, 1 - opacity }, { 1, 1 - opacity } })
 	end
