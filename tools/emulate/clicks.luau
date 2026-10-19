@@ -584,6 +584,14 @@ local function socialDesk(op, arg)
 				table.insert(out, d)
 			end
 			return { displays = out, likes = meetDesk:likesFor(1, { 1, 2, 7 }) }, nil
+		elseif op == "card" then
+			local d = emu.require(G.data)
+			local c = Meet.cardOf(towns:save(arg), emu.require(G.meet).showcaseOf(towns:save(arg).cars, nil), function(car)
+				return d.performance(d.carDef(car.model), car.upgrades, car.mods)
+			end)
+			c.name, c.here, c.mine = "Rosa", arg == 2, arg == 1
+			c.likes = meetDesk:likesFor(1, { arg })[tostring(arg)]
+			return c, nil
 		elseif op == "like" then
 			local r = meetDesk:like(1, arg)
 			if r ~= "liked" then
@@ -1680,6 +1688,22 @@ if SHOTS then
 	signalFor(likeButton, "Activated"):Fire()
 	assert(meetDesk:likes(2) == 2, `liking Rosa's display left {meetDesk:likes(2)} likes`)
 	print("meet: displays, like")
+	-- Rosa's card: tap her display.
+	local openRosa
+	for _, d in hud.gui:GetDescendants() do
+		if d.Name == "Display2" then
+			openRosa = d:FindFirstChild("Open")
+		end
+	end
+	assert(openRosa, "no way to open Rosa's card")
+	signalFor(openRosa, "Activated"):Fire()
+	local cardGui = hud.gui:FindFirstChild("PlayerCard", true)
+	assert(cardGui, "Rosa's card didn't open")
+	local strip = cardGui:FindFirstChild("Strip", true)
+	assert(strip and #strip:GetChildren() > 1, "Rosa's card shows no cars")
+	assert(cardGui:FindFirstChild("Visit", true), "no Visit on Rosa's card")
+	shot("panel-card", nil)
+	print("meet: player card")
 	hud.ctx.close()
 	local info = select(2, socialDesk("visit", 2))
 	hud.ctx.setVisit(info)

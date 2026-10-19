@@ -12,26 +12,17 @@ local data = require(Game.data) :: any
 local meetRules = require(Game.meet) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
-local Thumb = require(script.Parent.Parent.Thumb)
+local Card = require(script.Parent.Card)
 
 local Meet = {}
 
 local CAR = 74 -- a car picture's size
 local ROW_H = 92
 
-local function thumb(car: any, size: number, parent: Instance, order: number?): GuiObject
-	local ok, vp = pcall(function()
-		return Thumb.car(car.model, UDim2.fromOffset(size, size), { color = car.color, finish = car.finish, stripe = car.stripe }, car.hat, car.mods, car.panels, car.trim, car.skin, car.modSkin)
-	end)
-	local box = Ui.new("Frame", { Name = "Car", LayoutOrder = order or 0, Size = UDim2.fromOffset(size, size), BackgroundColor3 = Color3.fromHex("#eef3fb"), Parent = parent }, { Ui.corner(10) })
-	if ok and vp then
-		vp.Size = UDim2.fromScale(1, 1)
-		vp.Parent = box
-	end
-	return box
-end
+local thumb = Card.thumb
 
--- Draws the tab into list. kit: the Friends panel's note and visit(userId), and toast.
+-- Draws the tab into list. kit: the Friends panel's note, visit(userId), card(userId, name, town)
+-- and toast.
 function Meet.draw(list: Instance, kit: any, state: any)
 	local function redraw()
 		for _, c in list:GetChildren() do
@@ -132,6 +123,10 @@ function Meet.draw(list: Instance, kit: any, state: any)
 			if d.here then
 				Ui.text({ Text = "🟢 in this server", Body = true, TextSize = 12, TextColor3 = Color3.fromHex("#2e7d32"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 58), Size = UDim2.fromOffset(150, 16), Parent = row })
 			end
+			-- Tapping the driver or their cars opens their card.
+			Ui.new("TextButton", { Name = "Open", Text = "", BackgroundTransparency = 1, ZIndex = 0, Size = UDim2.new(1, -200, 1, 0), Parent = row }).Activated:Connect(function()
+				kit.card(d.id, tostring(d.name or "Driver"), d.town)
+			end)
 			local cars = Ui.new("Frame", { Name = "Cars", Position = UDim2.fromOffset(168, (ROW_H - CAR) / 2), Size = UDim2.new(1, -168 - 200, 0, CAR), BackgroundTransparency = 1, ClipsDescendants = true, Parent = row }, {
 				Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 			})
@@ -141,21 +136,7 @@ function Meet.draw(list: Instance, kit: any, state: any)
 			local acts = Ui.new("Frame", { Name = "Acts", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(186, 36), BackgroundTransparency = 1, Parent = row }, {
 				Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 			})
-			local l = likes[tostring(d.id)] or { likes = 0, liked = false }
-			local likeFace: TextButton
-			local likeText: TextLabel
-			local _, face = Ui.buy({ Name = "Like", LayoutOrder = 1, Size = UDim2.fromOffset(78, 34), Parent = acts }, `{if l.liked then "❤️" else "🤍"} {l.likes}`, if l.liked then "garage" else "green", function()
-				if l.liked then
-					return
-				end
-				local liked, r = Remote.social("like", d.id)
-				if liked then
-					l.liked, l.likes = true, r.likes
-					likeText.Text = `❤️ {l.likes}`
-				end
-			end, 15)
-			likeFace = face
-			likeText = likeFace:FindFirstChildWhichIsA("TextLabel", true) :: TextLabel
+			Card.like(acts, d.id, likes[tostring(d.id)] or { likes = 0, liked = false }, { LayoutOrder = 1, Size = UDim2.fromOffset(78, 34) })
 			if d.here then
 				Ui.buy({ Name = "Visit", LayoutOrder = 2, Size = UDim2.fromOffset(96, 34), Parent = acts }, "🏠 Visit", "garage", function()
 					kit.visit(d.id)

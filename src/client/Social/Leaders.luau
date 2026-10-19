@@ -38,7 +38,7 @@ local function n(v: number): string
 end
 
 -- Draws the tab into list (a scrolling list with a UIListLayout). kit: the Friends panel's row,
--- heading and note, and visit(userId).
+-- heading and note, visit(userId) and card(userId, name, town).
 function Leaders.draw(list: Instance, kit: any, state: any)
 	state.metric = state.metric or "power"
 	state.period = state.period or "all"
@@ -144,6 +144,9 @@ function Leaders.draw(list: Instance, kit: any, state: any)
 				on = r.here == true or mine,
 				line = `{place} · {icon} {plus}{n(r.value)} · {r.town} · Lvl {r.level}`,
 				buttons = buttons,
+				onTap = function()
+					kit.card(r.id, r.name, r.town)
+				end,
 			})
 		end
 	end)
