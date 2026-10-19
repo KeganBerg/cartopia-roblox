@@ -206,7 +206,7 @@ function Ui.shadowed(props: { [string]: any }, opts: { [string]: any }): (Frame,
 		Ui.gradient(c[1], c[2], opts.split).Parent = face
 	end
 	if th > 0 then
-		Ui.stroke(th, opts.strokeColor or Ui.LINE).Parent = face
+		Ui.stroke(th, opts.strokeColor or Ui.LINE, opts.strokeTransparency).Parent = face
 	end
 	face.Parent = shadow
 	shadow.Parent = props.Parent
@@ -298,7 +298,9 @@ end
 
 -- A navy counter pill (theme.css .pill / .my-cars): navy gradient, outline, drop shadow.
 function Ui.pill(props: { [string]: any }, radius: number?): (Frame, Frame)
-	local shadow, face = Ui.shadowed(props, { radius = radius or 20, stroke = 2.5, drop = 3, dark = 0.35, colors = "navy" })
+	-- A touch softer than the web's 2.5px near-black outline: on Roblox that edge reads hard and
+	-- jagged at HUD sizes, so it's a little thinner, a little see-through, with a lighter drop.
+	local shadow, face = Ui.shadowed(props, { radius = radius or 20, stroke = 2, strokeTransparency = 0.25, drop = 3, dark = 0.25, colors = "navy" })
 	Ui.new("Frame", {
 		Name = "Gloss",
 		ZIndex = 0,

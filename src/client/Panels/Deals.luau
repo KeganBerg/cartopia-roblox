@@ -158,12 +158,15 @@ local function card(parent: Instance, ctx: any, order: number, deal: any, slot: 
 	local fade = if used then 0.4 elseif locked then 0.25 else 0
 	Ui.text({ Text = string.upper(slot), TextSize = 12, TextColor3 = Color3.fromHex("#8d6e63"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(6, 4), Size = UDim2.new(1, -12, 0, 15), ZIndex = 3, Parent = box })
 	if not used then
-		local w = Ui.textWidth(`-{pct}%`, 13) + 14
-		local off = Ui.new("Frame", { Name = "Off", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 6, 0, -9), Size = UDim2.fromOffset(w, 20), Rotation = 6, BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 5, Parent = box }, {
-			Ui.corner(10),
+		-- The web tilts this pill 6 degrees, but Roblox draws turned text and corners soft and
+		-- jagged, so it stays level here: whole pixels, a white rim and a dark edge on the text.
+		local w = Ui.textWidth(`-{pct}%`, 14) + 16
+		local off = Ui.new("Frame", { Name = "Off", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 6, 0, -10), Size = UDim2.fromOffset(math.ceil(w), 22), BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 5, Parent = box }, {
+			Ui.corner(11),
+			Ui.stroke(1.5, Ui.WHITE),
 		})
-		Ui.new("Frame", { Position = UDim2.fromOffset(0, 2), Size = UDim2.fromScale(1, 1), BackgroundColor3 = Ui.BLACK, BackgroundTransparency = 0.75, ZIndex = 4, Parent = off }, { Ui.corner(10) })
-		Ui.text({ Text = `-{pct}%`, TextSize = 13, Size = UDim2.fromScale(1, 1), ZIndex = 6, Parent = off })
+		Ui.new("Frame", { Position = UDim2.fromOffset(0, 2), Size = UDim2.fromScale(1, 1), BackgroundColor3 = Ui.BLACK, BackgroundTransparency = 0.75, ZIndex = 4, Parent = off }, { Ui.corner(11) })
+		Ui.text({ Text = `-{pct}%`, TextSize = 14, Size = UDim2.fromScale(1, 1), Stroke = 1, StrokeColor = Color3.fromHex("#8e1b18"), ZIndex = 6, Parent = off })
 	end
 	local pic = Ui.new("Frame", { Name = "Art", Position = UDim2.fromOffset(6, 22), Size = UDim2.new(1, -12, 0, 72), BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 3, Parent = box })
 	art(pic, deal, o)
