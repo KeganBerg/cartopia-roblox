@@ -424,12 +424,11 @@ function Horizon.sky(phase: number): Color3?
 	if not best or best.faces.Up == 0 then
 		return nil
 	end
-	if best ~= current then
-		if current == nil or ready[best] then
-			current = best
-		elseif not loading[best] then
-			loading[best] = true
-			local step = best
+	-- The steps either side load ahead, so each change shows the moment its time comes.
+	local at = table.find(SkyImages.steps, best)
+	for _, step in { best, SkyImages.steps[(at or 0) - 1], SkyImages.steps[(at or 0) + 1] } do
+		if step and not ready[step] and not loading[step] and step.faces.Up ~= 0 then
+			loading[step] = true
 			task.spawn(function()
 				local list = {}
 				for _, face in FACES do
@@ -439,6 +438,9 @@ function Horizon.sky(phase: number): Color3?
 				ready[step] = true
 			end)
 		end
+	end
+	if best ~= current and (current == nil or ready[best]) then
+		current = best
 	end
 	best = current
 	local sky = Lighting:FindFirstChildWhichIsA("Sky")

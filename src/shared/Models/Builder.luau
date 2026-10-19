@@ -19,6 +19,7 @@ local Builder = {}
 -- Written by the model build (tools/models/build.mjs); empty in a build from before mods.
 local MOD_DROPS: { [string]: any } = (Catalog :: any).MOD_DROPS or {}
 local WHEELS: { [string]: any } = (Catalog :: any).WHEELS or {}
+local SPINS: { [string]: any } = (Catalog :: any).SPINS or {}
 local PANEL_DROPS: { [string]: any } = (Catalog :: any).PANEL_DROPS or {}
 local TRIM: { [string]: any } = (Catalog :: any).TRIM or {}
 
@@ -631,8 +632,8 @@ local function template(name: string): Model?
 	local mod = name:sub(1, 4) == "mod:" or name:sub(1, 6) == "panel:"
 	local scenery = (merged ~= nil or mod or name:sub(1, 7) == "stripe:" or name:sub(1, 4) == "hat:") and not Builder.previewMeshes
 	-- A car's parts and its mods' are named by their place in the list, which Catalog.MOD_DROPS,
-	-- WHEELS, PANEL_DROPS and TRIM point at.
-	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil or PANEL_DROPS[name] ~= nil or TRIM[name] ~= nil
+	-- WHEELS, PANEL_DROPS, TRIM and SPINS point at.
+	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil or PANEL_DROPS[name] ~= nil or TRIM[name] ~= nil or SPINS[name] ~= nil
 	local missing = false
 	local stood = false
 	for i, p in parts do
