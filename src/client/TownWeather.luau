@@ -34,6 +34,7 @@ local TownCamera = require(script.Parent.TownCamera)
 local TownWeather = {}
 
 local U = 10 -- studs per web unit (Catalog.SCALE, TownCamera.STUDS_PER_UNIT)
+local BOW_PIECES = 24 -- straight pieces per rainbow band
 
 -- Weather.tsx SIZES: how many drops, splashes and flakes at full strength (small: phones).
 -- Roblox draws particles on the CPU's side of the budget, so the town keeps half the web's drops.
@@ -331,23 +332,30 @@ local function build(): Kit
 		b.Parent = anchor
 		table.insert(bolt, b)
 	end
-	-- The rainbow: six bands of the main bow and six of the faint second bow outside it.
+	-- The rainbow: six bands of the main bow and six of the faint second bow outside it. Each band is
+	-- BOW_PIECES straight beams along its arc (Roblox draws one long curved beam as a sharp V).
 	local bow, bowAt = {}, {}
 	for i = 1, 12 do
-		local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
-		a0.Name, a1.Name = `Bow{i}a`, `Bow{i}b`
-		a0.Parent, a1.Parent = anchor, anchor
-		local b = Instance.new("Beam")
-		b.Name = `Bow{i}`
-		b.Attachment0, b.Attachment1 = a0, a1
-		b.FaceCamera = true
-		b.LightEmission = 1
-		b.LightInfluence = 0
-		b.Segments = 24
-		b.Enabled = false
-		b.Parent = anchor
-		table.insert(bow, b)
-		table.insert(bowAt, { a0, a1 })
+		local ats = {}
+		for j = 0, BOW_PIECES do
+			local a = Instance.new("Attachment")
+			a.Name = `Bow{i}_{j}`
+			a.Parent = anchor
+			table.insert(ats, a)
+		end
+		for j = 1, BOW_PIECES do
+			local b = Instance.new("Beam")
+			b.Name = `Bow{i}_{j}`
+			b.Attachment0, b.Attachment1 = ats[j], ats[j + 1]
+			b.FaceCamera = true
+			b.LightEmission = 1
+			b.LightInfluence = 0
+			b.Segments = 1
+			b.Enabled = false
+			b.Parent = anchor
+			table.insert(bow, b)
+		end
+		table.insert(bowAt, ats)
 	end
 	folder.Parent = workspace
 	return { folder = folder, sky = sky, ground = ground, anchor = anchor, rain = rain, snow = snow, splash = splash, bolt = bolt, boltAt = boltAt, bow = bow, bowAt = bowAt }
@@ -610,19 +618,30 @@ local function rainbow(k: Kit, o: number, cam: Camera, origin: Vector3)
 		local b = (j - 0.5) / 6
 		local r = (if second then 1.1 + b * 0.09 else 0.96 - b * 0.1) * BOW_RADIUS * s
 		local a = (if second then 0.35 else 1) * math.sin(b * math.pi) * o * 0.55
-		local beam = k.bow[i]
-		local a0, a1 = k.bowAt[i][1], k.bowAt[i][2]
-		-- Each band is a half circle: a cubic curve from one foot to the other, its handles
-		-- straight up 4/3 of the radius (the attachments' X axis points up the screen).
-		place(k, a0, CFrame.fromMatrix(feet - right * r, up, right))
-		place(k, a1, CFrame.fromMatrix(feet + right * r, up, right))
-		beam.CurveSize0 = r * 4 / 3
-		beam.CurveSize1 = -r * 4 / 3
 		local w = (if second then 0.09 else 0.1) * BOW_RADIUS * s / 6 * 1.15
-		beam.Width0, beam.Width1 = w, w
-		beam.Color = ColorSequence.new(hue(b * 0.78))
-		local tr = 1 - a
-		beam.Transparency = seq({ { 0, 1 }, { 0.08, 1 - a * 0.3 }, { 0.18, tr }, { 0.82, tr }, { 0.92, 1 - a * 0.3 }, { 1, 1 } })
+		local color = ColorSequence.new(hue(b * 0.78))
+		-- How see-through the band is at t (0 at one foot, 1 at the other): fading out at the feet.
+		local function fade(t: number): number
+			local e = math.min(t, 1 - t)
+			if e <= 0.08 then
+				return 1 - (e / 0.08) * a * 0.3
+			elseif e <= 0.18 then
+				return (1 - a * 0.3) + ((e - 0.08) / 0.1) * (a * 0.3 - a)
+			end
+			return 1 - a
+		end
+		-- A half circle standing over the feet, from the left foot over the top to the right.
+		local ats = k.bowAt[i]
+		for p = 0, BOW_PIECES do
+			local ang = math.pi * (1 - p / BOW_PIECES)
+			place(k, ats[p + 1], CFrame.new(feet + right * (r * math.cos(ang)) + up * (r * math.sin(ang))))
+		end
+		for p = 1, BOW_PIECES do
+			local beam = k.bow[(i - 1) * BOW_PIECES + p]
+			beam.Width0, beam.Width1 = w, w
+			beam.Color = color
+			beam.Transparency = NumberSequence.new(fade((p - 1) / BOW_PIECES), fade(p / BOW_PIECES))
+		end
 	end
 end
 
