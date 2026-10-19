@@ -129,7 +129,7 @@ end
 
 function Friends.open(ctx: any, arg: any?): Instance
 	local overlay, _sheet, body = Ui.panel(ctx.gui, "Social", { wide = true, onClose = ctx.close, bodyTop = 0 })
-	local soon = { clan = "Crews", meet = "The Car Meet" }
+	local soon = { clan = "Crews are", meet = "The Car Meet is" }
 	local first = if arg == "leaders" then "leaders" else "friends"
 	local pick: (string) -> ()
 	local show: (string) -> ()
@@ -140,7 +140,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 		{ id = "leaders", label = "🏅 Leaderboards" },
 	}, first, function(id)
 		if soon[id] then
-			ctx.toast(`{soon[id]} are coming to Roblox soon`)
+			ctx.toast(`{soon[id]} coming to Roblox soon`)
 			pick("friends")
 			return
 		end
