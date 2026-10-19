@@ -268,6 +268,7 @@ make("RemoteFunction", "Act", remotes)
 make("RemoteEvent", "Town", remotes)
 make("RemoteFunction", "Race", remotes)
 make("RemoteFunction", "Crate", remotes)
+make("RemoteFunction", "Social", remotes)
 make("RemoteFunction", "Meshes", remotes)
 remotes.Parent = RS
 -- The model library the server makes for shop pictures.
