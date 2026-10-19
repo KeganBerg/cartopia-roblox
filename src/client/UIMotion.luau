@@ -63,6 +63,11 @@ local soundPlay: ((string) -> ())? = nil
 local soundLast: (() -> number)? = nil
 
 local function reducedMotion()
+	-- Settings > Reduce motion (client/Prefs), else Roblox's own setting.
+	local me = game:GetService("Players").LocalPlayer
+	if me and me:GetAttribute("ReduceMotion") == true then
+		return true
+	end
 	local ok, on = pcall(function()
 		return GuiService.ReducedMotionEnabled
 	end)

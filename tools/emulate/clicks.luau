@@ -291,7 +291,12 @@ local duels = emu.require(SSS.Server.Duels).new({
 })
 races.mods.duels = duels
 races.mods.liveCard = duels.mods.card
+-- What the client sends on the Prefs remote (its settings, to be kept with the account).
+local prefsSent = {}
 roblox.implementMethod("RemoteEvent", "FireServer", function(remote, event, payload)
+	if remote.Name == "Prefs" then
+		table.insert(prefsSent, event)
+	end
 	if remote.Name == "Duel" then
 		partyCheck(`duel {event} from the client`, payload)
 		if event == "pos" then
@@ -1243,6 +1248,8 @@ local function clickAll(label, open, screen)
 			print(`[{label}] {if changed or #calls > 0 then "does something" else "NO VISIBLE EFFECT"}: {where} {table.concat(calls, ", ")}`)
 		end
 		scanDead(label)
+		-- The shutter (client/ShotMode) hides every menu: bring them back for the next press.
+		emu.require(client.ShotMode).exit()
 		-- A race a click started: leave it, so the next click starts from the menu again.
 		local raceScreen = raceScreen()
 		if raceScreen then
@@ -1437,8 +1444,11 @@ print(`{total} buttons pressed, {bad} problems, {silent} not wired`)
 local fs = require("@lune/fs")
 local serde = require("@lune/serde")
 local Gui = require("./gui")
+-- SHOTS_ONLY=tools-: only the pictures whose names start with it, without the real models (quick
+-- pictures of menus). (Read here: the file's top level is out of local slots.)
 local function shot(name, world, w, h)
-	if not SHOTS then
+	local only = process.env.SHOTS_ONLY
+	if not SHOTS and not (only and name:sub(1, #only) == only) then
 		return
 	end
 	local parts = {}
@@ -6034,5 +6044,629 @@ do
 	end
 	checkCalls("free camera")
 	print(`colour, tracks and free camera: {problems} problems`)
+	bad += problems
+end
+
+-- Help, settings and town tools: Menu > Settings (graphics, the FPS counter, reduce motion and
+-- flashing, the "Are you sure?" questions), Menu > Help's flashing warning, every "How to get"
+-- sheet and its Show me, the season recap card, a one-time tip and its pulse, a tap tip, the
+-- screenshot mode's two buttons, the edit bar's traffic meter and the Sell car question.
+-- SHOTS=1 writes build/shot-tools-*.json, wide and on a phone.
+do
+	hud.ctx.close()
+	local Placement = emu.require(client.Placement)
+	Placement.cancel()
+	Emu.resumeWaits()
+	local problems = 0
+	local function problem(msg)
+		problems += 1
+		print(`[tools] PROBLEM {msg}`)
+	end
+	local Prefs = emu.require(client.Prefs)
+	local Fps = emu.require(client.Fps)
+	local TapTip = emu.require(client.TapTip)
+	local Jobs = emu.require(client.Jobs)
+	local Tips = emu.require(client.Popups.Tips)
+	local Confirm = emu.require(client.Confirm)
+	local trafficRules = emu.require(G.traffic)
+	local lighting = game:GetService("Lighting")
+	local uis = game:GetService("UserInputService")
+	local root = hud.root
+	-- The saved settings travel as JSON (server/Prefs), and changes go back on the Prefs remote.
+	pcall(roblox.implementMethod, "HttpService", "JSONDecode", function(_, s)
+		return serde.decode("json", s)
+	end)
+	pcall(roblox.implementMethod, "HttpService", "JSONEncode", function(_, v)
+		return serde.encode("json", v)
+	end)
+	if not remotes:FindFirstChild("Prefs") then
+		local p = Instance.new("RemoteEvent")
+		p.Name = "Prefs"
+		p.Parent = remotes
+	end
+	local toasts = {}
+	local toastWas = hud.ctx.toast
+	hud.ctx.toast = function(text)
+		table.insert(toasts, text)
+		toastWas(text)
+	end
+	local function lastToast()
+		local t = toasts[#toasts] or ""
+		table.clear(toasts)
+		return t
+	end
+	local function textIn(r, text)
+		return find(r, function(d)
+			return (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text == text
+		end)
+	end
+	-- Presses the button showing `text` (or holding a label that does).
+	local function press(r, text)
+		local l = r and textIn(r, text)
+		local b = l and (if l:IsA("GuiButton") then l else l:FindFirstAncestorWhichIsA("GuiButton"))
+		if not b then
+			problem(`no "{text}" button`)
+			return false
+		end
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+		return true
+	end
+	-- The switch on the settings row labelled `text`.
+	local function switchOf(r, text)
+		local l = textIn(r, text)
+		return l and l.Parent and l.Parent:FindFirstChildWhichIsA("TextButton")
+	end
+	local function flip(r, text)
+		local sw = switchOf(r, text)
+		if not sw then
+			problem(`no switch for "{text}"`)
+			return
+		end
+		signalFor(sw, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	local function phone(name)
+		root.Size = roblox.UDim2.fromOffset(1535, 709)
+		shot(`{name}-phone`, nil, 1535, 709)
+		root.Size = roblox.UDim2.fromOffset(1280, 800)
+	end
+	local function panel()
+		return root:FindFirstChild("Panel")
+	end
+	-- The flashing warning comes up once at launch when the settings arrive, waiting for the town
+	-- (not over a menu): Got it.
+	local launchSeen = false
+	local function closeLaunchWarning()
+		local w = root:FindFirstChild("FlashWarning")
+		if not w then
+			return
+		end
+		launchSeen = true
+		print("flashing warning: up at launch, over the town")
+		local ok = find(w, function(d)
+			return d.Name == "GotIt" and d:IsA("GuiButton")
+		end)
+		if ok then
+			signalFor(ok, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		if w.Parent then
+			problem("Got it didn't close the launch flashing warning")
+		end
+	end
+
+	-- The saved settings arrive (as server/Prefs sets them on the player).
+	player:SetAttribute("UiPrefs", serde.encode("json", { graphics = "auto", fps = false, flashHide = false, askLeave = true, askSell = true, tips = {} }))
+	Prefs.load()
+	if not Prefs.loaded then
+		problem("the saved settings didn't load")
+	end
+	-- The flashing warning may come up once they're in (it waits for them at launch).
+	for _ = 1, 3 do
+		Emu.resumeWaits()
+	end
+	closeLaunchWarning()
+	local fw
+	Fps.start()
+	TapTip.start()
+
+	-- (Shared by the parts below, each in its own block: this file is out of local slots.)
+	local drainPopups, relRects
+	do
+		-- Menu > Settings.
+		hud.openPanel("menu")
+		press(panel(), "⚙️ Settings")
+		shot("tools-settings")
+		phone("tools-settings")
+		local saver = find(panel(), function(d)
+			return d:IsA("TextButton") and d.Name == "saver" and d.Parent and d.Parent.Name == "Seg"
+		end)
+		if saver then
+			signalFor(saver, "Activated"):Fire()
+			Emu.resumeWaits()
+		else
+			problem("no Saver choice under Graphics")
+		end
+		print(`settings: graphics {player:GetAttribute("Graphics")}, shadows {lighting.GlobalShadows}, note "{(function()
+			local n = find(panel(), function(d)
+				return d:IsA("TextLabel") and d.Name == "Note"
+			end)
+			return n and n.Text or "?"
+		end)()}"`)
+		if player:GetAttribute("Graphics") ~= "saver" or lighting.GlobalShadows ~= false then
+			problem("Saver didn't turn the shadows off")
+		end
+		local auto = find(panel(), function(d)
+			return d:IsA("TextButton") and d.Name == "auto" and d.Parent and d.Parent.Name == "Seg"
+		end)
+		if auto then
+			signalFor(auto, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		if player:GetAttribute("Graphics") ~= "auto" or lighting.GlobalShadows ~= true then
+			problem("Auto didn't bring the shadows back")
+		end
+		flip(panel(), "FPS counter")
+		local fpsGui = player.PlayerGui:FindFirstChild("Fps")
+		print(`settings: FPS counter {if fpsGui and fpsGui.Enabled then "on" else "off"}`)
+		if not (fpsGui and fpsGui.Enabled) then
+			problem("the FPS counter didn't show")
+		end
+		flip(panel(), "FPS counter")
+		if fpsGui and fpsGui.Enabled then
+			problem("the FPS counter didn't hide")
+		end
+		flip(panel(), "Reduce motion")
+		local motion = player:GetAttribute("ReduceMotion")
+		flip(panel(), "Reduce motion")
+		flip(panel(), "Reduce flashing")
+		local calm = player:GetAttribute("CalmFlashing")
+		flip(panel(), "Reduce flashing")
+		print(`settings: reduce motion -> {motion}, reduce flashing -> {calm}, back to {player:GetAttribute("ReduceMotion")}/{player:GetAttribute("CalmFlashing")}`)
+		if motion ~= true or calm ~= true or player:GetAttribute("CalmFlashing") ~= false then
+			problem("the accessibility switches didn't set their attributes")
+		end
+		flip(panel(), "Selling a car")
+		local askSell = Confirm.prefs.askSell
+		flip(panel(), "Selling a car")
+		if askSell ~= false or Confirm.prefs.askSell ~= true then
+			problem("Ask first > Selling a car didn't switch")
+		end
+		-- The changes go back to be kept with the account, a moment later.
+		local sent = prefsSent[#prefsSent]
+		print(`settings: {#prefsSent} saves sent, last graphics {sent and sent.ui and sent.ui.graphics}`)
+		if not (sent and sent.ui and sent.ui.graphics == "auto" and sent.ui.askSell == true) then
+			problem("the settings weren't sent to be kept")
+		end
+	end
+
+	do
+		-- Menu > Help: the flashing warning again.
+		press(panel(), "❓ Help")
+		shot("tools-help")
+		press(panel(), "⚡ Photosensitivity warning")
+		fw = root:FindFirstChild("FlashWarning")
+		if fw then
+			shot("tools-flash")
+			phone("tools-flash")
+			local ok = find(fw, function(d)
+				return d.Name == "GotIt" and d:IsA("GuiButton")
+			end)
+			if ok then
+				signalFor(ok, "Activated"):Fire()
+				Emu.resumeWaits()
+			end
+			if fw.Parent then
+				problem("Got it didn't close the flashing warning")
+			end
+			print("help: the flashing warning opened and closed")
+		else
+			problem("the photosensitivity link didn't open the warning")
+		end
+		hud.ctx.close()
+		Emu.resumeWaits()
+	end
+
+	do
+		-- Every "How to get" sheet, row by row as the web's (ui/Need.tsx).
+		local WANT = {
+			coins = { "Run jobs at your businesses", "Open crates", "Search at Rusty's", "Win drag races", "Finish goals", "Help other towns", "Daily bonus" },
+			parts = { "Rusty's Rescue searches", "Tire Shop · 6 parts per job (level 2)", "Lube & Go · 8 parts per job (level 4)", "Parts Depot · 15 parts per job (level 5)", "Tuner Shop · 25 parts per job (level 7)", "Daily bonus day 4" },
+			fuel = { "Fill up with gems", "Wait for a refill", "Build a Gas Station", "Level up", "Daily bonus day 3" },
+			bucks = { "Level up", "Finish goals", "Spin the daily wheel" },
+			level = { "Collect from businesses", "Build and buy", "Race", "Goals" },
+		}
+		for _, res in { "coins", "parts", "fuel", "bucks", "level" } do
+			hud.ctx.close()
+			hud.openPanel("need", { res = res, missing = if res == "level" then 8 else 25, what = if res == "level" then "The Speedway" else nil })
+			local p = panel()
+			local titles = {}
+			if p then
+				for _, d in p:GetDescendants() do
+					if d:IsA("Frame") and d.Name == "Source" then
+						for _, c in d:GetChildren() do
+							if c:IsA("TextLabel") and c.Position.Y.Offset == 7 then
+								table.insert(titles, c.Text)
+							end
+						end
+					end
+				end
+			end
+			print(`need {res}: {table.concat(titles, " / ")}`)
+			for _, w in WANT[res] do
+				local hit = false
+				for _, t in titles do
+					if t == w or t:sub(1, #w) == w then
+						hit = true
+					end
+				end
+				if not hit then
+					problem(`the {res} sheet has no "{w}" row`)
+				end
+			end
+			if res == "coins" or res == "fuel" then
+				shot(`tools-need-{res}`)
+				phone(`tools-need-{res}`)
+			end
+		end
+		-- Show me: back to the town with the businesses' bubbles flashing.
+		hud.ctx.close()
+		hud.openPanel("need", { res = "coins", missing = 25 })
+		press(panel(), "Show me")
+		local flashing = {}
+		for _, b in towns:snapshot(1).save.buildings do
+			if Jobs.flashing(b.def) and not table.find(flashing, b.def) then
+				table.insert(flashing, b.def)
+			end
+		end
+		print(`need: Show me -> panel {if panel() then "still open" else "closed"}, flashing {table.concat(flashing, ", ")}, toast "{lastToast()}"`)
+		if panel() then
+			problem("Show me didn't go back to the town")
+		end
+
+		-- Pop-ups queued by the sections before (a level-up, say): closed the way a player would, once
+		-- each one's button is in, until `stop` matches the one up.
+		local OK = { Continue = true, ["Nice!"] = true, ["Awesome!"] = true, Later = true, Collect = true }
+		function drainPopups(stop)
+			for _ = 1, 16 do
+				local p = root:FindFirstChild("Popup")
+				if not p then
+					return nil
+				end
+				if stop and stop(p) then
+					return p
+				end
+				local b = find(p, function(d)
+					return d:IsA("TextButton") and d.Name == "Face" and OK[label(d)] == true
+				end)
+				if b then
+					signalFor(b, "Activated"):Fire()
+				end
+				Emu.resumeWaits()
+			end
+			return nil
+		end
+	end
+
+	do
+		-- The season recap card, as a new season starts.
+		hud.ctx.close()
+		Emu.resumeWaits()
+		closeLaunchWarning()
+		towns:_with(1, function()
+			store.useGame.setState({ recap = { n = 3, name = "Season 3", icon = "🌸", races = 14, wins = 9, trophies = 42, coins = 18250, cars = 2, stars = 31, tiers = 4, repFrom = 1, repTo = 2 } })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		Emu.resumeWaits()
+		local recapPop = drainPopups(function(p)
+			return p:FindFirstChild("Recap", true) ~= nil
+		end)
+		if recapPop then
+			local stats = {}
+			for _, d in recapPop:GetDescendants() do
+				if d:IsA("TextLabel") and d.Name == "Value" then
+					table.insert(stats, d.Text)
+				end
+			end
+			print(`recap: "{textIn(recapPop, "🌸 Season 3") and "🌸 Season 3" or "?"}", stats {table.concat(stats, " ")}`)
+			shot("tools-recap")
+			phone("tools-recap")
+			press(recapPop, "📤 Share")
+			press(recapPop, "On to the new season!")
+			if recapPop.Parent then
+				problem("the recap card didn't close")
+			end
+			if towns:snapshot(1).save.recap ~= nil then
+				problem("closing the recap didn't clear it on the town")
+			end
+		else
+			problem("the season recap card didn't come up")
+		end
+	end
+
+	do
+		-- A one-time tip over the plain town, with the pulse on what it points at. (The flashing
+		-- warning comes up once at launch when the settings arrive, after the menus above: Got it.)
+		hud.ctx.close()
+		Emu.resumeWaits()
+		closeLaunchWarning()
+		drainPopups()
+		-- The crate depot hides the HUD's corners while it's up; the sections before close its menu in
+		-- ways that can leave the left corner (which the HUD itself never hides) hidden: show it again.
+		local leftCorner = root:FindFirstChild("Left")
+		if leftCorner and not leftCorner.Visible then
+			print("tips: (the HUD's left corner was still hidden by an earlier menu; shown again)")
+			leftCorner.Visible = true
+		end
+		relRects = {}
+		Gui.onNode = function(g, n)
+			relRects[idOf(g)] = n
+		end
+		Gui.dump(hud.gui, 1280, 800)
+		Gui.onNode = nil
+		for _, d in root:GetDescendants() do
+			local n = d:IsA("GuiObject") and d:GetAttribute("Tut") and relRects[idOf(d)]
+			if n then
+				d.AbsoluteSize = roblox.Vector2.new(n.abs[3], n.abs[4])
+				d.AbsolutePosition = roblox.Vector2.new(n.abs[1], n.abs[2])
+			end
+		end
+		if not Tips.calm({ level = 5, tutorial = 99 }) then
+			local Kit = emu.require(client.Popups.Kit)
+			local kids = {}
+			for _, n in { "Popup", "FlashWarning", "Tutorial", "Panel" } do
+				if root:FindFirstChild(n) then
+					table.insert(kids, n)
+				end
+			end
+			problem(`a tip wouldn't show over the plain town: panel {tostring(hud.ctx.panel())}, visit {tostring(hud.ctx.visiting)}, edit {tostring(Placement.active())}, pop-up {tostring(Kit.showing())}, hud {tostring(Kit.hudUp())}, over it [{table.concat(kids, ",")}], NeedsPlot {tostring(player:GetAttribute("NeedsPlot"))}`)
+		end
+		if Tips.calm({ level = 5, tutorial = 4 }) then
+			problem("a tip would show during the tutorial")
+		end
+		if Tips.pick then
+			Tips.pick()
+		end
+		local tipNow = Tips.current()
+		if renderSteps.Tips or Tips.frame then
+			(renderSteps.Tips or Tips.frame)()
+		end
+		local card = root:FindFirstChild("Tip")
+		local ring = root:FindFirstChild("TipPulse")
+		print(`tips: "{tipNow and tipNow.id or "none"}", card {if card then "up" else "none"}, pulse {if ring and ring.Visible then "on" else "off"}`)
+		if not tipNow or not card then
+			local st = store.useGame.getState()
+			problem(`no tip came up over the plain town (calm {tostring(Tips.calm(st))}: level {tostring(st.level)}, tutorial {tostring(st.tutorial)}, visiting {tostring(st.visiting)})`)
+		else
+			shot("tools-tip")
+			phone("tools-tip")
+			if not (ring and ring.Visible) then
+				local why = {}
+				for _, d in hud.gui:GetDescendants() do
+					if d:GetAttribute("Tut") == tipNow.target and d:IsA("GuiObject") then
+						local hidden = {}
+						local p = d
+						while p and p ~= hud.gui do
+							if p:IsA("GuiObject") and not p.Visible then
+								table.insert(hidden, p.Name)
+							end
+							p = p.Parent
+						end
+						table.insert(why, `{d:GetFullName()} size {d.AbsoluteSize.X} hidden [{table.concat(hidden, ",")}]`)
+					end
+				end
+				problem(`the tip's pulse isn't on its button ({table.concat(why, "; ")})`)
+			end
+			if not press(card, if tipNow.go then "Later" else "Got it") then
+				Tips.close()
+			end
+			if renderSteps.Tips or Tips.frame then
+				(renderSteps.Tips or Tips.frame)()
+			end
+			if root:FindFirstChild("Tip") or not Prefs.seen(tipNow.id) then
+				problem("closing the tip didn't mark it seen")
+			end
+			Tips.pick()
+			if Tips.current() then
+				problem("a second tip came straight after the first")
+			end
+		end
+	end
+
+	do
+		-- A tap tip: the fuel refill rate under the fuel gauge.
+		local fuelTap = find(root, function(d)
+			return d:IsA("TextButton") and d.Name == "TipTap" and d.Parent and tostring(d.Parent:GetAttribute("Tip") or ""):find("^Fuel refill") ~= nil
+		end)
+		if fuelTap then
+			local n = relRects[idOf(fuelTap.Parent)]
+			if n then
+				fuelTap.Parent.AbsoluteSize = roblox.Vector2.new(n.abs[3], n.abs[4])
+				fuelTap.Parent.AbsolutePosition = roblox.Vector2.new(n.abs[1], n.abs[2])
+			end
+			-- (Read before the waits run: the bubble goes by itself after a few seconds.)
+			signalFor(fuelTap, "Activated"):Fire()
+			local b = TapTip.showing()
+			if b then
+				-- Its picture, drawn with the HUD.
+				local layer = b.Parent
+				b.Parent = hud.gui
+				shot("tools-taptip")
+				b.Parent = layer
+			end
+			local words = {}
+			if b then
+				for _, d in b:GetDescendants() do
+					if d:IsA("TextLabel") then
+						table.insert(words, d.Text)
+					end
+				end
+			end
+			print(`tap tip: {if b then "showing" else "none"} "{table.concat(words, " ")}"`)
+			if not b then
+				local okShow, err = pcall(TapTip.show, fuelTap.Parent, TapTip.bodyFor("Fuel refill rate"))
+				problem(`tapping the fuel rate didn't explain it (tap tips layer {if player.PlayerGui:FindFirstChild("TapTips") then "up" else "missing"}; shown by hand: {okShow} {tostring(err)}; handler errors {table.concat(handlerErrors, " / ")})`)
+			end
+			TapTip.hide()
+		else
+			problem("the fuel rate has no tap tip")
+		end
+		local sk = TapTip.skillBody("launch")
+		local loves = TapTip.lovesBody({ "tires", "gas" }, { tires = "🛞", gas = "⛽" })
+		if not sk or not loves then
+			problem("the skill and loves tips have nothing to say")
+		end
+	end
+
+	do
+		local shotMode = emu.require(client.ShotMode)
+		-- Screenshot mode: the shutter hides every menu, a tap brings them back; Save says why not.
+		-- (Its buttons come with the free camera, as on the web: the camera button comes with Social
+		-- at a higher level.)
+		towns:_with(1, function(s)
+			store.useGame.setState({ level = math.max(s.level, 20) })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		Emu.resumeWaits()
+		local dock = root:FindFirstChild("ShotDock", true)
+		if dock and dock.Visible then
+			problem("the screenshot buttons show without the free camera")
+		end
+		local freeB = find(root, function(d)
+			return d:IsA("GuiButton") and d.Parent and d.Parent.Name == "FreeCamButton"
+		end) or root:FindFirstChild("FreeCamButton", true)
+		local TownCameraM = emu.require(client.TownCamera)
+		-- (A crate scene above may still hold the camera.)
+		TownCameraM.setPaused(false)
+		if freeB then
+			signalFor(freeB, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		print(`shot mode: free camera {TownCameraM.isFree()}, level {towns:snapshot(1).save.level}`)
+		shot("tools-shotdock")
+		phone("tools-shotdock")
+		local shutter = dock and find(dock, function(d)
+			return d:IsA("GuiButton") and d.Parent and d.Parent.Name == "ShotShutter"
+		end)
+		local saveB = dock and find(dock, function(d)
+			return d:IsA("GuiButton") and d.Parent and d.Parent.Name == "ShotSave"
+		end)
+		if not (dock and dock.Visible and shutter and saveB) then
+			problem(`the screenshot buttons aren't by the camera button: dock {if dock then (if dock.Visible then "shown" else "hidden") else "none"}, shutter {shutter ~= nil}, save {saveB ~= nil}`)
+		else
+			signalFor(shutter, "Activated"):Fire()
+			Emu.resumeWaits()
+			print(`shot mode: on {shotMode.active()}, HUD {if hud.gui.Enabled then "showing" else "hidden"}, hint {if player.PlayerGui:FindFirstChild("Shot") then "up" else "none"}`)
+			if not shotMode.active() or hud.gui.Enabled then
+				problem("the shutter didn't hide the menus")
+			end
+			local tapIn = { UserInputType = roblox.Enum.UserInputType.Touch, KeyCode = roblox.Enum.KeyCode.Unknown, Position = roblox.Vector3.new(640, 300, 0) }
+			signalFor(uis, "InputBegan"):Fire(tapIn, false)
+			signalFor(uis, "InputEnded"):Fire(tapIn, false)
+			Emu.resumeWaits()
+			if shotMode.active() or not hud.gui.Enabled then
+				problem("a tap didn't bring the menus back")
+				shotMode.exit()
+			end
+			signalFor(saveB, "Activated"):Fire()
+			-- (It waits two frames with the menus off before taking the picture.)
+			for _ = 1, 3 do
+				Emu.resumeWaits()
+			end
+			local said = lastToast()
+			print(`shot mode: Save -> "{said}", HUD {if hud.gui.Enabled then "showing" else "hidden"}`)
+			if said == "" or not hud.gui.Enabled then
+				problem("Save said nothing or left the menus hidden")
+			end
+		end
+		if freeB then
+			signalFor(freeB, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		if dock and dock.Visible then
+			problem("the screenshot buttons stayed after the free camera went off")
+		end
+	end
+
+	do
+		-- The traffic meter in the edit bar.
+		hud.openPanel("edit")
+		Emu.resumeWaits()
+		local meter = root:FindFirstChild("Traffic", true)
+		local st = store.useGame.getState()
+		towns:_with(1, function(s)
+			st = s
+		end)
+		if meter and meter.Visible then
+			local share = trafficRules.roadShare(st.roads, st.land)
+			local short = trafficRules.roadsShort(st.roads, st.land)
+			local want = if short > 0 then `+{short} 🛣️` else `{math.round(share * 100)}%`
+			local lvl = find(meter, function(d)
+				return d.Name == "Level"
+			end)
+			local small = find(meter, function(d)
+				return d.Name == "Share"
+			end)
+			print(`traffic: "{lvl and lvl.Text}" "{small and small.Text}" (roads {math.round(share * 100)}%)`)
+			if not small or small.Text ~= want or not lvl or lvl.Text ~= trafficRules.TRAFFIC[trafficRules.trafficLevel(share)].name then
+				problem(`the traffic meter says "{small and small.Text}", not "{want}"`)
+			end
+			shot("tools-traffic")
+			phone("tools-traffic")
+			hud.ctx.close()
+			Placement.cancel()
+			hud.openPanel("edit", "land")
+			Emu.resumeWaits()
+			if meter.Parent and meter.Visible then
+				problem("the traffic meter shows while buying land")
+			end
+		else
+			problem("no traffic meter in the edit bar")
+		end
+		hud.ctx.close()
+		Placement.cancel()
+		Emu.resumeWaits()
+	end
+
+	do
+		-- Selling a car asks first.
+		hud.openPanel("cars", "garage")
+		local cp = panel()
+		local sellB = cp and find(cp, function(d)
+			local l = d:IsA("TextButton") and d:FindFirstChildWhichIsA("TextLabel")
+			return l and l.Text:sub(1, 10) == "Sell for $"
+		end)
+		local carsBefore = #towns:snapshot(1).save.cars
+		if sellB then
+			signalFor(sellB, "Activated"):Fire()
+			Emu.resumeWaits()
+			local modal = cp:FindFirstChild("Confirm", true)
+			if modal then
+				shot("tools-sell")
+				phone("tools-sell")
+				local no = find(modal, function(d)
+					return d.Name == "Cancel" and d:IsA("GuiButton")
+				end)
+				if no then
+					signalFor(no, "Activated"):Fire()
+					Emu.resumeWaits()
+				end
+				if modal.Parent or #towns:snapshot(1).save.cars ~= carsBefore then
+					problem("Cancel didn't close the Sell question, or the car went")
+				end
+				print("sell: asked first, cancelled")
+			else
+				problem("selling a car didn't ask first")
+			end
+		else
+			print("sell: no car to sell here")
+		end
+	end
+
+	hud.ctx.close()
+	Emu.resumeWaits()
+	hud.ctx.toast = toastWas
+	print(`help, settings and town tools: {problems} problems`)
 	bad += problems
 end

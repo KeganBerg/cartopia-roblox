@@ -34,6 +34,11 @@ end, function(): number
 end)
 
 function Motion.reduced(): boolean
+	-- Settings > Reduce motion (client/Prefs), else Roblox's own setting.
+	local me = game:GetService("Players").LocalPlayer
+	if me and me:GetAttribute("ReduceMotion") == true then
+		return true
+	end
 	local ok, on = pcall(function()
 		return (GuiService :: any).ReducedMotionEnabled
 	end)
