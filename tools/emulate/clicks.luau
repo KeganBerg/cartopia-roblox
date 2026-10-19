@@ -789,6 +789,21 @@ local function socialDesk(op, arg)
 			end)
 			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 			return { chests = total }, nil
+		elseif op == "crewWarChest" then
+			local b = battles.desk:battle(1, crewDesk:mineId(1), battles.opened())
+			local v = if b.current and b.current.week == arg.week then b.current else b.last
+			local t = v and v.tiers[arg.tier]
+			if not t or not t.claimable then
+				return nil, "war locked"
+			end
+			local total = goalDesk:addChest(1, `tier{arg.tier}:{arg.week}`, v.us.id)
+			towns:_with(1, function(st)
+				for _ = (st.crewChests or 0) + 1, total do
+					store.useGame.getState().openCrewChest()
+				end
+			end)
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+			return { chests = total }, nil
 		elseif op == "crewChest" then
 			local total, no = goalDesk:open(1, arg)
 			if not total then
@@ -2157,6 +2172,20 @@ if SHOTS then
 				sf2.CanvasPosition = roblox.Vector2.new(0, 170)
 			end
 			shot("crew-battle", nil)
+			-- The first war chest, this week.
+			local warBefore = towns:save(1).crewChests or 0
+			press("WarChest1")
+			if (towns:save(1).crewChests or 0) ~= warBefore + 1 then
+				table.insert(problems, `the first war chest didn't pay: {warBefore} -> {towns:save(1).crewChests}`)
+			end
+			if sf2 then
+				local card2 = hud.gui:FindFirstChild("WarTrack", true)
+				local sf3 = card2 and card2:FindFirstAncestorWhichIsA("ScrollingFrame")
+				if sf3 then
+					sf3.CanvasPosition = roblox.Vector2.new(0, 330)
+				end
+			end
+			shot("crew-war-track", nil)
 			local root = hud.gui:FindFirstChild("Root")
 			root.Size = roblox.UDim2.fromOffset(1535, 709)
 			shot("crew-battle-phone", nil, 1535, 709)
@@ -2171,7 +2200,8 @@ if SHOTS then
 			if won.result == "win" then
 				press("BattleChest")
 				press("MvpChest")
-				if (towns:save(1).crewChests or 0) ~= chestsBefore + 2 then
+				press("LastWarChest2")
+				if (towns:save(1).crewChests or 0) ~= chestsBefore + 3 then
 					table.insert(problems, `the battle chests didn't pay: {chestsBefore} -> {towns:save(1).crewChests}`)
 				end
 				if hud.gui:FindFirstChild("BattleChest", true) then
@@ -2183,6 +2213,15 @@ if SHOTS then
 			if not hud.gui:FindFirstChild("Battle", true) then
 				table.insert(problems, "no crew battle card in the new week")
 			end
+			if not hud.gui:FindFirstChild("War1", true) or not hud.gui:FindFirstChild("LeagueName", true) then
+				table.insert(problems, "no war log or league after a finished war")
+			end
+			local log = hud.gui:FindFirstChild("War1", true)
+			local sf4 = log and log:FindFirstAncestorWhichIsA("ScrollingFrame")
+			if sf4 then
+				sf4.CanvasPosition = roblox.Vector2.new(0, 360)
+			end
+			shot("crew-war-log", nil)
 		end
 		crewDesk:leave(1)
 		hud.ctx.close()

@@ -1835,6 +1835,24 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			end
 			payCrewChests(player)
 			return { chests = total }, nil
+		elseif op == "crewWarChest" and type(arg) == "table" and type(arg.week) == "string" and (arg.tier == 1 or arg.tier == 2) then
+			-- A war chest (40% and 100% of the crew's par), this week's or last week's.
+			local id = crews:mineId(player.UserId)
+			local b = crewBattles:battle(player.UserId, id, crewOpened(player.UserId))
+			local v = if b.current and b.current.week == arg.week then b.current elseif b.last and b.last.week == arg.week then b.last else nil
+			local t = v and v.tiers[arg.tier]
+			if not t or t.claimed then
+				return nil, if t then "chest opened" else "chest expired"
+			end
+			if not t.claimable then
+				return nil, if t.reached then "war points" else "war locked"
+			end
+			local total = crewGoals:addChest(player.UserId, `tier{arg.tier}:{arg.week}`, v.us.id or "")
+			if not total then
+				return nil, "chest opened"
+			end
+			payCrewChests(player)
+			return { chests = total }, nil
 		elseif op == "crewChest" and type(arg) == "string" then
 			-- Opening a crew chest: recorded first, then paid (data.CREW_CHEST, store.openCrewChest).
 			local total, no = crewGoals:open(player.UserId, arg)
