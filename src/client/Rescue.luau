@@ -370,6 +370,10 @@ local function lot(parent: Instance, order: number, s: any, onTab: (string) -> (
 			Remote.act("restoreCar", pick.uid)
 		end, 16)
 		go.Name = "Restore"
+		-- Where the tutorial's pointing hand goes (client/Popups/Tutorial), as the web's .junk-go.
+		if not busy then
+			go:SetAttribute("Tut", "junk-go")
+		end
 	end
 
 	-- The parking spots: a car in each, then empty bays to search for more.
@@ -389,6 +393,7 @@ local function lot(parent: Instance, order: number, s: any, onTab: (string) -> (
 		carPic(box, c.model, UDim2.fromScale(1, 1), true, 4)
 		Ui.text({ Text = cd.name, TextSize = 12, TextColor3 = LINE, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(3, 68), Size = UDim2.new(1, -6, 0, 15), ZIndex = 4, Parent = b })
 		rarityTag(b, c.rarity, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 87), ZIndex = 4 })
+		b:SetAttribute("Tut", "lot-spot")
 		b.Activated:Connect(function()
 			picked = c.uid
 			onTab("storage")
@@ -475,6 +480,9 @@ local function spotCard(parent: Instance, order: number, s: any, sp: any, hot: s
 		Ui.corner(16),
 		Ui.stroke(2.5, LINE),
 	})
+	if not locked and not broke and not full then
+		card:SetAttribute("Tut", "rsc-spot")
+	end
 	card.Activated:Connect(function()
 		if full and not locked then
 			return
@@ -937,6 +945,9 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 			rerender()
 		end, 18)
 		all.Name = "SearchAll"
+		if not auto and not off then
+			all:SetAttribute("Tut", "rs-auto")
+		end
 	end
 	local canHome = started and not q.flat and not leaving
 	local _, home = Ui.buy({ LayoutOrder = 3, Size = UDim2.new(0, 200, 1, 0), ZIndex = 22, Parent = acts }, "🏠 Tow home", if canHome then "green" else "grey", function()
@@ -950,6 +961,9 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 		Remote.act("towHome")
 	end, 18)
 	home.Name = "TowHome"
+	if canHome and left == 0 then
+		home:SetAttribute("Tut", "rs-home-ready")
+	end
 	return screen
 end
 
@@ -1077,6 +1091,9 @@ local function haulCard(ctx: any, body: Instance, r: { items: { any }, piece: an
 		onDone(if #cars > 0 then "storage" else "find")
 	end, 18)
 	b.Name = "HaulDone"
+	if #cars > 0 then
+		b:SetAttribute("Tut", "haul-fix")
+	end
 	local _ = ctx
 end
 
@@ -1209,6 +1226,13 @@ function Rescue.open(ctx: any): Instance?
 		-- A full lot shows its count in red (the web's .tab-count.full).
 		local lotTab = tabRow:FindFirstChild("storage")
 		local lotLabel = lotTab and lotTab:FindFirstChild("Label", true) :: TextLabel?
+		if lotTab then
+			lotTab:SetAttribute("Tut", "lot-tab")
+		end
+		local findTabB = tabRow:FindFirstChild("find")
+		if findTabB then
+			findTabB:SetAttribute("Tut", "find-tab")
+		end
 		if lotLabel and junk >= data.STORAGE_MAX then
 			lotLabel.RichText = true
 			lotLabel.Text = `🚗 My lot <mark color="#e53935"><font color="#ffffff"> {junk}/{data.STORAGE_MAX} </font></mark>`

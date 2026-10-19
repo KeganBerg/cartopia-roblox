@@ -102,6 +102,8 @@ local function make(uid: string, model: Model, parent: Instance): Badge
 		Ui.stroke(2.5),
 	})
 	local label = Ui.text({ Name = "Label", Text = "", TextSize = 14, TextColor3 = Color3.fromHex("#5d4037"), Size = UDim2.fromScale(1, 1), Parent = face })
+	-- What the tutorial's pointing hand looks for (client/Popups/Tutorial).
+	face:SetAttribute("Tut", "rescue")
 	;(face :: TextButton).Activated:Connect(function()
 		Remote.act("tapBuilding", uid)
 	end)
