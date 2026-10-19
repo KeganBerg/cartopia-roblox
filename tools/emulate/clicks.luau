@@ -4806,8 +4806,20 @@ do
 	local UIS = game:GetService("UserInputService")
 	local V3, V2 = roblox.Vector3, roblox.Vector2
 	local data = emu.require(RS.Shared.Game.data)
+	-- Looked for in the Cars page first when it's open (pop-ups and pages left by the sections
+	-- above can hold buttons of the same names).
+	local function carsPage()
+		for _, p in hud.gui:GetChildren() do
+			local page = p.Name == "Panel" and p:FindFirstChild("Cars")
+			if page then
+				return page
+			end
+		end
+		return nil
+	end
 	local function find(name)
-		return hud.gui:FindFirstChild(name, true)
+		local page = carsPage()
+		return page and page:FindFirstChild(name, true) or hud.gui:FindFirstChild(name, true)
 	end
 	local function tap(name)
 		local b = find(name)
@@ -4816,6 +4828,24 @@ do
 			return
 		end
 		signalFor(b, "Activated"):Fire()
+	end
+	-- What's on screen, when a check fails: the open panel, the car's name and the shop's lists.
+	local function where()
+		local page = carsPage()
+		local bits = { `panel {tostring(hud.ctx.panel())}` }
+		if page then
+			for _, d in page:GetDescendants() do
+				if d:IsA("TextLabel") and d.TextSize == 22 or d.Name == "ModShop" or d.Name == "CustomShop" or d.Name == "PaintShop" then
+					table.insert(bits, if d:IsA("TextLabel") then d.Text else d.Name)
+				end
+			end
+		end
+		for _, p in hud.gui:GetChildren() do
+			if p:IsA("GuiObject") and p.Visible and p.Name ~= "Root" then
+				table.insert(bits, `top {p.Name}`)
+			end
+		end
+		return table.concat(bits, ", ")
 	end
 	-- A picture with the shop's list scrolled down to what's being shown, wide and on a phone.
 	local function look(name, list, y)
@@ -4925,6 +4955,10 @@ do
 	-- Custom: the hood in a custom colour.
 	hud.ctx.close()
 	hud.openPanel("cars", "garage")
+	local hoods0 = {}
+	for _, c in towns:snapshot(1).save.cars do
+		hoods0[c.uid] = c.panels and c.panels.hood and c.panels.hood.color
+	end
 	tap("custom")
 	tap("hood")
 	local cfly = find("CustomColourPicker")
@@ -4946,9 +4980,16 @@ do
 	else
 		problem("no buy button for the custom hood")
 	end
-	local hood = carOf(first).panels and carOf(first).panels.hood
+	-- Whichever car the garage shows gets the hood.
+	local hood = nil
+	for _, c in towns:snapshot(1).save.cars do
+		local h = c.panels and c.panels.hood
+		if h and h.color ~= hoods0[c.uid] then
+			hood = h
+		end
+	end
 	if not hood or type(hood.color) ~= "string" or onChart(hood.color) then
-		problem(`the custom hood colour didn't stick: {hood and tostring(hood.color) or "none"}`)
+		problem(`the custom hood colour didn't stick: {hood and tostring(hood.color) or "none"} ({where()})`)
 	end
 	checkCalls("custom tab custom colour")
 
@@ -5007,7 +5048,7 @@ do
 		picker = find("TrackSkins")
 	end
 	if not picker then
-		problem("no track skins under the Tomahawk's tracks")
+		problem(`no track skins under the Tomahawk's tracks ({where()})`)
 	else
 		tap("magma")
 		local mbar = find("TrackSkins") and find("TrackSkins"):FindFirstChild("TryBar")
