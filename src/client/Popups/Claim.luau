@@ -25,12 +25,34 @@ function Claim.start(ctx: any)
 		shown = {}
 	end
 
+	local note: TextLabel? = nil -- the banner's second line
+	local NOTE = "Your neighbours can drive over to see it"
+
 	local function claim(i: number?)
 		if busy then
 			return
 		end
 		busy = true
+		-- In a server that's only just started the town waits for its 3D shapes (server claim):
+		-- the banner counts them in meanwhile.
+		local waiting = true
+		task.spawn(function()
+			while waiting and workspace:GetAttribute("ShapesReady") ~= true do
+				local total = workspace:GetAttribute("ShapesTotal") :: number?
+				local done = workspace:GetAttribute("ShapesLoaded") :: number?
+				local label = note
+				if label and total and done and total > 0 then
+					label.Text = `Building your town… {math.floor(100 * done / total)}%`
+				end
+				task.wait(0.2)
+			end
+		end)
 		local ok = Remote.social("claim", i)
+		waiting = false
+		local label = note
+		if label then
+			label.Text = NOTE
+		end
 		busy = false
 		if ok then
 			clear()
@@ -79,7 +101,7 @@ function Claim.start(ctx: any)
 		local shadow, face = Ui.shadowed({ Name = "ClaimBanner", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(560, 64), Parent = ctx.gui }, { radius = 18, stroke = 3, drop = 5, dark = 0.3, color = Ui.SHEET })
 		table.insert(shown, shadow)
 		Ui.text({ Text = "Pick a plot for your town", TextSize = 19, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(16, 9), Size = UDim2.fromOffset(320, 24), Parent = face })
-		Ui.text({ Text = "Your neighbours can drive over to see it", Body = true, TextSize = 13, TextColor3 = Color3.fromHex("#607d8b"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(16, 33), Size = UDim2.fromOffset(320, 18), Parent = face })
+		note = Ui.text({ Text = NOTE, Body = true, TextSize = 13, TextColor3 = Color3.fromHex("#607d8b"), TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(16, 33), Size = UDim2.fromOffset(320, 18), Parent = face })
 		Ui.buy({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, -1), Size = UDim2.fromOffset(190, 40), Parent = face }, "🏡 Nearest free plot", "green", function()
 			claim(nil)
 		end, 16)
