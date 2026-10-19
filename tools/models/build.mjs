@@ -684,22 +684,26 @@ export function convert(data) {
 }
 
 // The car skins baked by skins.mjs (kept in tools/models/skins/), as textures to upload: each
-// skin's base ("skin_<n>") and its glow at two moments ("skinglow_<n>", "skinglow2_<n>", with how
-// deep under the paint the glow lies), named by their content.
+// skin's base ("skin_<n>") and its glow at each moment ("skinglow_<n>", "skinglow2_<n>", ..., with
+// how deep under the paint the glow lies and the time between moments), and each skin's picker
+// swatch ("skinswatch_<id>"), named by their content.
 function skinTextures() {
   const dir = join(HERE, 'skins')
   if (!existsSync(join(dir, 'skins.json'))) return []
-  const { span, skins } = JSON.parse(readFileSync(join(dir, 'skins.json'), 'utf8'))
+  const { span, step, skins, swatches = [] } = JSON.parse(readFileSync(join(dir, 'skins.json'), 'utf8'))
   mkdirSync(TEX_DIR, { recursive: true })
   const out = []
-  for (const s of skins)
-    for (const [key, file] of [[`skin_${s.n}`, s.base], [`skinglow_${s.n}`, s.glow], [`skinglow2_${s.n}`, s.glow2]]) {
-      if (!file) continue
-      const data = readFileSync(join(dir, file))
-      const name = `${file.replace(/\.png$/, '')}-${createHash('sha1').update(data).digest('hex').slice(0, 16)}`
-      copyFileSync(join(dir, file), join(TEX_DIR, `${name}.png`))
-      out.push({ key, name, file: `${name}.png`, span, ...(key.startsWith('skinglow') && s.depth ? { depth: s.depth } : {}) })
-    }
+  const add = (key, file, extra = {}) => {
+    const data = readFileSync(join(dir, file))
+    const name = `${file.replace(/\.png$/, '')}-${createHash('sha1').update(data).digest('hex').slice(0, 16)}`
+    copyFileSync(join(dir, file), join(TEX_DIR, `${name}.png`))
+    out.push({ key, name, file: `${name}.png`, span, ...extra })
+  }
+  for (const s of skins) {
+    add(`skin_${s.n}`, s.base)
+    s.glows.forEach((file, k) => add(k === 0 ? `skinglow_${s.n}` : `skinglow${k + 1}_${s.n}`, file, { ...(s.depth ? { depth: s.depth } : {}), ...(step ? { step } : {}) }))
+  }
+  for (const w of swatches) add(`skinswatch_${w.id}`, w.file)
   return out
 }
 
@@ -778,7 +782,7 @@ Catalog.MEADOW = ${str(result.ground.meadow)}
 -- the meadow past it, and the custom paint patterns (pattern_<id>). span = studs one image covers;
 -- image = 0 until upload.mjs uploads it.
 Catalog.TEXTURES = {
-${(result.textures ?? []).map((t) => `\t${t.key} = { image = ${imageOf(assets[`texture:${t.name}`])}, span = ${num(t.span * SCALE)}, name = ${str(t.name)}${t.depth ? `, depth = ${num(t.depth * SCALE)}` : ''} },\n`).join('')}}
+${(result.textures ?? []).map((t) => `\t${t.key} = { image = ${imageOf(assets[`texture:${t.name}`])}, span = ${num(t.span * SCALE)}, name = ${str(t.name)}${t.depth ? `, depth = ${num(t.depth * SCALE)}` : ''}${t.step ? `, step = ${num(t.step)}` : ''} },\n`).join('')}}
 
 Catalog.LOOKS = {
 `
