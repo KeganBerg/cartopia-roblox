@@ -358,9 +358,13 @@ task.spawn(function()
 	end)
 	meshesReady = true
 	workspace:SetAttribute("ShapesReady", true)
-	-- The race venues' meshes at full detail (Builder.sharpenRaces), again for any that came late.
-	Builder.sharpenRaces()
-	task.delay(120, Builder.sharpenRaces)
+	-- The race venues' own meshes come in next, then at full detail (Builder.sharpenRaces), again
+	-- for any that came late.
+	task.spawn(function()
+		Builder.loadRaces(60)
+		Builder.sharpenRaces()
+		task.delay(120, Builder.sharpenRaces)
+	end)
 	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
 	Builder.loadLate()
 	-- A copy of every car and building for the client's shop pictures and placement ghost.
@@ -587,15 +591,13 @@ Players.PlayerAdded:Connect(function(player)
 		local car = (require(Game.raceCar) :: any).raceCarOf(save.cars or {}, save.raceCar)
 		Splash.forPlayer(player, car and car.model, car and car.color)
 	end)
-	local start = os.clock()
-	while not meshesReady and os.clock() - start < 45 do
-		task.wait(0.2)
-	end
 	if not player.Parent then
 		return
 	end
 	push(player, true)
-	-- They pick a plot first (the claim screen, Popups/Claim); the loading screen lifts for it.
+	-- They pick a plot first (the claim screen, Popups/Claim); the loading screen lifts for it
+	-- straight away, without waiting for the server's 3D shapes: the plot map has none, and they
+	-- keep loading while the player picks (claim waits for any still missing).
 	player:SetAttribute("NeedsPlot", true)
 	spawnAt(player)
 	player.CharacterAdded:Connect(function()
@@ -986,6 +988,19 @@ end
 -- Claims plot `want` (or the first free one) for the player and builds their town on it.
 local function claim(player: Player, want: any): (number?, string?)
 	local have = slotOf(player)
+	if have then
+		return have, nil
+	end
+	-- In a server that has only just started, its 3D shapes may still be coming in: the town is
+	-- drawn once they're in, so it has no stand-in boxes (the Claim banner shows how far along).
+	local start = os.clock()
+	while not meshesReady and os.clock() - start < 45 do
+		task.wait(0.2)
+	end
+	if not player.Parent then
+		return nil, "left"
+	end
+	have = slotOf(player)
 	if have then
 		return have, nil
 	end
