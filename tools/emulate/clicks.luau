@@ -206,6 +206,20 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 		return { { userId = 2, name = "Mika", here = true }, { userId = 3, name = "Juno" } }
 	end,
 })
+-- The kart desk, as init.server.luau makes it.
+local karts = emu.require(SSS.Server.Karts).new(towns, {
+	store = store,
+	data = emu.require(G.data),
+	kart = emu.require(G.kart),
+	gpBeat = emu.require(G.gpBeat),
+	raceCar = emu.require(G.raceCar),
+	fairRace = emu.require(G.fairRace),
+	boosts = emu.require(G.boosts),
+	random = races.mods.random,
+	clock = function()
+		return raceClock
+	end,
+})
 do
 	local g = races.mods.ghosts
 	g:card(2, { car = "Pip", model = "pip", color = "#1e88e5", pi = 14, town = "Gearville" })
@@ -335,6 +349,10 @@ local function raceDesk(op, arg)
 			return races:start(1, arg.mode, arg.which)
 		elseif op == "finish" then
 			return races:finish(1, arg)
+		elseif op == "kartStart" and type(arg) == "table" then
+			return karts:start(1, arg.kind, arg.which)
+		elseif op == "kartFinish" then
+			return karts:finish(1, arg)
 		end
 		return nil, "not a race"
 	end)
@@ -855,7 +873,8 @@ local function shot(name, world, w, h)
 	local parts = {}
 	if world then
 		for _, d in world:GetDescendants() do
-			-- An invisible part still shows the words on its SurfaceGui (the Daily Spin's amounts).
+			-- An invisible part still shows the words on its SurfaceGui (the Daily Spin's amounts, a
+			-- kart circuit's crowds).
 			if d:IsA("BasePart") and (d.Transparency < 1 or d:FindFirstChildOfClass("SurfaceGui")) then
 				table.insert(parts, Gui.partOf(d))
 			end
@@ -895,6 +914,10 @@ local function shot(name, world, w, h)
 		end
 	end
 	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("DailySpin")
+	if name:find("^depot%-") then
+		-- The crate depot is a menu on the HUD, whatever screen an earlier check left behind.
+		raceGui = nil
+	end
 	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, w or 1280, h or 800), bubbles = {} }))
 	local cam = game.Workspace.CurrentCamera
 	local cf = cam.CFrame
@@ -1478,14 +1501,12 @@ if SHOTS then
 	hud.ctx.close()
 	hud.openPanel("crates")
 	depot = hud.gui:FindFirstChild("Depot", true)
-	for _, d in (depot and depot:GetDescendants() or {}) do
-		if d:IsA("TextLabel") and d.Text:find("^×10") then
-			signalFor(d.Parent, "Activated"):Fire()
-			Emu.resumeWaits()
-			Emu.resumeWaits()
-			shot("crate-ten", nil)
-			break
-		end
+	local tenB = depot and depot:FindFirstChild("Ten", true)
+	if tenB then
+		signalFor(tenB, "Activated"):Fire()
+		Emu.resumeWaits()
+		Emu.resumeWaits()
+		shot("crate-ten", nil)
 	end
 	-- Where paid random items are restricted: no gem crates, a line saying so; coin crates as usual.
 	setRules({ ArePaidRandomItemsRestricted = true })
@@ -1530,6 +1551,88 @@ if SHOTS then
 	assert(towns:snapshot(1).save.bucks >= gemsBefore, "a free crate cost gems")
 	print("crates: restricted player sees no gem crates, free gold crate opened")
 	setRules({ ArePaidRandomItemsRestricted = false })
+	-- The 3D depot on a computer, a phone held sideways and one held upright: the crate waiting,
+	-- straining, its prize up, then a ×10 run and its summary (frames stepped by hand).
+	if SHOTS then
+		local root = hud.gui:FindFirstChild("Root")
+		local cam = game.Workspace.CurrentCamera
+		local function frames(sec)
+			for _ = 1, math.floor(sec * 60) do
+				local step = renderSteps.CrateDepot
+				if step then
+					step(1 / 60)
+				end
+			end
+		end
+		towns:_with(1, function()
+			store.useGame.setState({ coins = 1000000, bucks = 5000, level = 30 })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		for _, size in { { 1280, 800, 1280, 800, "wide" }, { 844, 390, 1535, 709, "side" }, { 390, 844, 709, 1535, "tall" } } do
+			cam.ViewportSize = roblox.Vector2.new(size[1], size[2])
+			root.Size = roblox.UDim2.fromOffset(size[3], size[4])
+			hud.ctx.close()
+			hud.openPanel("crates")
+			local function world()
+				return game.Workspace:FindFirstChild("CrateDepot")
+			end
+			local function pickTab(name)
+				local d = hud.gui:FindFirstChild("Depot", true)
+				for _, x in d:GetDescendants() do
+					if x:IsA("TextLabel") and x.Text == name and x.Parent:IsA("TextButton") then
+						signalFor(x.Parent, "Activated"):Fire()
+						return
+					end
+				end
+			end
+			pickTab("Gold")
+			frames(1.2)
+			shot(`depot-idle-{size[5]}`, world(), size[3], size[4])
+			local d = hud.gui:FindFirstChild("Depot", true)
+			signalFor(d:FindFirstChild("Open", true), "Activated"):Fire()
+			Emu.resumeWaits()
+			frames(0.55 + 0.35 + 0.9)
+			shot(`depot-charge-{size[5]}`, world(), size[3], size[4])
+			frames(0.45)
+			shot(`depot-burst-{size[5]}`, world(), size[3], size[4])
+			frames(2.6)
+			Emu.resumeWaits()
+			frames(0.05)
+			shot(`depot-prize-{size[5]}`, world(), size[3], size[4])
+			d = hud.gui:FindFirstChild("Depot", true)
+			local function done()
+				local dd = hud.gui:FindFirstChild("Depot", true)
+				for _, x in (dd and dd:GetDescendants() or {}) do
+					if x:IsA("TextLabel") and x.Text == "Done" and x.Parent:IsA("TextButton") then
+						signalFor(x.Parent, "Activated"):Fire()
+						return
+					end
+				end
+			end
+			done()
+			pickTab("Street")
+			d = hud.gui:FindFirstChild("Depot", true)
+			signalFor(d:FindFirstChild("Ten", true), "Activated"):Fire()
+			Emu.resumeWaits()
+			frames(1.2)
+			shot(`depot-ten-{size[5]}`, world(), size[3], size[4])
+			for _ = 1, 40 do
+				frames(0.5)
+				Emu.resumeWaits()
+				if hud.gui:FindFirstChild("Summary", true) then
+					break
+				end
+			end
+			frames(2.6)
+			Emu.resumeWaits()
+			frames(0.05)
+			shot(`depot-summary-{size[5]}`, world(), size[3], size[4])
+			done()
+		end
+		cam.ViewportSize = roblox.Vector2.new(1280, 800)
+		root.Size = roblox.UDim2.fromOffset(1280, 800)
+		hud.ctx.close()
+	end
 
 	-- Rusty's: both tabs, a search part done, the haul towed home, and a finished car's plate.
 	towns:run(1, "abandonSearch")
@@ -2192,6 +2295,241 @@ print(`class cups won: {(function()
 	return n
 end)()}`)
 
+-- Kart races (client/KartRun): a Grand Prix round from the Grand Prix page, driven on the AI's own
+-- line (the web's ?autopilot) until the podium, then Bumper Blast from the front page's button,
+-- then a custom race's card.
+local KartRun = emu.require(client.KartRun)
+-- Parts per circuit (each track both ways round), kept low enough for phones.
+do
+	local KartWorld = emu.require(client.KartWorld)
+	local Kt = emu.require(G.kart)
+	local most = 0
+	for _, def in Kt.TRACKS do
+		for _, rev in { false, true } do
+			local m = KartWorld.circuit(Kt.buildTrack(def, rev))
+			local n, by = 0, {}
+			for _, d in m:GetDescendants() do
+				if d:IsA("BasePart") then
+					n += 1
+					-- Parts of a model (a shop, a tree) count under the model's name.
+					local top = d
+					while top.Parent ~= m do
+						top = top.Parent
+					end
+					local key = if top:IsA("Model") and top.Name ~= "Gantry" then `{top.Name}*` else d.Name
+					by[key] = (by[key] or 0) + 1
+				end
+			end
+			local top = {}
+			for k, v in by do
+				table.insert(top, { k, v })
+			end
+			table.sort(top, function(a, b)
+				return a[2] > b[2]
+			end)
+			local parts = {}
+			for i = 1, math.min(16, #top) do
+				table.insert(parts, `{top[i][1]} {top[i][2]}`)
+			end
+			print(`kart circuit {def.id}{if rev then " reversed" else ""}: {n} parts ({table.concat(parts, ", ")})`)
+			most = math.max(most, n)
+		end
+	end
+	print(`kart circuits: at most {most} parts`)
+	assert(most <= 3000, `a kart circuit has {most} parts (phones want 3000 or fewer)`)
+end
+local kartMost, kartRaceMost, kartPeak = {}, {}, {}
+-- The sounds a kart race plays (Sfx.play by name), counted.
+local KartSfx = emu.require(client.Sounds.Sfx)
+local kartHeard = {}
+do
+	local play = KartSfx.play
+	KartSfx.play = function(name, ...)
+		kartHeard[name] = (kartHeard[name] or 0) + 1
+		return play(name, ...)
+	end
+end
+local function runKart(tag, shotAt, start)
+	topUp()
+	hud.ctx.close()
+	renderSteps = {}
+	calls = {}
+	handlerErrors = {}
+	table.clear(kartHeard)
+	start()
+	local screen = raceScreen()
+	assert(screen, `{tag}: no kart race screen ({table.concat(calls, ", ")}) {table.concat(handlerErrors, "; ")}`)
+	KartRun.autopilot = true
+	local frames, podium = 0, nil
+	local DT = 1 / 20
+	while frames < 200 / DT do
+		frames += 1
+		raceClock += DT
+		local step = renderSteps.KartRun
+		if not step then
+			break
+		end
+		step(DT)
+		Emu.resumeWaits()
+		-- Parts in the circuit as the race goes round (shops and trees fill in near the camera).
+		if frames % 40 == 0 then
+			local c = game.Workspace:FindFirstChild("KartCircuit")
+			local n, race, by = 0, 0, {}
+			for _, d in if c then c:GetDescendants() else {} do
+				if d:IsA("BasePart") then
+					n += 1
+					if d:FindFirstAncestor("KartRace") then
+						race += 1
+					else
+						local m = d:FindFirstAncestorWhichIsA("Model")
+						local key = if m and m ~= c then `{m.Name}*` else d.Name
+						by[key] = (by[key] or 0) + 1
+					end
+				end
+			end
+			if n - race > (kartMost[tag] or 0) then
+				local top = {}
+				for k, v in by do
+					table.insert(top, { k, v })
+				end
+				table.sort(top, function(a, b)
+					return a[2] > b[2]
+				end)
+				local list = {}
+				for i = 1, math.min(10, #top) do
+					table.insert(list, `{top[i][1]} {top[i][2]}`)
+				end
+				kartPeak[tag] = `{string.format("%.0f", frames * DT)}s: {table.concat(list, ", ")}`
+			end
+			kartMost[tag] = math.max(kartMost[tag] or 0, n - race)
+			kartRaceMost[tag] = math.max(kartRaceMost[tag] or 0, race)
+		end
+		if shotAt[frames] then
+			shot(`{tag}-{frames}`, game.Workspace:FindFirstChild("KartCircuit"))
+		end
+		podium = find(screen, function(d)
+			return d.Name == "Podium"
+		end)
+		if podium then
+			-- Half a second more, so the podium has the server's answer.
+			for _ = 1, 12 do
+				raceClock += DT
+				renderSteps.KartRun(DT)
+				Emu.resumeWaits()
+			end
+			podium = find(screen, function(d)
+				return d.Name == "Podium"
+			end)
+			shot(`{tag}-result`, game.Workspace:FindFirstChild("KartCircuit"))
+			break
+		end
+	end
+	KartRun.autopilot = false
+	print(`{tag}: {frames} frames ({string.format("%.1f", frames * DT)}s); podium: {cardText(podium)}`)
+	print(`{tag}: at most {kartMost[tag]} circuit parts and {kartRaceMost[tag]} kart and effect parts during the race (most at {kartPeak[tag]})`)
+	assert(kartMost[tag] <= 3000, `{tag}: {kartMost[tag]} circuit parts during the race (phones want 3000 or fewer)`)
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	assert(podium, `{tag}: the race never reached the podium`)
+	local heard = {}
+	for name, n in kartHeard do
+		table.insert(heard, `{name} ×{n}`)
+	end
+	table.sort(heard)
+	print(`{tag} sounds: {table.concat(heard, ", ")}`)
+	assert(kartHeard.countdown == 5 and kartHeard["countdown-go"] == 1, `{tag}: the start lights weren't heard`)
+	assert((kartHeard.win or 0) + (kartHeard.lose or 0) == 1, `{tag}: no win or lose sound at the line`)
+	assert((kartHeard["arcade-ding"] or 0) >= 2, `{tag}: the laps weren't heard`)
+	assert(#handlerErrors == 0, `{tag}: {table.concat(handlerErrors, "; ")}`)
+	for _, c in calls do
+		assert(c:sub(1, 2) == "ok", `{tag}: {c}`)
+	end
+	return podium
+end
+-- The Rookie Cup needs level 2 and three cars.
+towns:_with(1, function(s)
+	local cars = table.clone(s.cars)
+	while #cars < 3 do
+		table.insert(cars, { uid = `kart{#cars}`, model = "pip", color = "#ff0000", upgrades = { engine = 0, turbo = 0, tires = 0, weight = 0 } })
+	end
+	store.useGame.setState({ level = math.max(store.useGame.getState().level, 2), cars = cars })
+end)
+local gpBefore = towns:snapshot(1).save
+runKart("kart-gp", { [40] = true, [700] = true }, function()
+	hud.openPanel("race", "hub")
+	local tile = find(hud.gui, function(d)
+		return d:IsA("TextButton") and (d.Name == "GrandPrix" or (d.Parent and d.Parent.Name == "GrandPrix"))
+	end)
+	assert(tile, "no Grand Prix tile")
+	signalFor(tile, "Activated"):Fire()
+	Emu.resumeWaits()
+	if SHOTS then
+		shot("page-gp", nil)
+	end
+	local go = find(hud.gui, function(d)
+		return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil and d:FindFirstAncestor("rookie") ~= nil
+	end)
+	assert(go, `no race button for the Rookie Cup ({table.concat(calls, ", ")})`)
+	signalFor(go, "Activated"):Fire()
+end)
+local gpAfter = towns:snapshot(1).save
+print(`kart gp: coins {gpBefore.coins} -> {gpAfter.coins}, fuel {gpBefore.fuel} -> {gpAfter.fuel}, rookie round {((gpAfter.gp or {}).rookie or {}).round or 0}`)
+assert(gpAfter.coins > gpBefore.coins, "the Grand Prix round paid nothing")
+local kartBack = cardButton("Back")
+assert(kartBack, "no Back on the podium")
+signalFor(kartBack, "Activated"):Fire()
+Emu.resumeWaits()
+assert(not raceScreen(), "the kart race screen stayed up")
+local blastBefore = towns:snapshot(1).save.coins
+runKart("kart-blast", { [40] = true }, function()
+	hud.openPanel("race", "hub")
+	local m = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "Bumper Blast", 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+	end)
+	assert(m, "no Bumper Blast button on the front page")
+	signalFor(m, "Activated"):Fire()
+end)
+print(`kart blast: coins {blastBefore} -> {towns:snapshot(1).save.coins}`)
+assert(cardButton("Again"), "no ↻ Again on the Bumper Blast podium")
+closeRace()
+-- A custom race's card: pick the canyon, reversed, with max boost, and start it.
+topUp()
+hud.ctx.close()
+hud.openPanel("race", "hub")
+local customMini = find(hud.gui, function(d)
+	return d:IsA("TextButton") and string.find(label(d), "Custom race", 1, true) ~= nil and d:FindFirstAncestor("Minis") ~= nil
+end)
+assert(customMini, "no Custom race button on the front page")
+signalFor(customMini, "Activated"):Fire()
+if SHOTS then
+	shot("page-custom", nil)
+end
+renderSteps = {}
+calls = {}
+for _, pick in { "Canyon", "Reversed", "Max boost" } do
+	local customCard = hud.gui:FindFirstChild("CustomRace", true)
+	assert(customCard, "no custom race card")
+	local b = find(customCard, function(d)
+		if not d:IsA("TextButton") then
+			return false
+		end
+		for _, l in d:GetChildren() do
+			if l:IsA("TextLabel") and string.find(l.Text, pick, 1, true) then
+				return true
+			end
+		end
+		return false
+	end)
+	assert(b, `no {pick} on the custom race card`)
+	signalFor(b, "Activated"):Fire()
+end
+signalFor(hud.gui:FindFirstChild("CustomRace", true):FindFirstChild("Race", true), "Activated"):Fire()
+local customScreen = raceScreen()
+local customTitle = customScreen and customScreen:FindFirstChild("Title")
+print(`kart custom: {customTitle and customTitle.Text or "no race"} ({table.concat(calls, ", ")})`)
+assert(customTitle and customTitle.Text == "🛠️ Custom · 🏜️ Canyon ↺", "the custom race didn't start as picked")
+signalFor(customScreen:FindFirstChild("Leave"):FindFirstChild("Face"), "Activated"):Fire()
+Emu.resumeWaits()
+assert(not raceScreen(), "the custom race didn't close")
 -- The Daily Spin: Spin, run the wheel round until it lands, and see the prize was paid once.
 do
 	closeRace()
@@ -2913,4 +3251,214 @@ do
 	TownCamera.lookAt = lookAt
 	townsFolder:Destroy()
 	print(`tutorial: {bad - before} problems`)
+end
+
+-- The town's weather and Rave Mode (client/TownWeather, client/Rave): every kind of weather over
+-- a drawn town at noon (lightning mid-flash in the storm, the rainbow after a shower), then a rave
+-- through its build-up and drop, with the HUD tag and the club's lights. SHOTS=1 writes
+-- build/shot-weather-<kind>.json and shot-rave-*.json with the light, emitters and beams.
+do
+	hud.ctx.close()
+	local TownView = emu.require(SSS.Server.TownView)
+	local DayNight = emu.require(client.DayNight)
+	local TownWeather = emu.require(client.TownWeather)
+	local Rave = emu.require(client.Rave)
+	local W = require("./weatherShot")
+	local clock = emu.require(G.clock)
+	local techno = emu.require(G.techno)
+	towns:_with(1, function()
+		store.useGame.setState({ tutorial = 99 })
+	end)
+	local snap = towns:snapshot(1)
+	signalFor(townEvent, "OnClientEvent"):Fire(snap)
+	local old = game.Workspace:FindFirstChild("Towns")
+	if old then
+		old:Destroy()
+	end
+	local townsFolder = Instance.new("Folder")
+	townsFolder.Name = "Towns"
+	townsFolder.Parent = game.Workspace
+	local view = TownView.new(townsFolder, "Player1", roblox.Vector3.new(0, 0, 0), 1, function() end)
+	for _, c in snap.save.cars do
+		c.mods, c.panels = nil, nil
+	end
+	view:render(snap.save)
+	-- The town view's camera (TownCamera at zoom 30 on a 1280x800 screen).
+	local cam = game.Workspace.CurrentCamera
+	cam.FieldOfView = 30
+	local dist = 800 / 30 * 10 / 2 / math.tan(math.rad(15))
+	do
+		-- Lune's CFrame.lookAt faces away from the target; built by hand, as Roblox's.
+		local at = roblox.Vector3.new(75, 80, 75).Unit * dist
+		local look = (roblox.Vector3.new(0, 0, 0) - at).Unit
+		local right = look:Cross(roblox.Vector3.new(0, 1, 0)).Unit
+		local up = right:Cross(look)
+		cam.CFrame = roblox.CFrame.new(at.X, at.Y, at.Z, right.X, up.X, -look.X, right.Y, up.Y, -look.Y, right.Z, up.Z, -look.Z)
+	end
+	local noon = clock.nextPhaseAt(0, NOW)
+	local function parts()
+		local n = 0
+		for _, d in game.Workspace:GetDescendants() do
+			if d:IsA("BasePart") then
+				n += 1
+			end
+		end
+		return n
+	end
+	local before = parts()
+	-- DayNight's own noon light, which render.mjs's default lights stand for.
+	DayNight.apply(noon)
+	local lightBase = W.lighting(game)
+	local function weatherShot(name, extraGuis)
+		if not SHOTS then
+			return
+		end
+		shot(name, view.folder)
+		local scene = serde.decode("json", fs.readFile(`build/shot-{name}.json`))
+		scene.lighting = W.lighting(game)
+		scene.lightingBase = lightBase
+		scene.effects = W.effects(game.Workspace:FindFirstChild("TownWeather"))
+		fs.writeFile(`build/shot-{name}.json`, serde.encode("json", scene))
+		if extraGuis then
+			local nodes = {}
+			for _, g in extraGuis do
+				for _, n in Gui.dump(g, 1280, 800) do
+					table.insert(nodes, n)
+				end
+			end
+			fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = nodes, bubbles = {} }))
+		end
+	end
+	local problems = 0
+	-- The town's own ground pieces, which the weather recolours (and puts back).
+	local asphalt, turf
+	for _, d in townsFolder:GetDescendants() do
+		if d.Name == "Asphalt" and d:IsA("BasePart") then
+			asphalt = asphalt or d
+		elseif d.Name == "Turf" and d:IsA("BasePart") then
+			turf = turf or d
+		end
+	end
+	local asphaltWas, turfWas = asphalt and asphalt.Color, turf and turf.Color
+	local function lum(c)
+		return c.R * 0.2126 + c.G * 0.7152 + c.B * 0.0722
+	end
+	for _, kind in { "clear", "rain", "storm", "drizzle", "fog", "wind", "snow", "blizzard", "dust", "mist", "clearing", "heat" } do
+		DayNight.apply(noon)
+		TownWeather.pin(kind)
+		-- The storm's first strike lands 3 to 8 seconds in; 20 s finds it mid-flash.
+		local ok, err = pcall(TownWeather.step, noon, if kind == "storm" then 20 else 1)
+		if not ok then
+			problems += 1
+			print(`weather {kind}: ERROR {err}`)
+			continue
+		end
+		local L = game:GetService("Lighting")
+		local fx = W.effects(game.Workspace:FindFirstChild("TownWeather"))
+		local rates = {}
+		for _, e in fx.emitters do
+			local k = e.name:gsub("%d", "")
+			rates[k] = (rates[k] or 0) + e.rate
+		end
+		local list = {}
+		for k, v in rates do
+			table.insert(list, `{k} {math.floor(v)}/s`)
+		end
+		table.sort(list)
+		print(`weather {kind}: brightness {string.format("%.2f", L.Brightness)}, exposure {string.format("%.2f", L.ExposureCompensation)}, air {string.format("%.2f", (L:FindFirstChildWhichIsA("Atmosphere") or { Density = 0 }).Density)}; {table.concat(list, ", ")}; {#fx.beams} beams`)
+		if kind == "storm" then
+			assert(#fx.beams >= 16, "no lightning in the storm")
+		elseif kind == "clearing" then
+			assert(#fx.beams == 12, "no rainbow after the shower")
+			for _, b in fx.beams do
+				-- About as wide as the screen is tall, standing over the town.
+				assert(b.width[1] > 0 and b.width[1] < 20, `a rainbow band {b.width[1]} studs wide`)
+			end
+		elseif kind == "rain" then
+			assert((rates.Rain or 0) > 100 and (rates.Splash or 0) > 50, "no rain")
+			if asphalt then
+				assert(lum(asphalt.Color) < lum(asphaltWas) * 0.75, "the roads didn't get wet")
+				print(`weather rain: roads {asphaltWas:ToHex()} -> {asphalt.Color:ToHex()}`)
+			end
+		elseif kind == "snow" then
+			assert((rates.Snow or 0) > 50, "no snow")
+			if turf then
+				assert(lum(turf.Color) > 0.85, "no snow on the lawns")
+				print(`weather snow: lawn {turfWas:ToHex()} -> {turf.Color:ToHex()}, roads {asphalt and asphalt.Color:ToHex() or "none"}`)
+			end
+		elseif kind == "clear" then
+			assert(#fx.emitters == 0 and #fx.beams == 0, "something falls on a clear day")
+		end
+		weatherShot(`weather-{kind}`)
+	end
+	-- The town's light goes back to DayNight's when the weather clears.
+	DayNight.apply(noon)
+	local bright = game:GetService("Lighting").Brightness
+	TownWeather.pin("clear")
+	TownWeather.step(noon, 2)
+	assert(math.abs(game:GetService("Lighting").Brightness - bright) < 1e-6, "clear weather changed the light")
+	assert(not asphalt or asphalt.Color == asphaltWas, "the roads stayed wet")
+	assert(not turf or turf.Color == turfWas, "the snow stayed on the lawns")
+	print(`weather: {parts() - before} parts added, {problems} problems`)
+
+	-- Rave Mode: the build-up (heads-up, countdown), then the drop (title, tag, lights).
+	local changes = {}
+	Rave.onChange(function(on)
+		table.insert(changes, on)
+	end)
+	local from = NOW
+	Rave.startTest(from, from + 68200)
+	local hudGui = player.PlayerGui:FindFirstChild("Cartopia")
+	local neon
+	for _, d in townsFolder:GetDescendants() do
+		if d:IsA("BasePart") and d.Material == roblox.Enum.Material.Neon then
+			neon = d
+			break
+		end
+	end
+	local neonWas = neon and neon.Color
+	for _, step in { { "build", 7500, 7.5 }, { "drop", 10600, 10.6 }, { "groove", 14000, 14 } } do
+		local now = from + step[2]
+		DayNight.apply(now)
+		TownWeather.pin(nil)
+		TownWeather.step(now, step[3])
+		-- A frame half a second earlier too (the title lands on the first frame after the drop).
+		Rave.step(now - 500, step[3] - 0.5)
+		Rave.step(now, step[3])
+		local rg = player.PlayerGui:FindFirstChild("RaveMode")
+		local tagFrame = hudGui and hudGui:FindFirstChild("RaveTag", true)
+		print(`rave {step[1]}: on {Rave.isOn(now)}, night {string.format("%.2f", clock.nightAmount(clock.dayPhase(now)))}, to drop {techno.technoToDrop(now)} ms, layer {rg ~= nil}, tag {tagFrame and tagFrame.Tag.Left.Text or "none"}, heads-up {player.PlayerGui:FindFirstChild("RaveHeadsUp") ~= nil}`)
+		assert(Rave.isOn(now) and rg and tagFrame, "Rave Mode didn't show")
+		local townName = hudGui and hudGui.Root.Center.TownName.Face
+		assert(townName.TextColor3 ~= roblox.Color3.new(1, 1, 1), "the town's name didn't take the beat's colour")
+		local guis = { rg, hudGui }
+		local hu = player.PlayerGui:FindFirstChild("RaveHeadsUp")
+		if hu then
+			table.insert(guis, hu)
+		end
+		weatherShot(`rave-{step[1]}`, guis)
+		-- The heads-up goes after nine seconds (a timer the emulator doesn't run).
+		if hu then
+			hu:Destroy()
+		end
+	end
+	assert(player:GetAttribute("RaveOn") == true, "the music hook didn't hear the rave start")
+	if neon then
+		assert(neon.Color ~= neonWas, "the town's neon didn't take the club's colour")
+	end
+	-- And off again at its end: lights back, tag gone, the hook told.
+	local after = from + 68200 + 500
+	Rave.step(after, 70)
+	assert(not Rave.isOn(after), "the rave didn't end")
+	assert(player:GetAttribute("RaveOn") == false, "the music hook didn't hear the rave stop")
+	if neon then
+		assert(neon.Color == neonWas, "the town's neon didn't go back")
+	end
+	assert(not (hudGui and hudGui:FindFirstChild("RaveTag", true)), "the rave tag stayed")
+	assert(not (hudGui and hudGui:FindFirstChild("RaveScale", true)), "the HUD kept dancing")
+	local townName = hudGui and hudGui.Root.Center.TownName.Face
+	assert(townName.TextColor3 == roblox.Color3.new(1, 1, 1), "the town's name kept the rave's colour")
+	print(`rave: hook heard {#changes} changes, neon {neon and "back" or "none in town"}`)
+	townsFolder:Destroy()
+	print("weather and rave: 0 problems")
 end
