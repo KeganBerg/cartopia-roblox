@@ -313,7 +313,7 @@ if (S.room) {
   hemi.color.set('#' + S.room.ambient); hemi.groundColor.set('#' + S.room.ambient); hemi.intensity = 1.2
   sun.visible = false
 }
-for (const l of S.lights || []) {
+for (const l of Array.isArray(S.lights) ? S.lights : []) {
   const color = '#' + l.color
   const light = l.kind === 'SpotLight'
     ? new T.SpotLight(color, l.brightness * 260, l.range * 1.6, (l.angle / 2) * Math.PI / 180, 0.5, 1.2)

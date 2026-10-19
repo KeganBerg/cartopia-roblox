@@ -7,7 +7,12 @@
 --   Town   RemoteEvent     server -> client: { save, need, panel, toasts } after every change
 --   Race   RemoteFunction  client -> server: ("rivals" | "campaign" | "start" | "finish", ...)
 --                          -> ok, result or error text (see Races); "kartStart" { kind, which }
---                          and "kartFinish" { place, time } for kart races (see Karts)
+--                          and "kartFinish" { place, time } for kart races (see Karts); "partyList",
+--                          "partyOpen", "partyJoin" id, "partyLeave", "partyGo", "partyFinish" time
+--                          for kart parties with the others in this server (see KartParty)
+--   Kart   RemoteEvent     both ways, for a kart party: the client sends "ready" and its race's
+--                          "snap" and "notes"; the server sends "party", "parties", "setup", "go",
+--                          the others' "snap" and "notes", and the "verdict"
 --   Crate  RemoteFunction  client -> server: (crate id, free source?, count) -> ok, the opens or why;
 --                          ("wheel") spins the Daily Spin -> ok, the spin { slice, open } or why
 --   Arcade RemoteFunction  client -> server: ("state" | "start" | "submit" | "board" | "prizes" |
@@ -48,6 +53,7 @@ local Towns = require(script.Towns)
 local TownView = require(script.TownView)
 local Races = require(script.Races)
 local Karts = require(script.Karts)
+local KartParty = require(script.KartParty)
 local Boards = require(script.Boards)
 local Ghosts = require(script.Ghosts)
 local Crates = require(script.Crates)
@@ -234,6 +240,44 @@ local karts = Karts.new(towns, {
 
 local remotes = Instance.new("Folder")
 remotes.Name = "Cartopia"
+local kartEvent = Instance.new("RemoteEvent")
+kartEvent.Name = "Kart"
+kartEvent.Parent = remotes
+-- Kart parties with the other players in this server (server/KartParty).
+local parties = KartParty.new(towns, {
+	store = require(Game.store),
+	data = require(Game.data),
+	kart = require(Game.kart),
+	raceCar = require(Game.raceCar),
+	boosts = require(Game.boosts),
+	random = Random.new(),
+	clock = os.clock,
+	delay = function(s: number, fn: () -> ())
+		task.delay(s, fn)
+	end,
+	-- userId 0: everyone in the server.
+	send = function(userId: number, event: string, payload: any)
+		if userId == 0 then
+			kartEvent:FireAllClients(event, payload)
+			return
+		end
+		local player = Players:GetPlayerByUserId(userId)
+		if player then
+			kartEvent:FireClient(player, event, payload)
+		end
+	end,
+	name = function(userId: number): string
+		local player = Players:GetPlayerByUserId(userId)
+		return if player then player.DisplayName else "A racer"
+	end,
+})
+kartEvent.OnServerEvent:Connect(function(player: Player, event: any, payload: any)
+	if event == "ready" then
+		parties:ready(player.UserId)
+	else
+		parties:relay(player.UserId, event, payload)
+	end
+end)
 local act = Instance.new("RemoteFunction")
 act.Name = "Act"
 act.Parent = remotes
@@ -390,6 +434,14 @@ local function push(player: Player, force: boolean?)
 	end
 end
 
+-- A kart party's prizes reach the town's snapshot at once.
+parties.mods.paid = function(userId: number)
+	local player = Players:GetPlayerByUserId(userId)
+	if player then
+		push(player)
+	end
+end
+
 -- Players on their way to a friend's server (Social "join"): their save is already written.
 local leaving: { [Player]: boolean } = {}
 
@@ -535,6 +587,7 @@ Players.PlayerRemoving:Connect(function(player)
 	-- First, so a double-or-nothing rematch left half way is settled in the save.
 	races:close(player.UserId)
 	karts:close(player.UserId)
+	parties:forget(player.UserId)
 	arcade:close(player.UserId)
 	save(player, true)
 	towns:close(player.UserId)
@@ -634,6 +687,19 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return karts:start(player.UserId, arg.kind, arg.which)
 		elseif op == "kartFinish" then
 			return karts:finish(player.UserId, arg)
+		elseif op == "partyList" then
+			return parties:list(player.UserId), nil
+		elseif op == "partyOpen" then
+			return parties:open(player.UserId)
+		elseif op == "partyJoin" then
+			return parties:join(player.UserId, arg)
+		elseif op == "partyLeave" then
+			parties:leave(player.UserId)
+			return true, nil
+		elseif op == "partyGo" then
+			return parties:go(player.UserId)
+		elseif op == "partyFinish" then
+			return parties:finish(player.UserId, arg)
 		end
 		return nil, "not a race"
 	end)
@@ -641,7 +707,7 @@ raceRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 		warn(`[Cartopia] {player.Name} race {op}: {result}`)
 		return false, "error"
 	end
-	if op == "start" or op == "finish" or op == "act" or op == "kartStart" or op == "kartFinish" then
+	if op == "start" or op == "finish" or op == "act" or op == "kartStart" or op == "kartFinish" or op == "partyFinish" then
 		push(player)
 	end
 	if result == nil then

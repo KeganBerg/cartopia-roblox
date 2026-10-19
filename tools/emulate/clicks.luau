@@ -152,6 +152,9 @@ socialRemote.Parent = remotes
 local bankRemote = Instance.new("RemoteFunction")
 bankRemote.Name = "Bank"
 bankRemote.Parent = remotes
+local kartEvent = Instance.new("RemoteEvent")
+kartEvent.Name = "Kart"
+kartEvent.Parent = remotes
 -- The race desk, as init.server.luau makes it (a seeded stand-in for Random).
 local seed = 7
 local G = RS.Shared.Game
@@ -219,6 +222,49 @@ local karts = emu.require(SSS.Server.Karts).new(towns, {
 		return raceClock
 	end,
 })
+-- The kart party desk, as init.server.luau makes it: player 1 is this client, player 2 (Rosa)
+-- has no game here, so what the server sends her is kept in partySent.
+local partyTimers, partySent = {}, {}
+-- checkSend, once it's defined below.
+local partyCheck = nil
+local parties = emu.require(SSS.Server.KartParty).new(towns, {
+	store = store,
+	data = emu.require(G.data),
+	kart = emu.require(G.kart),
+	raceCar = emu.require(G.raceCar),
+	boosts = emu.require(G.boosts),
+	random = races.mods.random,
+	clock = function()
+		return raceClock
+	end,
+	delay = function(sec, fn)
+		table.insert(partyTimers, { at = raceClock + sec, fn = fn })
+	end,
+	send = function(userId, event, payload)
+		if partyCheck then
+			partyCheck(`kart {event}`, payload)
+		end
+		if userId == 1 or userId == 0 then
+			signalFor(kartEvent, "OnClientEvent"):Fire(event, payload)
+		end
+		if userId ~= 1 then
+			table.insert(partySent, { to = userId, event = event, payload = payload })
+		end
+	end,
+	name = function(userId)
+		return if userId == 1 then "You" else "Rosa"
+	end,
+})
+roblox.implementMethod("RemoteEvent", "FireServer", function(remote, event, payload)
+	if remote.Name == "Kart" then
+		partyCheck(`kart {event} from the client`, payload)
+		if event == "ready" then
+			parties:ready(1)
+		else
+			parties:relay(1, event, payload)
+		end
+	end
+end)
 do
 	local g = races.mods.ghosts
 	g:card(2, { car = "Pip", model = "pip", color = "#1e88e5", pi = 14, town = "Gearville" })
@@ -327,6 +373,8 @@ local function checkSend(what, v)
 	end
 end
 
+partyCheck = checkSend
+
 -- The server end of Cartopia.Act, as init.server.luau runs it.
 local calls = {}
 local function raceDesk(op, arg)
@@ -352,6 +400,19 @@ local function raceDesk(op, arg)
 			return karts:start(1, arg.kind, arg.which)
 		elseif op == "kartFinish" then
 			return karts:finish(1, arg)
+		elseif op == "partyList" then
+			return parties:list(1), nil
+		elseif op == "partyOpen" then
+			return parties:open(1)
+		elseif op == "partyJoin" then
+			return parties:join(1, arg)
+		elseif op == "partyLeave" then
+			parties:leave(1)
+			return true, nil
+		elseif op == "partyGo" then
+			return parties:go(1)
+		elseif op == "partyFinish" then
+			return parties:finish(1, arg)
 		end
 		return nil, "not a race"
 	end)
@@ -913,8 +974,9 @@ local function shot(name, world, w, h)
 		end
 	end
 	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("DailySpin")
-	if name:find("^depot%-") then
-		-- The crate depot is a menu on the HUD, whatever screen an earlier check left behind.
+	if name:find("^depot%-") or name:find("^page%-") then
+		-- The crate depot and the race pages are menus on the HUD, whatever screen an earlier check
+		-- left behind.
 		raceGui = nil
 	end
 	fs.writeFile(`build/shot-{name}-gui.json`, serde.encode("json", { nodes = Gui.dump(raceGui or hud.gui, w or 1280, h or 800), bubbles = {} }))
@@ -2529,6 +2591,82 @@ assert(customTitle and customTitle.Text == "🛠️ Custom · 🏜️ Canyon ↺
 signalFor(customScreen:FindFirstChild("Leave"):FindFirstChild("Face"), "Activated"):Fire()
 Emu.resumeWaits()
 assert(not raceScreen(), "the custom race didn't close")
+-- A kart party: the Live page, start a party, Rosa joins it (from her own game), Go, and the
+-- race against her (her kart handed to an AI driver once she goes quiet) to the server's places.
+do
+	closeRace()
+	hud.ctx.close()
+	hud.openPanel("race", "hub")
+	local liveMini = find(hud.gui, function(d)
+		return d:IsA("TextButton") and label(d) == "Live" and d:FindFirstAncestor("Minis") ~= nil
+	end)
+	assert(liveMini, "no Live button on the front page")
+	handlerErrors = {}
+	signalFor(liveMini, "Activated"):Fire()
+	Emu.resumeWaits()
+	local open = find(hud.gui, function(d)
+		return d:IsA("TextButton") and string.find(label(d), "Start a kart party", 1, true) ~= nil
+	end)
+	assert(open, "no Start a kart party on the Live page")
+	signalFor(open, "Activated"):Fire()
+	Emu.resumeWaits()
+	towns:_with(2, function(s)
+		s.fuel = math.max(s.fuel, 10)
+	end)
+	assert(parties:join(2, parties:list(2).open[1].id), "Rosa couldn't join")
+	Emu.resumeWaits()
+	if SHOTS then
+		shot("page-live", nil)
+	end
+	local roster = {}
+	for _, d in (hud.gui:FindFirstChild("Live", true) or Instance.new("Folder")):GetDescendants() do
+		if d:IsA("TextLabel") and d.Name ~= "Face" and d.Text ~= "" then
+			table.insert(roster, d.Text)
+		end
+	end
+	print(`live page: {table.concat(roster, " | ")} {table.concat(handlerErrors, "; ")}`)
+	local before = towns:snapshot(1).save.coins
+	runKart("kart-party", { [40] = true }, function()
+		-- runKart closed the menu: back to the Live page, where the party still is.
+		hud.openPanel("race", "live")
+		Emu.resumeWaits()
+		local go = find(hud.gui, function(d)
+			return d:IsA("TextButton") and string.find(label(d), "Go ×2", 1, true) ~= nil
+		end)
+		assert(go, "no 🏁 Go ×2 for the host")
+		signalFor(go, "Activated"):Fire()
+		Emu.resumeWaits()
+		-- Rosa's game has the circuit drawn too: the lights go.
+		parties:ready(2)
+	end)
+	-- Rosa never crosses the line: a minute after ours the places are settled.
+	raceClock += 61
+	for _, tm in table.clone(partyTimers) do
+		if tm.at <= raceClock and not tm.ran then
+			tm.ran = true
+			tm.fn()
+		end
+	end
+	for _ = 1, 12 do
+		raceClock += 1 / 20
+		if renderSteps.KartRun then
+			renderSteps.KartRun(1 / 20)
+		end
+		Emu.resumeWaits()
+	end
+	local podium = find(raceScreen(), function(d)
+		return d.Name == "Podium"
+	end)
+	print(`kart party: {cardText(podium)}; coins {before} -> {towns:snapshot(1).save.coins}`)
+	assert(find(podium, function(d)
+		return d.Name == "Verdict"
+	end), "no verdict on the kart party podium")
+	assert(towns:snapshot(1).save.coins > before, "the kart party paid nothing")
+	if SHOTS then
+		shot("kart-party-verdict", game.Workspace:FindFirstChild("KartCircuit"))
+	end
+	closeRace()
+end
 -- The Daily Spin: Spin, run the wheel round until it lands, and see the prize was paid once.
 do
 	closeRace()
@@ -2763,6 +2901,34 @@ do
 	print(`goal screen: {table.concat(calls, ", ")}; tutorial now {towns:snapshot(1).save.tutorial}`)
 	assert(towns:snapshot(1).save.tutorial == 99, "Let's go! didn't finish the tutorial")
 
+	-- The Grand Prix champion's mystery box (Prizes gpPrize): wobbling, then opened to the car.
+	towns:_with(1, function()
+		store.useGame.setState({ gpPrize = { series = "rookie", model = "miata", color = "#e53935" } })
+	end)
+	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+	Emu.resumeWaits()
+	local box = find(hud.gui, function(d)
+		return d.Name == "Mystery"
+	end)
+	assert(box, "no mystery box for the Grand Prix champion")
+	if SHOTS then
+		shot("gp-prize-box", nil)
+	end
+	signalFor(box, "Activated"):Fire()
+	Emu.resumeWaits()
+	local card = hud.gui:FindFirstChild("Prize", true)
+	print(`gp prize: {cardText(card)}`)
+	if SHOTS then
+		shot("gp-prize-car", nil)
+	end
+	local nice = find(hud.gui, function(d)
+		return d:IsA("TextButton") and label(d) == "Nice!"
+	end)
+	assert(nice, "no Nice! on the Grand Prix prize")
+	signalFor(nice, "Activated"):Fire()
+	Emu.resumeWaits()
+	assert(store.useGame.getState().gpPrize == nil, "the Grand Prix prize didn't close")
+
 	-- Welcome back: three hours away with jobs finished.
 	calls = {}
 	local gameData = emu.require(G.data)
@@ -2806,7 +2972,6 @@ do
 	hud.ctx.close()
 	print(`pop-ups: {bad} problems`)
 end
-
 -- The town's weather and Rave Mode (client/TownWeather, client/Rave): every kind of weather over
 -- a drawn town at noon (lightning mid-flash in the storm, the rainbow after a shower), then a rave
 -- through its build-up and drop, with the HUD tag and the club's lights. SHOTS=1 writes
