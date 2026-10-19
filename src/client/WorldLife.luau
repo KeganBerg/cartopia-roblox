@@ -38,7 +38,9 @@ local LANE = 0.25 -- of the road's width, right of the middle
 local GAP = 22 -- studs between the middles of a stopped car and the one in front
 local HEADWAY = 0.8 -- and seconds kept behind it on the move, so nobody rides a bumper
 local SHOWN = 1400 -- studs from the camera a car is drawn within; past it, it comes back nearer
-local RESPAWN_NEAR, RESPAWN_FAR = 500, 1200 -- how far from the camera it comes back
+-- How far from the camera it comes back: just inside SHOWN, so cars drive in from the distance
+-- rather than popping up close by.
+local RESPAWN_NEAR, RESPAWN_FAR = 1150, 1350
 local VERGE_NEAR = 1100 -- verge stretches within this are built...
 local VERGE_FAR = 1500 -- ...and cleared past this
 local STRETCH = 700 -- studs of road per verge stretch
@@ -252,10 +254,15 @@ local function stepCar(g: Grid, c: Car, dt: number, me: Vector3?, rng: Random)
 	c.v += math.clamp(want - c.v, -90 * dt, 25 * dt)
 	local before = c.s
 	c.s += c.v * c.dir * dt
-	-- The end of the road: turn round.
+	-- The end of the road is the outer ring road: turn onto it, as at any crossroads (turning
+	-- round on the spot would slide the car sideways across into the other lane).
 	if math.abs(c.s) > g.reach - 10 then
-		c.s = math.sign(c.s) * (g.reach - 10)
-		c.dir = -c.dir
+		local ring = nearestLine(g, math.sign(c.s) * g.reach)
+		c.s, c.line = c.line, ring
+		c.along = if c.along == "x" then "z" else "x"
+		-- Along the ring, away from its own end if it's at a corner.
+		c.dir = if math.abs(c.s) > g.reach - 30 then -math.sign(c.s) elseif rng:NextNumber() < 0.5 then 1 else -1
+		c.s = math.clamp(c.s, -(g.reach - 11), g.reach - 11)
 		return
 	end
 	-- Crossing a road: now and then turn onto it.

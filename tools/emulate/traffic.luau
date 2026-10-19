@@ -160,3 +160,57 @@ if #out > 0 then
 end
 assert(#out == 0 and offRoad == 0 and high == 0 and jumps == 0 and tightest > 0.6, "town traffic check failed")
 print("town traffic ok")
+
+-- The roads between the plots (client/WorldLife), walked along for a while: every car stays in a
+-- lane of a road, and none jumps or slides across the road between frames.
+local WorldLife = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.WorldLife)
+local World = emu.require(SSS.Server.World)
+local world = World.build(game.Workspace, TownView.MEADOW)
+local stepRoads = WorldLife.attach(world)
+local pitch, width = world:GetAttribute("Pitch"), world:GetAttribute("RoadWidth")
+local function offRoad(p)
+	local function near(v)
+		local k = math.round(v / pitch + 0.5)
+		return math.abs(v - (k - 0.5) * pitch) < width / 2
+	end
+	return not (near(p.X) or near(p.Z))
+end
+local was, roadJumps, roadOff, shownMax = {}, 0, 0, 0
+for f = 1, math.floor(seconds / DT) do
+	-- Walking slowly along the road beside the town.
+	local eye = Vector3.new(pitch / 2 + 10, 12, -600 + f * DT * 8)
+	stepRoads(DT, eye, eye, false)
+	local shown = 0
+	local now = WorldLife.cars()
+	for uid in was do
+		if not now[uid] then
+			was[uid] = nil
+		end
+	end
+	for uid, m in now do
+		local p = m:GetPivot().Position
+		if p.Y < -1000 then
+			was[uid] = nil
+			continue
+		end
+		shown += 1
+		if offRoad(p) then
+			roadOff += 1
+			if roadOff <= 5 then
+				print(`  road car off the road: {uid} at {p}`)
+			end
+		end
+		local q = was[uid]
+		if q and (p - q).Magnitude > 12 then
+			roadJumps += 1
+			if roadJumps <= 5 then
+				print(`  road car jumped: {uid} {q} -> {p}`)
+			end
+		end
+		was[uid] = p
+	end
+	shownMax = math.max(shownMax, shown)
+end
+print(`roads between plots: up to {shownMax} cars in sight, frames off the road {roadOff}, jumps {roadJumps}`)
+assert(roadOff == 0 and roadJumps == 0, "road traffic check failed")
+print("road traffic ok")
