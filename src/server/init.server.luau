@@ -406,7 +406,7 @@ townsFolder.Parent = workspace
 TownView.sharedGround = true
 local world = World.build(workspace, TownView.MEADOW, function(p)
 	TownView.groundTexture(p, "meadow", Vector3.new(80, 0, 80))
-end)
+end, TownView.GRASS)
 local views: { [Player]: any } = {}
 local slots: { [number]: Player } = {}
 

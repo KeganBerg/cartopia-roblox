@@ -37,7 +37,7 @@ end
 TownView.sharedGround = true
 local world = World.build(game.Workspace, TownView.MEADOW, function(p)
 	TownView.groundTexture(p, "meadow", Vector3.new(80, 0, 80))
-end)
+end, TownView.GRASS)
 local towns = Towns.new(store, function()
 	return NOW
 end)
@@ -62,6 +62,13 @@ for i = 0, 2 do
 	local view = TownView.new(folder, `Player{id}`, World.origin(i), id, function() end)
 	view:render(towns:save(id))
 	World.setOwner(world, i, id, ({ "Rosa", "Milo", "Sunny" })[id])
+end
+
+-- A claimed plot's FREE PLOT sign is gone, words and all.
+for _, d in world.Plots.Plot0:GetDescendants() do
+	if d:IsA("SurfaceGui") then
+		assert(not d.Enabled, "plot 0 is claimed but still says FREE PLOT")
+	end
 end
 
 -- A player driving: an avatar stand-in with their car welded round it, on the road between the
@@ -102,6 +109,12 @@ local eye = root.CFrame.Position
 for _ = 1, 30 * 20 do
 	stepRoads(1 / 30, eye, nil)
 end
+-- And with the town camera over the land between the hub and the first plots (EYE=x,z picks
+-- another spot), so the wild meadow round the plots there is drawn too.
+local ex, ez = string.match(process.env.EYE or "-400,-400", "^(-?[%d.]+),(-?[%d.]+)$")
+stepRoads(0.6, Vector3.new(tonumber(ex), tonumber(process.env.EYE_Y or 1000), tonumber(ez)), nil)
+print(`{#game.Workspace.WorldWilds:GetChildren()} wild meadow plots drawn`)
+if process.env.DEBUG then for _, p in game.Workspace.World.Plots:GetChildren() do print(p.Name, p:GetAttribute("Origin"), p:GetAttribute("Free")) end end
 local onRoad = 0
 for _, m in WorldLife.cars() do
 	onRoad += 1

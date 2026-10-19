@@ -37,10 +37,14 @@ end
 
 -- The car as the player sees it in town: theirs with paint, mods and all, or a plain painted one.
 local function build(car: any): Model?
+	-- Its own shapes first (a pack that failed or is still queued would leave it a pile of boxes).
+	Builder.loadCar(car.model, 8)
 	local m = Builder.build(car.model)
 	if not m then
 		return nil
 	end
+	-- Which car it is, for the driver's own view of it (client/CarDrive turns its wheels).
+	m:SetAttribute("Model", car.model)
 	local job = Paint.jobOf(car)
 	Paint.apply(m, job, if type(job.stripe) == "string" then Builder.build(`stripe:{car.model}`) else nil)
 	if car.uid then
@@ -103,6 +107,22 @@ function GetIn.enter(player: Player, towns: any, spec: any): (boolean, string?)
 	character:PivotTo(CFrame.new(cf.Position + Vector3.new(0, up + 0.1, 0)) * CFrame.Angles(0, turn + math.pi, 0))
 	Drive.set(player, m)
 	riding[player] = if type(spec.uid) == "string" then spec.uid else nil
+	if Builder.boxed(m) then
+		-- Still missing some shapes: swapped for the real car as soon as they're in.
+		task.spawn(function()
+			local deadline = os.clock() + 120
+			while os.clock() < deadline and not Builder.loadCar(car.model, 10) do
+				task.wait(5)
+			end
+			local now = character:FindFirstChild("Car")
+			if now == m and Builder.complete(car.model) then
+				local fresh = build(car)
+				if fresh then
+					Drive.set(player, fresh)
+				end
+			end
+		end)
+	end
 	return true, nil
 end
 
