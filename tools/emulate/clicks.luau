@@ -175,6 +175,7 @@ local races = emu.require(SSS.Server.Races).new(towns, {
 	rivals = emu.require(G.rivals),
 	distance = emu.require(G.distance),
 	DragRace = emu.require(RS.Shared.DragRace),
+	tourRivals = emu.require(RS.Shared.TourRivals),
 	random = {
 		NextNumber = function()
 			seed = (seed * 1103515245 + 12345) % 2147483648
@@ -2656,6 +2657,86 @@ trialRun("trial2")
 -- The Daily Run: the day's loaner against par; the first run of the day pays.
 modeRace("daily", "Daily Run", "🏁 %$")
 print(`daily run: {(towns:snapshot(1).save.daily or {}).best or "no time"}`)
+
+-- The Pro Tour and the weekly event: each hub tile opens its page; race the tour's first leg boss
+-- (Back Streets cleared) and the event's first race from their pages. Their prize cards are with
+-- the other pop-ups below.
+local function hubPage(tag, tileName)
+	topUp()
+	hud.ctx.close()
+	-- Prize cards earlier races left: closed the way a player would.
+	local OK = { ["Nice!"] = true, ["Awesome!"] = true, ["Keep going!"] = true, Continue = true, Later = true }
+	for _ = 1, 10 do
+		local p = hud.root:FindFirstChild("Popup")
+		local b = p and find(p, function(d)
+			return d:IsA("TextButton") and d.Name == "Face" and OK[label(d)] == true
+		end)
+		if not b then
+			break
+		end
+		signalFor(b, "Activated"):Fire()
+		Emu.resumeWaits()
+	end
+	-- Anything opening by itself (the Daily Spin at launch) goes first, then the menu.
+	for _ = 1, 3 do
+		hud.ctx.close()
+		hud.openPanel("race", "hub")
+		Emu.resumeWaits()
+		if hud.root:FindFirstChild("Panel") then
+			break
+		end
+	end
+	local tile = find(hud.gui, function(d)
+		return d:IsA("TextButton") and (d.Name == tileName or (d.Parent and d.Parent.Name == tileName))
+	end)
+	assert(tile, `no {tileName} tile`)
+	if SHOTS then
+		shot(`page-hub-{tag}`, nil)
+	end
+	signalFor(tile, "Activated"):Fire()
+	Emu.resumeWaits()
+	if SHOTS then
+		shot(`page-{tag}`, nil)
+	end
+end
+local function pageRace(tag, tileName)
+	local f, _, res = runRace(tag, { [60] = true }, function()
+		hubPage(tag, tileName)
+		local b = find(hud.gui, function(d)
+			return d:IsA("TextButton") and d.Visible and string.find(label(d), "🏁 %$") ~= nil and (d:FindFirstAncestor("Races") ~= nil or d:FindFirstAncestor("Versus") ~= nil)
+		end)
+		assert(b, `no race button on the {tag} page ({table.concat(calls, ", ")})`)
+		signalFor(b, "Activated"):Fire()
+	end)
+	print(`{tag}: {f} frames; card: {cardText(res)}`)
+	print(`{tag} calls: {table.concat(calls, ", ")} {table.concat(handlerErrors, "; ")}`)
+	closeRace()
+	return res
+end
+do
+	local dataMod = emu.require(G.data)
+	local ch = dataMod.CAMPAIGN[1]
+	-- Locked first: the page greys the first leg out under the way in.
+	local before = towns:snapshot(1).save.campaign
+	towns:_with(1, function()
+		store.useGame.setState({ campaign = {} })
+	end)
+	hubPage("tour-locked", "Tour")
+	local done = table.clone(before)
+	for i = 0, dataMod.CAMPAIGN_RACES - 1 do
+		done[dataMod.campaignRaceId(ch, i)] = 3
+	end
+	towns:_with(1, function()
+		store.useGame.setState({ campaign = done, tour = 4 })
+	end)
+	pageRace("tour", "Tour")
+	print(`pro tour: {towns:snapshot(1).save.tour or 0} races won`)
+	pageRace("event", "Event")
+	print(`weekly event: {store.useGame.getState().event and store.useGame.getState().event.won or 0} won`)
+	towns:_with(1, function()
+		store.useGame.setState({ campaign = before })
+	end)
+end
 -- Tuner Trials: with the build missing, the race button opens the Garage; then the race car gets
 -- Downforce Dash's build (a spoiler, snow studs, tuning) and races it for the Hex pattern.
 do
@@ -3275,7 +3356,7 @@ do
 	local function popup()
 		return hud.root:FindFirstChild("Popup")
 	end
-	local CLOSE = { Continue = true, ["Nice!"] = true, ["Awesome!"] = true, Later = true, ["Let's go!"] = true }
+	local CLOSE = { Continue = true, ["Nice!"] = true, ["Awesome!"] = true, Later = true, ["Let's go!"] = true, ["Keep going!"] = true }
 	local function closer(p)
 		return find(p, function(d)
 			return d:IsA("TextButton") and d.Name == "Face" and CLOSE[label(d)] == true
@@ -3302,12 +3383,14 @@ do
 			tunerPrize = "downforce",
 			masteryPrize = { model = cars[1].model, tier = 1, classes = {}, galaxy = false, first = { "compact" }, xp = 250 },
 			cupPrize = "compact-1",
+			tourPrize = { leg = 4, coins = 1700 },
+			eventPrize = { id = emu.require(G.events).eventFor().id, skin = emu.require(G.events).eventFor().skin, coins = 2300 },
 		})
 	end)
 	signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 	Emu.resumeWaits()
 	local seen = {}
-	for _ = 1, 8 do
+	for _ = 1, 10 do
 		local p = popup()
 		if not p then
 			break
@@ -3331,7 +3414,7 @@ do
 		Emu.resumeWaits()
 	end
 	print(`pop-ups in turn: {table.concat(seen, " | ")}`)
-	assert(#seen == 6, `expected 6 pop-ups, saw {#seen}`)
+	assert(#seen == 8, `expected 8 pop-ups, saw {#seen}`)
 	assert(#handlerErrors == 0, table.concat(handlerErrors, "; "))
 	local s = store.useGame.getState()
 	assert(s.levelUp == nil and s.paintPrize == nil and s.cupPrize == nil, "a pop-up's news wasn't cleared")
@@ -3589,7 +3672,7 @@ do
 	-- The badge over Rusty's, as the client's entry point starts it.
 	emu.require(client.RescueBadge).start(player.PlayerGui)
 	-- A pop-up over everything (a level-up): the hand rests, and the player taps its button.
-	local CLOSE = { Continue = true, ["Nice!"] = true, ["Awesome!"] = true, Later = true }
+	local CLOSE = { Continue = true, ["Nice!"] = true, ["Awesome!"] = true, Later = true, ["Keep going!"] = true }
 	local function closePopup()
 		local p = hud.root:FindFirstChild("Popup")
 		local b = p and find(p, function(d)
