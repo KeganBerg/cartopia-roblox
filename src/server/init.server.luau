@@ -142,6 +142,7 @@ local races = Races.new(towns, {
 	rivals = require(Game.rivals),
 	distance = require(Game.distance),
 	DragRace = require(ReplicatedStorage.Shared.DragRace),
+	tourRivals = require(ReplicatedStorage.Shared.TourRivals),
 	random = Random.new(),
 	clock = os.clock,
 	-- The other race modes, by name (server/Modes: each module's `id`).
