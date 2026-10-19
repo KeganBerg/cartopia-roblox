@@ -69,6 +69,14 @@ if process.env.PLACE then
 		assert(placed, `no room for {id}`)
 	end
 end
+-- TOWN_FILE=tools/emulate/showcase-town.json: the starter town's roads with that file's buildings
+-- (levels and merges, to compare with the web game's same layout).
+if process.env.TOWN_FILE then
+	local town = serde.decode("json", fs.readFile(process.env.TOWN_FILE))
+	towns:_with(1, function()
+		store.useGame.setState({ level = 60, buildings = town.buildings })
+	end)
+end
 -- A busy town: a job running, one done, some new buildings and a bought car.
 local save = towns:snapshot(1).save
 local folder = Instance.new("Folder")

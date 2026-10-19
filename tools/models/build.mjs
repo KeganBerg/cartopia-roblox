@@ -25,6 +25,7 @@ import { polishBuilding } from './walk.mjs'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '../..')
 const OUT_DIR = join(ROOT, 'src/shared/Models')
+const LEVELS_DIR = join(ROOT, 'src/server/Levels')
 const GLB_DIR = join(ROOT, 'build/meshes')
 const TEX_DIR = join(ROOT, 'build/textures')
 const ASSETS = join(HERE, 'assets.json')
@@ -385,7 +386,7 @@ export function convert(data) {
     if (model.kind === 'race') races.add(model.id)
     // Countryside meshes are only uploaded merged (mergeScenery), so their pieces aren't kept.
     const keep = merged ? (m) => ((m.key ??= meshKey(m)), loose.set(m.key, m), m.key) : remember
-    const name = model.kind === 'building' ? `${model.id}@${model.level ?? 1}` : model.id
+    const name = model.kind === 'building' ? `${model.id}@${model.level ?? 1}${model.block ? `/${model.block}` : ''}` : model.id
     const paint = new Set(model.paint ?? [])
     // A car's mods and custom paint panels share one pack ("mod:<car>"), which the game loads only
     // when that car needs it.
@@ -784,10 +785,19 @@ Catalog.LOOKS = {
     cat += ' },\n'
   }
   // which: 'town' (Catalog), 'scenery' (the countryside) or 'race' (the race venues).
-  const modelList = (which) => {
+  // A building's levels above 1 and its merged blocks ("id@level/2x1x1") go to the server, one
+  // module per building (LEVELS_DIR): only TownView draws them. (Not the Speedway's levels: the
+  // players' own screens put its crowd on its stands.)
+  const grownOf = (name) => {
+    const m = /^(.+)@(\d+)(\/.+)?$/.exec(name)
+    return m && (+m[2] > 1 || m[3]) && m[1] !== 'stadium' ? m[1] : null
+  }
+  const modelList = (which, only) => {
     let s = ''
     for (const [name, parts] of Object.entries(models)) {
-      if ((races.has(name) ? 'race' : scenery.has(name) ? 'scenery' : 'town') !== which) continue
+      const grown = grownOf(name)
+      if ((races.has(name) ? 'race' : scenery.has(name) ? 'scenery' : grown ? 'level' : 'town') !== which) continue
+      if (only && grown !== only) continue
       s += `\t[${str(name)}] = {\n`
       for (const p of parts) s += `\t\t{ ${str(p[0])}, ${p.slice(1, 11).map(num).join(', ')}, ${p[11]}${p[12] ? `, ${str(p[12])}` : ''} },\n`
       s += '\t},\n'
@@ -813,6 +823,12 @@ Catalog.LOOKS = {
   for (const [car, v] of Object.entries(result.townSizes ?? {})) cat += `\t[${str(car)}] = { ${v.map(num).join(', ')} },\n`
   cat += '}\n\nCatalog.MODELS = {\n' + modelList('town') + '}\n\nreturn Catalog\n'
   writeFileSync(join(OUT_DIR, 'Catalog.luau'), cat)
+  // Each building's grown levels (server/Levels/<id>.luau), loaded by TownView when a town has one.
+  rmSync(LEVELS_DIR, { recursive: true, force: true })
+  mkdirSync(LEVELS_DIR, { recursive: true })
+  for (const id of new Set(Object.keys(models).map(grownOf).filter(Boolean))) {
+    writeFileSync(join(LEVELS_DIR, `${id}.luau`), header(`${id} at the levels where its design changes (id@level) and merged (id@level/<block scale>), as Catalog.MODELS (parts and looks alike).`) + 'return {\n' + modelList('level', id) + '}\n')
+  }
   // The countryside, apart so the town's own models stay quick to load. Parts are in studs from
   // the middle of the town (not of the model), in the same form as Catalog's, with its LOOKS.
   const sc = header('The countryside round the town (Outskirts.tsx): the forest ring with its farm and lake, and each plot\'s wild meadow ("wilds:x,z").') + `local Scenery = {}
