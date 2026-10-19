@@ -5593,10 +5593,10 @@ do
 	-- Looked for in the Cars page first when it's open (pop-ups and pages left by the sections
 	-- above can hold buttons of the same names).
 	local function carsPage()
-		for _, p in hud.gui:GetChildren() do
-			local page = p.Name == "Panel" and p:FindFirstChild("Cars")
-			if page then
-				return page
+		-- (The panel is drawn in the HUD's Root: Root/Panel/Cars.)
+		for _, p in hud.gui:GetDescendants() do
+			if p.Name == "Cars" and p.Parent and p.Parent.Name == "Panel" and p:IsA("Frame") then
+				return p
 			end
 		end
 		return nil
@@ -5627,6 +5627,12 @@ do
 		for _, p in hud.gui:GetChildren() do
 			if p:IsA("GuiObject") and p.Visible and p.Name ~= "Root" then
 				table.insert(bits, `top {p.Name}`)
+			end
+		end
+		-- Every "mods" and "rims" in the HUD, with where it sits.
+		for _, d in hud.gui:GetDescendants() do
+			if d.Name == "mods" or d.Name == "rims" then
+				table.insert(bits, d:GetFullName())
 			end
 		end
 		return table.concat(bits, ", ")
@@ -5821,11 +5827,54 @@ do
 	tap("rims")
 	local picker = find("TrackSkins")
 	if not picker then
-		for _, d in hud.gui:GetDescendants() do
-			if d:IsA("TextLabel") and d.Text == data.carDef("tomahawk").name and d.Parent and d.Parent:IsA("GuiButton") then
-				signalFor(d.Parent, "Activated"):Fire()
+		-- Its row in the list; the sections above may have left the list's body filter on
+		-- something else (Sports, Trucks...), so step the filter round until the tank's row shows.
+		local function tankRow()
+			local page = carsPage()
+			for _, d in (if page then page else hud.gui):GetDescendants() do
+				if d:IsA("TextLabel") and d.Text == data.carDef("tomahawk").name and d.Parent and d.Parent:IsA("GuiButton") then
+					return d.Parent
+				end
+			end
+			return nil
+		end
+		local function filterButton()
+			local list = find("List")
+			for _, d in (if list then list:GetDescendants() else {}) do
+				-- The body filter is the left box (x 0); the sort box sits at x 0.5.
+				if d:IsA("TextButton") and d.Position.X.Scale == 0 then
+					for _, t in d:GetChildren() do
+						if t:IsA("TextLabel") and t.Text == "▾" then
+							return d
+						end
+					end
+				end
+			end
+			return nil
+		end
+		local row = tankRow()
+		for _ = 1, 10 do
+			local f = filterButton()
+			if row or not f then
 				break
 			end
+			signalFor(f, "Activated"):Fire()
+			row = tankRow()
+		end
+		if row then
+			signalFor(row, "Activated"):Fire()
+		else
+			local saved, rows = {}, {}
+			for _, c in towns:snapshot(1).save.cars do
+				table.insert(saved, `{c.uid}:{c.model}`)
+			end
+			local list = find("List")
+			for _, d in (if list then list:GetDescendants() else {}) do
+				if d:IsA("TextLabel") and d.Parent and d.Parent:IsA("GuiButton") and d.TextSize == 15 then
+					table.insert(rows, d.Text)
+				end
+			end
+			problem(`the Tomahawk isn't in the garage's list under any filter: saved [{table.concat(saved, " ")}], level {towns:snapshot(1).save.level}, rows [{table.concat(rows, " / ")}]`)
 		end
 		tap("mods")
 		tap("rims")
