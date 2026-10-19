@@ -5,7 +5,8 @@
 --
 -- It all runs here on the client, like TownLife: each player sees their own traffic. Only what's
 -- near the camera is drawn (the verges in stretches, built as they come near and cleared as they
--- go), so phones stay smooth. The cars can be got in like the town's (client/GetIn).
+-- go), so phones stay smooth. The cars are the game's real models, with their small pieces hidden
+-- far off (client/CarDetail). They can be got in like the town's (client/GetIn).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,6 +19,7 @@ local Builder = require(Shared:WaitForChild("Models"):WaitForChild("Builder")) :
 local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
 local Catalog = require(Shared.Models:WaitForChild("Catalog")) :: any
 local TownCamera = require(script.Parent:WaitForChild("TownCamera")) :: any
+local CarDetail = require(script.Parent:WaitForChild("CarDetail"))
 
 -- Leaves for the season the models were made in (Catalog.SEASON), like the countryside's trees.
 local LEAVES: { [string]: { string } } = {
@@ -45,6 +47,7 @@ local HIDDEN = CFrame.new(0, -10000, 0)
 type Car = {
 	uid: string,
 	model: Model,
+	detail: CarDetail.Detail,
 	along: "x" | "z", -- the axis it drives along
 	line: number, -- the road's other coordinate
 	dir: number, -- +1 or -1 along the axis
@@ -57,6 +60,8 @@ type Car = {
 }
 
 local cars: { Car } = {}
+-- The road grid (set by attach).
+local theGrid: Grid? = nil
 local byUid: { [string]: Car } = {}
 
 local function phone(): boolean
@@ -120,6 +125,27 @@ local function nearestLine(g: Grid, v: number): number
 	return best
 end
 
+-- A road car: the real model, painted, at the size cars are driven at. Returns it with its detail.
+local function carModel(id: string, color: string): (Model?, CarDetail.Detail?)
+	local m = Builder.build(id)
+	if not m then
+		return nil, nil
+	end
+	Paint.apply(m, Paint.jobOf({ color = color }))
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = false
+			d.CanTouch = false
+		end
+	end
+	local detail = CarDetail.track(m)
+	if math.abs(m:GetScale() - SCALE) > 1e-3 then
+		m:ScaleTo(SCALE)
+	end
+	return m, detail
+end
+
 local function spawnCars(g: Grid, folder: Folder)
 	local list = pool()
 	if #list == 0 then
@@ -129,21 +155,10 @@ local function spawnCars(g: Grid, folder: Folder)
 	local rng = Random.new(7)
 	for i = 1, n do
 		local def = list[(i * 5) % #list + 1]
-		local m = Builder.build(def.id)
-		if not m then
-			continue
-		end
 		local color = def.colors[(i * 3) % #def.colors + 1]
-		Paint.apply(m, Paint.jobOf({ color = color }))
-		if math.abs(m:GetScale() - SCALE) > 1e-3 then
-			m:ScaleTo(SCALE)
-		end
-		for _, d in m:GetDescendants() do
-			if d:IsA("BasePart") then
-				d.Anchored = true
-				d.CanCollide = false
-				d.CanTouch = false
-			end
+		local m, detail = carModel(def.id, color)
+		if not m or not detail then
+			continue
 		end
 		local uid = `visitor:road:{i}`
 		m.Name = uid
@@ -156,6 +171,7 @@ local function spawnCars(g: Grid, folder: Folder)
 		local c: Car = {
 			uid = uid,
 			model = m,
+			detail = detail,
 			along = if i % 2 == 0 then "x" else "z",
 			line = g.lines[rng:NextInteger(1, #g.lines)],
 			dir = if rng:NextNumber() < 0.5 then 1 else -1,
@@ -404,18 +420,6 @@ end
 -- to the meadow's own flat colour once the camera is high.
 -- (Off, not faded: a part's Texture drawn see-through can show over the roads lying on it.)
 local TEXTURE_OFF = 1500 -- camera height, in studs
-local function groundTextures(world: Instance): { Texture }
-	local out = {}
-	local ground = world:FindFirstChild("Ground")
-	if ground then
-		for _, d in ground:GetDescendants() do
-			if d:IsA("Texture") then
-				table.insert(out, d)
-			end
-		end
-	end
-	return out
-end
 
 local function buildStretch(g: Grid, folder: Folder, along: "x" | "z", line: number, from: number): Model
 	local m = Instance.new("Model")
@@ -513,12 +517,35 @@ function WorldLife.give(uid: string)
 	c.v = 0
 end
 
+-- A parking spot on the verge of the road nearest world point p, just off the asphalt on p's side,
+-- facing along the road with the verge on its right (car models face +Z).
+function WorldLife.roadsideNear(p: Vector3): CFrame?
+	local g = theGrid
+	if not g then
+		return nil
+	end
+	local lx, lz = nearestLine(g, p.X), nearestLine(g, p.Z)
+	local off = g.width / 2 + 9
+	if math.abs(p.X - lx) <= math.abs(p.Z - lz) then
+		-- A road running along z at x = lx.
+		local side = if p.X >= lx then 1 else -1
+		local z = math.clamp(p.Z, -g.reach, g.reach)
+		-- Right of a car facing (0, fz) is (-fz, 0): the verge on the right means fz = -side.
+		return CFrame.new(lx + side * off, g.top, z) * CFrame.Angles(0, math.atan2(0, -side), 0)
+	end
+	local side = if p.Z >= lz then 1 else -1
+	local x = math.clamp(p.X, -g.reach, g.reach)
+	-- Right of a car facing (fx, 0) is (0, fx): fx = side.
+	return CFrame.new(x, g.top, lz + side * off) * CFrame.Angles(0, math.atan2(side, 0), 0)
+end
+
 -- Brings the world's roads to life: returns a function that moves everything on by dt seconds,
 -- for a camera at `eye` and the player at `me`. `board` is true while the player looks down on
 -- their town (the web game's view of it): the road traffic stays off then, as the camera up there
 -- is far enough off that cars would keep popping in and out round the edge of the town.
 function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Vector3?, board: boolean?) -> ()
 	local g = gridOf(world)
+	theGrid = g
 	local folder = Instance.new("Folder")
 	folder.Name = "RoadTraffic"
 	folder.Parent = workspace
@@ -527,8 +554,16 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 	verges.Parent = workspace
 	spawnCars(g, folder)
 	dressHub(g)
-	local textures = groundTextures(world)
-	local textureFade = -1
+	-- (A free plot's meadow comes back when its town leaves: it takes the setting as it arrives.)
+	local ground = world:FindFirstChild("Ground")
+	local textureFade = 0
+	if ground then
+		ground.DescendantAdded:Connect(function(d)
+			if d:IsA("Texture") then
+				d.Transparency = textureFade
+			end
+		end)
+	end
 	local wildsFolder = Instance.new("Folder")
 	wildsFolder.Name = "WorldWilds"
 	wildsFolder.Parent = workspace
@@ -536,8 +571,23 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 	local rng = Random.new()
 	local stretches: { [string]: Model } = {}
 	local nextVerge = 0
+	local nextUpgrade = 0
 	return function(rawDt: number, eye: Vector3, me: Vector3?, board: boolean?)
 		local dt = math.min(rawDt, 0.1)
+		-- Cars built before their meshes reached this player are built again once they have.
+		nextUpgrade -= rawDt
+		if nextUpgrade <= 0 then
+			nextUpgrade = 1
+			for _, c in cars do
+				if not c.taken and CarDetail.ready(c.detail) then
+					local fresh, detail = carModel(c.model:GetAttribute("Model") :: string, c.model:GetAttribute("Color") :: string)
+					if fresh and detail then
+						c.detail = CarDetail.swap(c.detail, fresh, detail)
+						c.model = fresh
+					end
+				end
+			end
+		end
 		for _, c in cars do
 			if c.taken then
 				continue
@@ -568,6 +618,8 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 			local shown = if c.shown then c.shown:Lerp(pose, math.min(1, dt * 6)) else pose
 			c.shown = shown
 			c.model:PivotTo(shown)
+			CarDetail.lod(c.detail, (shown.Position - eye).Magnitude)
+			CarDetail.wheels(c.detail, shown, dt)
 		end
 		-- The verges near the camera, a couple of times a second.
 		nextVerge -= rawDt
@@ -578,8 +630,10 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 		local hide = if eye.Y > TEXTURE_OFF then 1 else 0
 		if hide ~= textureFade then
 			textureFade = hide
-			for _, t in textures do
-				t.Transparency = hide
+			for _, t in (if ground then ground:GetDescendants() else {}) :: { Instance } do
+				if t:IsA("Texture") then
+					t.Transparency = hide
+				end
 			end
 		end
 		-- Where the camera looks on the ground.

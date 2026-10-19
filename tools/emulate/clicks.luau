@@ -458,6 +458,9 @@ races.mods.visitors = visitorDesk
 local visitorRemote = Instance.new("RemoteFunction")
 visitorRemote.Name = "Visitor"
 visitorRemote.Parent = remotes
+local webLinkRemote = Instance.new("RemoteFunction")
+webLinkRemote.Name = "WebLink"
+webLinkRemote.Parent = remotes
 local function visitorCall(op, id)
 	local ran, result, why = pcall(function()
 		if op == "next" then
@@ -587,6 +590,9 @@ roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, 
 		return socialDesk(name, ...)
 	elseif remote.Name == "Visitor" then
 		return visitorCall(name, ...)
+	elseif remote.Name == "WebLink" then
+		-- No web game in the previews: every code is a wrong one.
+		return false, "code"
 	elseif remote.Name == "Race" then
 		return raceDesk(name, ...)
 	elseif remote.Name == "Meshes" then
@@ -1042,8 +1048,35 @@ do
 	shot("hud", nil)
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Custom, "walking didn't hand the camera to the avatar")
+	-- Their town on a plot out in the shared world (a stand-in folder, as TownView marks it).
+	local made = game.Workspace:FindFirstChild("Towns") == nil
+	local towns = game.Workspace:FindFirstChild("Towns") or Instance.new("Folder")
+	towns.Name = "Towns"
+	towns.Parent = game.Workspace
+	local stand = Instance.new("Folder")
+	stand.Name = "WalkTest"
+	stand:SetAttribute("Owner", 1)
+	stand:SetAttribute("Origin", roblox.Vector3.new(1400, 0, -1400))
+	stand.Parent = towns
+	-- Drive off to the side of the town first.
+	pcall(function()
+		player.Character:PivotTo(roblox.CFrame.new(600, 5, 600))
+	end)
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Scriptable, "the town view didn't come back")
+	-- Wherever they drove to, the town view comes back centred on their own town.
+	local mine = emu.require(client.Town).folder()
+	if mine then
+		local origin = mine:GetAttribute("Origin")
+		local focus = game.Workspace.CurrentCamera.Focus.Position
+		assert(math.abs(focus.X - origin.X) < 1 and math.abs(focus.Z - origin.Z) < 1, `the town view came back at {focus}, not over the town at {origin}`)
+		print("walk: town view back over the town's middle")
+	end
+	stand:Destroy()
+	if made then
+		towns:Destroy()
+	end
+	emu.require(client.TownCamera).lookAt(roblox.Vector3.zero)
 	print("walk: on and off")
 end
 -- Merged buildings: a town of merged blocks drawn by the server's TownView (each block once, grown
@@ -1296,6 +1329,39 @@ if SHOTS then
 		hud.ctx.close()
 		hud.openPanel(p)
 		shot(`panel-{p}`, nil)
+	end
+	-- The menu's Settings tab, with the web town code box, and the swap question after Link.
+	do
+		hud.ctx.close()
+		-- The Daily Spin's own screen would cover the menu.
+		local spin = hud.gui.Parent and hud.gui.Parent:FindFirstChild("DailySpin")
+		if spin then
+			spin:Destroy()
+		end
+		hud.openPanel("menu")
+		local t = hud.gui:FindFirstChild("settings", true)
+		assert(t, "no settings tab")
+		signalFor(t:FindFirstChild("Face") or t, "Activated"):Fire()
+		local box = hud.gui:FindFirstChild("WebCode", true)
+		assert(box, "no web code box")
+		shot("menu-settings", nil)
+		box.Text = "ABCD2345"
+		local link
+		for _, d in box.Parent.Parent:GetDescendants() do
+			if d:IsA("TextButton") and d.Parent and d.Parent:FindFirstChildWhichIsA("TextLabel", true) then
+				for _, l in d:GetDescendants() do
+					if l:IsA("TextLabel") and l.Text == "Link" then
+						link = d
+					end
+				end
+			end
+		end
+		assert(link, "no Link button")
+		signalFor(link, "Activated"):Fire()
+		assert(hud.gui:FindFirstChild("Confirm", true), "no swap question")
+		shot("menu-settings-swap", nil)
+		hud.gui:FindFirstChild("Confirm", true):Destroy()
+		hud.ctx.close()
 	end
 	-- Goals: each tab, then the story done (the 📖 ✔ chip, endless goals with their pictures).
 	local function goalsTab(id)
@@ -3041,7 +3107,13 @@ do
 	for _ = 1, 4 do
 		Emu.resumeWaits()
 	end
-	hud.ctx.close()
+	-- Closing the welcome opens the Daily Spin when today's isn't spun (SHOTS' phone wheel picture
+	-- unspins it). Lune's Destroy fires no Destroying, so take the shop down as Roblox would, or its
+	-- room light (DayNight.raceFog) stays on and the town's weather stands down.
+	if player.PlayerGui:FindFirstChild("DailySpin") then
+		wheelOpened()
+	end
+	closeWheel()
 	print(`pop-ups: {bad} problems`)
 end
 
@@ -3504,6 +3576,8 @@ do
 	local TownView = emu.require(SSS.Server.TownView)
 	local DayNight = emu.require(client.DayNight)
 	local TownWeather = emu.require(client.TownWeather)
+	-- A race's or a shop's own sky makes the town's weather stand down.
+	assert(DayNight.raceFog == nil, "a race's or shop's sky is still up")
 	local Rave = emu.require(client.Rave)
 	local W = require("./weatherShot")
 	local clock = emu.require(G.clock)

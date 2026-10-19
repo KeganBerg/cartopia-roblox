@@ -152,7 +152,8 @@ end
 -- the longer one races on the quarter mile's street, the finish line just isn't drawn.
 local function buildStrip(venueId: string, dist: string?): (Model, Model?)
 	local long = if dist and dist ~= "quarter" and Builder.has(`race:{venueId}:{dist}`) then dist else nil
-	local key = `{venueId}:{long or "quarter"}`
+	-- (Built again once the venue's full-detail meshes have come in since, Builder.sharpenRaces.)
+	local key = `{venueId}:{long or "quarter"}:{Builder.meshVersion}`
 	if strip and stripKey == key then
 		return strip, horizon
 	end
@@ -182,8 +183,34 @@ local function buildStrip(venueId: string, dist: string?): (Model, Model?)
 	return m, far
 end
 
--- A car on the strip, with its boost flame and wheelspin smoke.
-local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any, x: number, parent: Instance): (Model, BasePart, ParticleEmitter)
+-- The boost's glowing ribbon on the road behind a car (RaceScene's BoostTrail, BOOST_TRAIL): pale
+-- gold at the car, burning to orange and fading out over 0.4 s, 0.55 units across.
+local TRAIL_WIDTH = 0.55 * S
+local function boostTrail(parent: Instance): (BasePart, Trail)
+	local at = part({ Name = "BoostTrail", Size = Vector3.new(1, 1, 1), Transparency = 1 }, parent)
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(-TRAIL_WIDTH / 2, 0, 0)
+	a0.Parent = at
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(TRAIL_WIDTH / 2, 0, 0)
+	a1.Parent = at
+	local trail = Instance.new("Trail")
+	trail.Attachment0, trail.Attachment1 = a0, a1
+	trail.Color = ColorSequence.new(hex("#ffe082"), hex("#ff3d00"))
+	trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(1, 1) })
+	trail.Lifetime = 0.4
+	trail.LightEmission = 1
+	trail.LightInfluence = 0
+	trail.FaceCamera = false
+	trail.Enabled = false
+	trail.Parent = at
+	return at, trail
+end
+
+-- A car on the strip, with its boost trail and wheelspin smoke.
+-- Returns the car, its trail's part and trail, its smoke, and how far its back bumper sits
+-- behind its pivot (studs).
+local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any, x: number, parent: Instance): (Model, BasePart, Trail, ParticleEmitter, number)
 	local m = library("Cars", model) or Instance.new("Model")
 	Paint.apply(m, job, library("Stripes", model))
 	Panels.apply(m, model, panels, job.finish, Builder.build)
@@ -201,7 +228,7 @@ local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string 
 		end
 	end
 	m.Parent = parent
-	local flame = part({ Name = "Flame", Size = Vector3.new(2.2, 1.2, 4), Color = hex("#ff9100"), Material = Enum.Material.Neon, Transparency = 1 }, parent)
+	local flame, trail = boostTrail(parent)
 	local smokeAt = part({ Name = "Smoke", Size = Vector3.new(1, 1, 1), Transparency = 1 }, parent)
 	local smoke = Instance.new("ParticleEmitter")
 	smoke.Texture = "rbxasset://textures/particles/smoke_main.dds"
@@ -217,7 +244,12 @@ local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string 
 	smoke.Parent = smokeAt
 	m:PivotTo(CFrame.new(ORIGIN + Vector3.new(x, 0, 0)))
 	m:SetAttribute("X", x)
-	return m, flame, smoke
+	local back = 8 * CAR_SCALE
+	if #m:GetChildren() > 0 then
+		local box, size = m:GetBoundingBox()
+		back = math.max(0, ORIGIN.Z - (box.Position.Z - size.Z / 2))
+	end
+	return m, flame, trail, smoke, back
 end
 
 local function money(n: number): string
@@ -254,8 +286,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local carsFolder = Instance.new("Folder")
 	carsFolder.Name = "RaceCars"
 	carsFolder.Parent = world
-	local meModel, meFlame, meSmoke = placeCar(car.model, Paint.jobOf(car), car.hat, car.mods, car.panels, car.trim, car.skin, car.modSkin, LANE, carsFolder)
-	local themModel, themFlame, themSmoke = placeCar(rival.model, { color = rival.color }, nil, rival.mods, rival.panels, rival.trim, rival.skin, rival.modSkin, -LANE, carsFolder)
+	local meModel, meFlame, meTrail, meSmoke, meBack = placeCar(car.model, Paint.jobOf(car), car.hat, car.mods, car.panels, car.trim, car.skin, car.modSkin, LANE, carsFolder)
+	local themModel, themFlame, themTrail, themSmoke, themBack = placeCar(rival.model, { color = rival.color }, nil, rival.mods, rival.panels, rival.trim, rival.skin, rival.modSkin, -LANE, carsFolder)
 	if spec.ghost then
 		-- A solo run's ghost: see-through, as the web's trial ghost.
 		for _, d in themModel:GetDescendants() do
@@ -624,10 +656,11 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		local mz, tz = carZ(1, me), carZ(2, th)
 		meModel:PivotTo(CFrame.new(ORIGIN + Vector3.new(LANE, 0, mz)))
 		themModel:PivotTo(CFrame.new(ORIGIN + Vector3.new(-LANE, 0, tz)))
-		meFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 1.6 * CAR_SCALE, mz - 12 * CAR_SCALE))
-		meFlame.Transparency = if me.burning then 0.15 else 1
-		themFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 1.6 * CAR_SCALE, tz - 12 * CAR_SCALE))
-		themFlame.Transparency = if th.burning then 0.15 else 1
+		-- The trails ride just over the road at each car's back bumper.
+		meFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 0.5, mz - meBack))
+		meTrail.Enabled = me.burning == true
+		themFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 0.5, tz - themBack))
+		themTrail.Enabled = th.burning == true
 		;(meSmoke.Parent :: BasePart).CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 0.6, mz - 9 * CAR_SCALE))
 		;(themSmoke.Parent :: BasePart).CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 0.6, tz - 9 * CAR_SCALE))
 		local t = DragRace.time(r)
