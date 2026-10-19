@@ -539,6 +539,10 @@ function Hud.start()
 			open = RaceMenu.open(ctx, arg)
 		elseif panel == "need" then
 			open = Menu.need(ctx, arg or store.useGame.getState().need)
+		elseif panel == "clan" and PANELS.friends then
+			-- The Crew House opens the Social menu's Crew tab.
+			current = "friends"
+			open = PANELS.friends.open(ctx, "clan")
 		elseif PANELS[panel] then
 			open = PANELS[panel].open(ctx, arg)
 		else

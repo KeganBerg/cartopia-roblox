@@ -12,6 +12,7 @@ local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local Thumb = require(script.Parent.Parent.Thumb)
 local LiveDuels = require(script.Parent.Parent.LiveDuels)
+local CrewTab = require(script.Parent.Crew)
 
 local Card = {}
 
@@ -84,7 +85,15 @@ function Card.open(parent: Instance, userId: number, who: { name: string, town: 
 			Ui.text({ Name = "Note", Text = "Couldn't load their garage right now.", Body = true, TextSize = 15, TextColor3 = Ui.MUTED, Size = UDim2.new(1, 0, 0, 40), Parent = list })
 			return
 		end
-		Ui.text({ Name = "Town", LayoutOrder = 1, Text = `🏘️ {card.town or who.town or ""}`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, Size = UDim2.new(1, 0, 0, 22), Parent = list })
+		local townRow = Ui.new("Frame", { Name = "TownRow", LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, Parent = list }, {
+			Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+		})
+		local townText = `🏘️ {card.town or who.town or ""}`
+		Ui.text({ Name = "Town", LayoutOrder = 1, Text = townText, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, Size = UDim2.fromOffset(math.ceil(Ui.textWidth(townText, 16)) + 6, 22), Parent = townRow })
+		-- Their crew's badge (client/Social/Crew).
+		if card.crew then
+			CrewTab.tag(townRow, card.crew, { LayoutOrder = 2 })
+		end
 		local stats = Ui.new("Frame", { Name = "Stats", LayoutOrder = 2, Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, Parent = list }, {
 			Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 		})

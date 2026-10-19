@@ -635,6 +635,26 @@ mailDesk:help(2, "Rosa", "Rosaville", 1)
 mailDesk:gift(2, "Rosa", "Rosaville", 1, "fuel")
 mailDesk:gift(7, "Kai", "Kai Harbour", 1, "parts")
 mailDesk:postcard(7, "Kai", "Kai Harbour", 1, "sunset", 2)
+-- Crews (server/Crews, in memory): Rosa's open crew and Kai's, which takes requests.
+local crewHouse = false
+local crewN = 0
+local crewDesk = emu.require(SSS.Server.Crews).new({
+	clock = function()
+		return raceClock
+	end,
+	newId = function()
+		crewN += 1
+		return `crew{crewN}`
+	end,
+	emblems = emu.require(G.data).CLAN_EMBLEMS,
+	colors = emu.require(G.data).CLAN_COLORS,
+})
+local function crewWho(userId)
+	local save = towns:save(1)
+	return { name = if userId == 1 then "You" else "Rosa", town = save.townName, level = save.level or 1, power = 120, wins = save.racesWon or 0, trophies = save.trophies or 0 }
+end
+crewDesk:create(2, { name = "Rosa", town = "Rosaville", level = 12, power = 340, wins = 41, trophies = 52 }, { name = "Night Riders", tag = "NITE", emblem = "🐺", color = "#8e24aa", motto = "Fast at night, faster by day", minLevel = 1, joinMode = "open" })
+crewDesk:create(7, { name = "Kai", town = "Kai Harbour", level = 30, power = 910, wins = 120, trophies = 77 }, { name = "Harbour Kings", tag = "HK", emblem = "👑", color = "#1e88e5", motto = "Ask nicely", minLevel = 5, joinMode = "request" })
 local function socialDesk(op, arg)
 	local ran, result, why = pcall(function()
 		if op == "players" then
@@ -680,6 +700,38 @@ local function socialDesk(op, arg)
 		elseif op == "postcard" then
 			local r = mailDesk:postcard(1, "You", "Home", arg.to, arg.card, arg.msg)
 			return if r == "sent" then { sent = true } else nil, r
+		elseif op == "crew" then
+			local mine = crewDesk:mine(1)
+			if mine then
+				mine.house = crewHouse
+				return mine, nil
+			end
+			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1 }, nil
+		elseif op == "crewCreate" then
+			if not crewHouse then
+				return nil, "crew house"
+			end
+			local id, no = crewDesk:create(1, crewWho(1), arg)
+			return if id then { id = id } else nil, no
+		elseif op == "crewAsk" then
+			return crewDesk:ask(1, crewWho(1), arg)
+		elseif op == "crewCancel" then
+			crewDesk:cancel(1, arg)
+			return true, nil
+		elseif op == "crewRespond" then
+			return crewDesk:respond(1, arg.id, arg.yes == true)
+		elseif op == "crewLeave" then
+			local ok, no = crewDesk:leave(1)
+			return if ok then true else nil, no
+		elseif op == "crewKick" then
+			local ok, no = crewDesk:kick(1, arg)
+			return if ok then true else nil, no
+		elseif op == "crewRank" then
+			local ok, no = crewDesk:setRank(1, arg.id, arg.rank)
+			return if ok then true else nil, no
+		elseif op == "crewSettings" then
+			local ok, no = crewDesk:settings(1, arg)
+			return if ok then true else nil, no
 		elseif op == "card" then
 			local d = emu.require(G.data)
 			local c = Meet.cardOf(towns:save(arg), emu.require(G.meet).showcaseOf(towns:save(arg).cars, nil), function(car)
@@ -687,6 +739,7 @@ local function socialDesk(op, arg)
 			end)
 			c.name, c.here, c.mine = "Rosa", arg == 2, arg == 1
 			c.likes = meetDesk:likesFor(1, { arg })[tostring(arg)]
+			c.crew = crewDesk:badge(arg)
 			return c, nil
 		elseif op == "like" then
 			local r = meetDesk:like(1, arg)
@@ -1329,7 +1382,7 @@ local function shot(name, world, w, h)
 		end
 	end
 	local raceGui = player.PlayerGui:FindFirstChild("Race") or player.PlayerGui:FindFirstChild("DailySpin") or player.PlayerGui:FindFirstChild("RescueSearch")
-	if name:find("^depot%-") or name:find("^page%-") or name:find("^panel%-") or name:find("^cards") then
+	if name:find("^depot%-") or name:find("^page%-") or name:find("^panel%-") or name:find("^cards") or name:find("^crew%-") then
 		-- The crate depot, race pages and menus are on the HUD, whatever screen an earlier check
 		-- left behind.
 		raceGui = nil
@@ -1827,6 +1880,112 @@ if SHOTS then
 	shot("panel-card", nil)
 	print("meet: player card")
 	hud.ctx.close()
+	-- Crews: locked without a Crew House; then the browser, starting one, running it, and joining
+	-- Rosa's.
+	do
+		local problems = {}
+		local function press(name)
+			local d = hud.gui:FindFirstChild(name, true)
+			local b = d and (if d:IsA("GuiButton") then d else d:FindFirstChildWhichIsA("GuiButton", true))
+			if not b then
+				table.insert(problems, `no {name} button`)
+				return false
+			end
+			signalFor(b, "Activated"):Fire()
+			Emu.resumeWaits()
+			return true
+		end
+		hud.openPanel("clan")
+		Emu.resumeWaits()
+		if not hud.gui:FindFirstChild("Locked", true) then
+			table.insert(problems, "no Crew House lock")
+		end
+		shot("crew-locked", nil)
+		hud.ctx.close()
+		crewHouse = true
+		hud.openPanel("friends", "clan")
+		Emu.resumeWaits()
+		if not (hud.gui:FindFirstChild("CrewNITE", true) and hud.gui:FindFirstChild("CrewHK", true)) then
+			table.insert(problems, "the browser doesn't list both crews")
+		end
+		shot("crew-browse", nil)
+		press("StartCrew")
+		local form = hud.gui:FindFirstChild("Create", true)
+		local nameBox = form and form:FindFirstChild("Name", true)
+		local tagBox = form and form:FindFirstChild("Tag", true)
+		local mottoBox = form and form:FindFirstChild("Motto", true)
+		if nameBox and tagBox and mottoBox then
+			nameBox.Text = "Sunset Drifters"
+			tagBox.Text = "sd!x9"
+			mottoBox.Text = "We drift at golden hour"
+		else
+			table.insert(problems, "the start form is missing its name, tag or motto box")
+		end
+		press("Emblem3")
+		press("#00897b")
+		shot("crew-create", nil)
+		press("Start")
+		local mine = crewDesk:mine(1)
+		if not mine or mine.crew.tag ~= "SDX9" or mine.crew.emblem ~= emu.require(G.data).CLAN_EMBLEMS[3] or mine.crew.motto ~= "We drift at golden hour" then
+			table.insert(problems, `starting a crew didn't make Sunset Drifters [SDX9]: {table.concat(calls, ", ")}`)
+		else
+			-- Mina joins; then the crew takes requests and Kai asks.
+			crewDesk:ask(8, { name = "Mina", town = "Mina Falls", level = 9, power = 455, wins = 30, trophies = 9 }, mine.crew.id)
+			local look = { emblem = mine.crew.emblem, color = mine.crew.color, motto = mine.crew.motto, minLevel = 1, joinMode = "request" }
+			crewDesk:settings(1, look)
+			crewDesk:ask(9, { name = "Ivo", town = "Ivoport", level = 4, power = 90, wins = 2, trophies = 1 }, mine.crew.id)
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			shot("crew-mine", nil)
+			local root = hud.gui:FindFirstChild("Root")
+			root.Size = roblox.UDim2.fromOffset(1535, 709)
+			shot("crew-mine-phone", nil, 1535, 709)
+			root.Size = roblox.UDim2.fromOffset(1280, 800)
+			local req = hud.gui:FindFirstChild("Request9", true)
+			local yes = req and req:FindFirstChild("Yes", true)
+			local yesButton = yes and (if yes:IsA("GuiButton") then yes else yes:FindFirstChildWhichIsA("GuiButton", true))
+			if yesButton then
+				signalFor(yesButton, "Activated"):Fire()
+				Emu.resumeWaits()
+			end
+			if not crewDesk:crew(mine.crew.id).members["9"] then
+				table.insert(problems, "accepting Ivo's request didn't let him in")
+			end
+			-- Make Mina a Co-Leader, then leave: she takes the lead.
+			local mina = hud.gui:FindFirstChild("Member8", true)
+			local promote = mina and mina:FindFirstChild("Make Co-Leader", true)
+			local promoteButton = promote and (if promote:IsA("GuiButton") then promote else promote:FindFirstChildWhichIsA("GuiButton", true))
+			if promoteButton then
+				signalFor(promoteButton, "Activated"):Fire()
+				Emu.resumeWaits()
+			end
+			if crewDesk:crew(mine.crew.id).members["8"].role ~= "co_leader" then
+				table.insert(problems, "Mina wasn't made Co-Leader")
+			end
+			press("Leave")
+			press("Leave")
+			if crewDesk:mineId(1) ~= nil or crewDesk:crew(mine.crew.id).members["8"].role ~= "leader" then
+				table.insert(problems, "leaving didn't hand the lead to Mina")
+			end
+		end
+		-- Join Rosa's open crew from the browser; her card shows its badge.
+		local nite = hud.gui:FindFirstChild("CrewNITE", true)
+		local join = nite and nite:FindFirstChild("Join", true)
+		local joinButton = join and (if join:IsA("GuiButton") then join else join:FindFirstChildWhichIsA("GuiButton", true))
+		if joinButton then
+			signalFor(joinButton, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+		if crewDesk:mineId(1) == nil then
+			table.insert(problems, "couldn't join Night Riders")
+		end
+		shot("crew-joined", nil)
+		crewDesk:leave(1)
+		hud.ctx.close()
+		print(`crews: {#problems} problems {table.concat(problems, "; ")}`)
+		bad += #problems
+	end
 	-- Friends' mail: the gift bell's panel, then Collect pays 15 fuel and 5 parts plus the help's 10.
 	hud.openPanel("gifts")
 	assert(hud.gui:FindFirstChild("Postcard", true), "Kai's postcard isn't in the mail")
