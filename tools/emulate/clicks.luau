@@ -458,6 +458,9 @@ races.mods.visitors = visitorDesk
 local visitorRemote = Instance.new("RemoteFunction")
 visitorRemote.Name = "Visitor"
 visitorRemote.Parent = remotes
+local webLinkRemote = Instance.new("RemoteFunction")
+webLinkRemote.Name = "WebLink"
+webLinkRemote.Parent = remotes
 local function visitorCall(op, id)
 	local ran, result, why = pcall(function()
 		if op == "next" then
@@ -587,6 +590,9 @@ roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, 
 		return socialDesk(name, ...)
 	elseif remote.Name == "Visitor" then
 		return visitorCall(name, ...)
+	elseif remote.Name == "WebLink" then
+		-- No web game in the previews: every code is a wrong one.
+		return false, "code"
 	elseif remote.Name == "Race" then
 		return raceDesk(name, ...)
 	elseif remote.Name == "Meshes" then
@@ -1323,6 +1329,39 @@ if SHOTS then
 		hud.ctx.close()
 		hud.openPanel(p)
 		shot(`panel-{p}`, nil)
+	end
+	-- The menu's Settings tab, with the web town code box, and the swap question after Link.
+	do
+		hud.ctx.close()
+		-- The Daily Spin's own screen would cover the menu.
+		local spin = hud.gui.Parent and hud.gui.Parent:FindFirstChild("DailySpin")
+		if spin then
+			spin:Destroy()
+		end
+		hud.openPanel("menu")
+		local t = hud.gui:FindFirstChild("settings", true)
+		assert(t, "no settings tab")
+		signalFor(t:FindFirstChild("Face") or t, "Activated"):Fire()
+		local box = hud.gui:FindFirstChild("WebCode", true)
+		assert(box, "no web code box")
+		shot("menu-settings", nil)
+		box.Text = "ABCD2345"
+		local link
+		for _, d in box.Parent.Parent:GetDescendants() do
+			if d:IsA("TextButton") and d.Parent and d.Parent:FindFirstChildWhichIsA("TextLabel", true) then
+				for _, l in d:GetDescendants() do
+					if l:IsA("TextLabel") and l.Text == "Link" then
+						link = d
+					end
+				end
+			end
+		end
+		assert(link, "no Link button")
+		signalFor(link, "Activated"):Fire()
+		assert(hud.gui:FindFirstChild("Confirm", true), "no swap question")
+		shot("menu-settings-swap", nil)
+		hud.gui:FindFirstChild("Confirm", true):Destroy()
+		hud.ctx.close()
 	end
 	-- Goals: each tab, then the story done (the 📖 ✔ chip, endless goals with their pictures).
 	local function goalsTab(id)

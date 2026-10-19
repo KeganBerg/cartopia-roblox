@@ -27,6 +27,8 @@
 --                          foot and out again (see GetIn)
 --   Visitor RemoteFunction client -> server: ("next") | ("claim", id) | ("leave", id): town
 --                          visitors, their prizes rolled here (see Visitors)
+--   WebLink RemoteFunction client -> server: (code) -> ok, or why not: brings the player's web
+--                          town over, earned progress only (see WebLink)
 --
 -- Each player's town is drawn in Workspace.Towns (TownView) on its own lot, from the web game's
 -- own models (Shared.Models), and redrawn whenever it changes.
@@ -69,6 +71,7 @@ local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
 local Prefs = require(script.Prefs)
+local WebLink = require(script.WebLink)
 local Builder = require(ReplicatedStorage.Shared.Models.Builder)
 local GetIn = require(script.GetIn)
 local Visitors = require(script.Visitors)
@@ -328,6 +331,9 @@ socialRemote.Parent = remotes
 local visitorRemote = Instance.new("RemoteFunction")
 visitorRemote.Name = "Visitor"
 visitorRemote.Parent = remotes
+local webLinkRemote = Instance.new("RemoteFunction")
+webLinkRemote.Name = "WebLink"
+webLinkRemote.Parent = remotes
 local prefsRemote = Instance.new("RemoteEvent")
 prefsRemote.Name = "Prefs"
 prefsRemote.Parent = remotes
@@ -598,6 +604,8 @@ Players.PlayerAdded:Connect(function(player)
 	end)
 end)
 
+-- Web codes tried per player this session, and when last: a code can't be guessed by trying.
+local linkTries: { [Player]: { n: number, at: number } } = {}
 -- When each player last asked for a visitor (Visitor "next"), and how often they may.
 local visitorAsked: { [Player]: number } = {}
 local VISITOR_ASK_GAP = 5
@@ -623,6 +631,7 @@ Players.PlayerRemoving:Connect(function(player)
 	arcade:close(player.UserId)
 	visitors:close(player.UserId)
 	visitorAsked[player] = nil
+	linkTries[player] = nil
 	save(player, true)
 	towns:close(player.UserId)
 	purchases:forget(player.UserId)
@@ -817,6 +826,57 @@ end
 -- Town visitors (server/Visitors): "next" asks for the next visitor (the one in town, a new one,
 -- or { wait = seconds }), "claim" taps tourists or the mystery car for their prize, "leave" sends
 -- the visitor on. Asking is held to once every few seconds on top of the usual budget.
+webLinkRemote.OnServerInvoke = function(player: Player, raw: any)
+	local userId = player.UserId
+	if not towns:isOpen(userId) or not saves:holds(userId) then
+		return false, "town not loaded"
+	end
+	local t = linkTries[player] or { n = 0, at = 0 }
+	linkTries[player] = t
+	if t.n >= 8 then
+		return false, "tries"
+	end
+	if os.clock() - t.at < 3 then
+		return false, "slow down"
+	end
+	local code = WebLink.clean(raw)
+	if not code then
+		return false, "code"
+	end
+	t.n += 1
+	t.at = os.clock()
+	if not HttpService.HttpEnabled then
+		warn("[Cartopia] Web link needs Game Settings > Security > Allow HTTP Requests")
+		return false, "offline"
+	end
+	local got, why = WebLink.claim(HttpService :: any, code, userId)
+	if not got then
+		return false, why
+	end
+	if not towns:isOpen(userId) or not player.Parent then
+		return false, "town not loaded"
+	end
+	local here = towns:save(userId)
+	local ok, err = pcall(function()
+		local save = WebLink.strip(got.state, got.paid, here)
+		-- Out of any race or kart party first, so nothing settles into the old town afterwards.
+		races:close(userId)
+		karts:close(userId)
+		towns:close(userId)
+		towns:open(userId, save)
+	end)
+	if not ok then
+		warn(`[Cartopia] {player.Name} web link: {err}`)
+		if not towns:isOpen(userId) then
+			towns:open(userId, here)
+		end
+		return false, "failed"
+	end
+	save(player)
+	push(player, true)
+	return true, nil
+end
+
 visitorRemote.OnServerInvoke = function(player: Player, op: any, id: any)
 	if not towns:isOpen(player.UserId) or leaving[player] then
 		return false, "town not loaded"
