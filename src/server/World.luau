@@ -18,6 +18,8 @@ local RINGS = 2
 local HUB = 520 -- the hub's square, across
 local LOT = 480 -- a new town's land, across (START_LAND: 3 by 3 plots of 160 studs)
 local KERB = 3
+local TOWN = 560 -- how far a town's land reaches from its middle (land plots -2..4)
+local BASE_TOP = -1.4 -- the plain ground under everything, well under the meadow's level
 
 -- Grid cells (gx, gz) of the plots in claim order: nearest the hub first, then round each ring.
 local CELLS: { { number } } = {}
@@ -124,18 +126,69 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 	ground.Name = "Ground"
 	ground.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	ground.Parent = root
+	-- Plain ground everywhere, sunk well under everything that lies on it, and the meadow's picture
+	-- only where nothing does: a Texture must never lie under a road, lot, lawn or town, however
+	-- far down, because from afar Roblox draws it through them (see TownView's ground layers). So
+	-- the textured pieces fill the land between the roads, the hub's square and the towns: round
+	-- each plot outside its town's land (+-560), round the hub's square and its spokes, and past
+	-- the last ring. A free plot's town land gets its own pieces round its lawn, taken away when
+	-- it's claimed (setOwner), when the town draws meadow on its own unbought land (TownView).
 	local reach = (RINGS + 0.5) * World.PITCH + 600
 	local TILE = 2000 -- a part is at most 2,048 studs
 	local n = math.ceil(reach * 2 / TILE)
 	local size = reach * 2 / n
 	for ix = 0, n - 1 do
 		for iz = 0, n - 1 do
-			local p = part(ground, "Meadow", Vector3.new(size, 4, size), CFrame.new(-reach + (ix + 0.5) * size, GROUND_TOP - 2.05, -reach + (iz + 0.5) * size), meadow)
-			if texture then
-				texture(p)
+			part(ground, "Base", Vector3.new(size, 4, size), CFrame.new(-reach + (ix + 0.5) * size, BASE_TOP - 2, -reach + (iz + 0.5) * size), meadow)
+		end
+	end
+	-- A textured piece over x0..x1, z0..z1 (in pieces of at most TILE), top at the towns' meadow.
+	local function fill(into: Instance, x0: number, x1: number, z0: number, z1: number)
+		if x1 - x0 < 1 or z1 - z0 < 1 then
+			return
+		end
+		local nx, nz = math.ceil((x1 - x0) / TILE), math.ceil((z1 - z0) / TILE)
+		local sx, sz = (x1 - x0) / nx, (z1 - z0) / nz
+		for a = 0, nx - 1 do
+			for b = 0, nz - 1 do
+				local p = part(into, "Meadow", Vector3.new(sx, 1, sz), CFrame.new(x0 + (a + 0.5) * sx, GROUND_TOP - 0.5, z0 + (b + 0.5) * sz), meadow)
+				if texture then
+					texture(p)
+				end
 			end
 		end
 	end
+	-- A square frame: inside +-outer of (cx, cz) but outside +-inner.
+	local function frame(into: Instance, cx: number, cz: number, inner: number, outer: number)
+		fill(into, cx - outer, cx + outer, cz + inner, cz + outer)
+		fill(into, cx - outer, cx + outer, cz - outer, cz - inner)
+		fill(into, cx + inner, cx + outer, cz - inner, cz + inner)
+		fill(into, cx - outer, cx - inner, cz - inner, cz + inner)
+	end
+	local verge = World.PITCH / 2 - (World.ROAD_W / 2 + KERB) -- from a plot's middle to its roads' kerbs
+	for i = 0, World.COUNT - 1 do
+		local cx, cz = World.originXZ(i)
+		frame(ground, cx, cz, TOWN, verge)
+		local own = Instance.new("Model")
+		own.Name = `Plot{i}`
+		own.Parent = ground
+		frame(own, cx, cz, LOT / 2, TOWN)
+	end
+	-- Round the hub's square, between its four spokes.
+	local spokeEdge = World.ROAD_W / 2 + KERB
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local function quad(a0: number, a1: number, b0: number, b1: number)
+				fill(ground, math.min(sx * a0, sx * a1), math.max(sx * a0, sx * a1), math.min(sz * b0, sz * b1), math.max(sz * b0, sz * b1))
+			end
+			quad(HUB / 2, verge, spokeEdge, verge)
+			quad(spokeEdge, HUB / 2, HUB / 2, verge)
+		end
+	end
+	-- Past the last ring road.
+	local last = (RINGS + 0.5) * World.PITCH + World.ROAD_W / 2 + KERB
+	frame(ground, 0, 0, last, reach)
+
 	-- Roads along every gap between plots, out to the last ring, and round the hub: the town's
 	-- asphalt (TownView ASPHALT) between pale kerbs, white edge lines and a yellow middle line.
 	-- (Matt paint, not Neon: from the zoomed-out view Neon glows into a smear.)
@@ -286,6 +339,9 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 	return root
 end
 
+-- Each claimed plot's meadow pieces, while they're out of the world.
+local taken: { [number]: Instance } = {}
+
 -- Marks plot i taken by a player (or free again with nil): the sign and pad step aside for the town.
 function World.setOwner(root: Instance, i: number, userId: number?, name: string?)
 	local m = root:FindFirstChild("Plots") and (root :: any).Plots:FindFirstChild(`Plot{i}`)
@@ -293,6 +349,13 @@ function World.setOwner(root: Instance, i: number, userId: number?, name: string
 		return
 	end
 	m:SetAttribute("Free", userId == nil)
+	-- The meadow over the town's land steps aside for the town's own ground.
+	local ground = root:FindFirstChild("Ground")
+	local fills = (ground and ground:FindFirstChild(`Plot{i}`)) or taken[i]
+	if fills and ground then
+		taken[i] = fills
+		fills.Parent = if userId then nil else ground
+	end
 	m:SetAttribute("Owner", userId)
 	m:SetAttribute("OwnerName", name)
 	for _, p in m:GetDescendants() do
