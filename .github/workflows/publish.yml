@@ -99,7 +99,7 @@ jobs:
       - name: See whether the web game changed
         id: diff
         run: |
-          git add src/shared/Game src/shared/CallCardLooks.luau src/shared/IconImages.luau src/shared/RaceFloors.luau src/shared/Models src/first/SplashImages.luau src/shared/AudioAssets.luau tests/Golden.luau tests/StoreGolden.luau tests/SpeedwayGolden.luau
+          git add src/shared/Game src/shared/CallCardLooks.luau src/shared/IconImages.luau src/shared/RaceFloors.luau src/shared/Models src/server/Levels src/first/SplashImages.luau src/shared/AudioAssets.luau tests/Golden.luau tests/StoreGolden.luau tests/SpeedwayGolden.luau
           if [ -f tools/models/assets.json ]; then git add tools/models/assets.json; fi
           if [ -f tools/models/images.json ]; then git add tools/models/images.json; fi
           if git diff --cached --quiet; then echo changed=false >> "$GITHUB_OUTPUT"; else echo changed=true >> "$GITHUB_OUTPUT"; fi
@@ -115,6 +115,7 @@ jobs:
         if: env.CAN_PUBLISH == 'true' || github.event_name != 'schedule'
         run: |
           luau-analyze src/shared/RaceFloors.luau src/server/Towns.luau
+          node tools/check/globals.mjs
           luau tests/run.luau
 
       - name: Commit regenerated files

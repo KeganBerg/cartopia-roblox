@@ -24,6 +24,7 @@ local SkyImages = require(Models:WaitForChild("SkyImages")) :: any
 local Game = Shared:WaitForChild("Game")
 local clock = require(Game:WaitForChild("clock")) :: any
 local weather = require(Game:WaitForChild("weather")) :: any
+local ClockShift = require(script.Parent.ClockShift)
 
 local Horizon = {}
 
@@ -337,7 +338,7 @@ function Horizon.movers(origin: Vector3, parent: Instance, reach: number?): (dt:
 			place(rotors[i], CFrame.new(origin + Vector3.new(tb[1], tb[2], tb[3])) * CFrame.fromEulerAnglesYXZ(0, tb[4], spins[i]))
 		end
 		-- The balloons only fly in fair weather, by day.
-		local night = clock.nightAmount(clock.dayPhase(DateTime.now().UnixTimestampMillis))
+		local night = clock.nightAmount(clock.dayPhase(ClockShift.now()))
 		local fly = night < 0.5 and w.rain < 0.2 and w.snow < 0.2 and w.wind < 0.6
 		if fly ~= flying then
 			flying = fly
@@ -424,12 +425,11 @@ function Horizon.sky(phase: number): Color3?
 	if not best or best.faces.Up == 0 then
 		return nil
 	end
-	if best ~= current then
-		if current == nil or ready[best] then
-			current = best
-		elseif not loading[best] then
-			loading[best] = true
-			local step = best
+	-- The steps either side load ahead, so each change shows the moment its time comes.
+	local at = table.find(SkyImages.steps, best)
+	for _, step in { best, SkyImages.steps[(at or 0) - 1], SkyImages.steps[(at or 0) + 1] } do
+		if step and not ready[step] and not loading[step] and step.faces.Up ~= 0 then
+			loading[step] = true
 			task.spawn(function()
 				local list = {}
 				for _, face in FACES do
@@ -439,6 +439,9 @@ function Horizon.sky(phase: number): Color3?
 				ready[step] = true
 			end)
 		end
+	end
+	if best ~= current and (current == nil or ready[best]) then
+		current = best
 	end
 	best = current
 	local sky = Lighting:FindFirstChildWhichIsA("Sky")

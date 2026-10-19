@@ -4,12 +4,14 @@
 -- Each icon is size pixels square, at the given offset in the sheet.
 
 return {
-	sheet = 0,
+	sheet = 113272786979482,
 	size = 128,
 	at = {
 		coin = Vector2.new(2, 2),
 		bucks = Vector2.new(134, 2),
 		parts = Vector2.new(266, 2),
 		fuel = Vector2.new(398, 2),
+		car = Vector2.new(530, 2),
+		town = Vector2.new(662, 2),
 	},
 }

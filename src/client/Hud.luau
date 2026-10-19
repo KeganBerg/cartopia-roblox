@@ -209,7 +209,7 @@ function Hud.start()
 			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 10) }),
 		})
 		local _ = face
-		Icons.currency(icon, row, 24).LayoutOrder = 1
+		Icons.picture(icon, row, 24).LayoutOrder = 1
 		local value = Ui.text({ Name = "Value", Text = "0", TextSize = 17, Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = row })
 		local plusSlot = Ui.new("Frame", { Size = UDim2.fromOffset(22, 20), BackgroundTransparency = 1, LayoutOrder = 3, Parent = row })
 		local plus = Ui.new("Frame", { Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Ui.WHITE, Parent = plusSlot }, {
@@ -311,7 +311,7 @@ function Hud.start()
 	Icons.draw("trophy", trophyRow, 16, Ui.WHITE).LayoutOrder = 1
 	local trophyText = Ui.text({ Text = "0", TextSize = 17, Size = UDim2.fromOffset(0, 23), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = trophyRow })
 	trophyRow.Activated:Connect(function()
-		toast("Leaderboards are coming to Roblox soon")
+		openPanel("friends", "leaders")
 	end)
 	-- Sound on/off: mutes the game's sounds (they play through the Cartopia sound group).
 	local soundGroup = SoundService:FindFirstChild("Cartopia") or Ui.new("SoundGroup", { Name = "Cartopia", Volume = 1, Parent = SoundService })
@@ -387,15 +387,24 @@ function Hud.start()
 	-- behind it; My Town always brings you back to the view over your own town, wherever you were.
 	local walk = Ui.new("Frame", { Name = "Walk", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -250), Size = UDim2.fromOffset(60, 78), BackgroundTransparency = 1, Parent = root })
 	local walkLabel: TextLabel
-	local walkIcon: TextLabel
+	local walkIcon: GuiObject? = nil
 	local _, walkFace = Ui.button({ Name = "WalkButton", Position = UDim2.fromOffset(2.5, 5.5), Size = UDim2.fromOffset(55, 55), Parent = walk }, "white", function()
 		TownCamera.setWalking(not TownCamera.isWalking())
 	end, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
-	walkIcon = Ui.text({ Text = "🚗", TextSize = 30, Size = UDim2.fromScale(1, 1), Parent = walkFace })
+	-- The car (or the town), centred in the tile: a baked picture, as emoji sit high and to one side.
+	local function setWalkIcon(kind: string)
+		if walkIcon then
+			walkIcon:Destroy()
+		end
+		walkIcon = Icons.picture(kind, walkFace, 38)
+		walkIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+		walkIcon.Position = UDim2.fromScale(0.5, 0.5)
+	end
+	setWalkIcon("car")
 	walkLabel = Ui.text({ Text = "DRIVE", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
 	TownCamera.onWalking(function(on: boolean)
-		walkIcon.Text = if on then "🏙️" else "🚗"
-		walkLabel.Text = if on then "MY TOWN" else "DRIVE"
+		setWalkIcon(if on then "town" else "car")
+		Ui.setText(walkLabel, if on then "MY TOWN" else "DRIVE")
 		-- The server puts them in their car, or takes them out and back home.
 		if not on or Players.LocalPlayer:GetAttribute("Driving") ~= true then
 			task.spawn(Remote.social, if on then "drive" else "home", nil, true)
@@ -452,6 +461,18 @@ function Hud.start()
 	Icons.draw("goals", goalsFace, 34, Ui.BLUE, Color3.fromHex("#f3f7fc"), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	local goalBadge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 8, 0, -8), Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Color3.fromHex("#ff5252"), Visible = false, ZIndex = 3, Parent = goalsFace }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
 	local goalBadgeText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), Parent = goalBadge })
+	-- The gift bell (web GiftBell): friends' helps, gifts and new postcards waiting (server/Mail
+	-- keeps the count in the player's "Mail" attribute). Opens the mail once a session by itself.
+	local bell = Ui.new("Frame", { Name = "GiftBell", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -96, 1, -207), Size = UDim2.fromOffset(50, 50), BackgroundTransparency = 1, Visible = false, Parent = root })
+	local _, bellFace = Ui.button({ Name = "Bell", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(48, 48), Parent = bell }, "white", function()
+		openPanel("gifts")
+	end, { radius = 14, stroke = 2.5, drop = 3, split = 0.5, flat = true })
+	Ui.text({ Text = "🎁", TextSize = 26, Size = UDim2.fromScale(1, 1), Parent = bellFace })
+	local bellBadge = Ui.new("Frame", { Name = "Badge", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 8, 0, -8), Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Color3.fromHex("#e53935"), ZIndex = 3, Parent = bellFace }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
+	local bellText = Ui.text({ Text = "", TextSize = 12, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = bellBadge })
+	local mailShown = false
+	-- After the welcome-back and daily screens have had their turn.
+	local startedAt = os.clock()
 	local collectShadow, collect = Ui.shadowed({ Name = "CollectAll", Position = UDim2.fromOffset(3, 76 + 4), Size = UDim2.fromOffset(54, 54), Parent = dock }, { radius = 27, stroke = 3, drop = 4, dark = 0.3, class = "TextButton", color = Color3.fromHex("#ffca28") })
 	local _ = collectShadow
 	local inner = Ui.new("Frame", { Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1, -4, 1, -4), BackgroundColor3 = Ui.WHITE, ZIndex = 0, Parent = collect }, {
@@ -592,6 +613,15 @@ function Hud.start()
 		if soundOff.Visible ~= muted then
 			soundOff.Visible = muted
 			soundOn.Visible = not muted
+		end
+		local waiting = Players.LocalPlayer:GetAttribute("Mail")
+		waiting = if type(waiting) == "number" then waiting else 0
+		bell.Visible = waiting > 0 and not visiting and not inTutorial and not Placement.active()
+		Ui.setText(bellText, tostring(waiting))
+		-- Pops the mail open once, when nothing else is on screen and the tutorial is done.
+		if waiting > 0 and not mailShown and not open and not visiting and not inTutorial and not Placement.active() and os.clock() - startedAt > 20 then
+			mailShown = true
+			openPanel("gifts")
 		end
 		local claim = store.claimable(s)
 		goalBadge.Visible = claim > 0

@@ -42,8 +42,15 @@ const AT = [700, 560]
 const VIEW = [2000, 1700]
 const PAGE = 1024
 const GAP = 2
-// Stills are drawn at half size: they only ever show small (picker swatches, chips).
-const STILL = 0.5
+// Drawn at twice the CSS size, for sharp cards on phone screens. A picture that looks the same
+// at half that (a soft glow, a gradient) is kept at half, so the sheets stay few.
+const DPR = 2
+const SOFT = 1.2
+// Swatches (the picker's grid, chips) are drawn at their own small size, as the web draws them
+// there, so rain, stars and lights stay as big and crisp as on the web instead of shrinking with
+// a big card. Each also as the picker shows a card you don't have (saturate .35, brightness .6).
+const SWATCH = { wide: [120, 80], tall: [80, 96] }
+const SWATCH_DPR = 2
 
 // Runs in the page: builds a card from the web's CSS and answers where its pieces are.
 const PAGE_JS = String.raw`
@@ -106,13 +113,14 @@ function track(chain, from = root) {
 }
 
 window.cc = {
-  mount(id, W, H, v, still) {
+  mount(id, W, H, v, still, locked) {
     for (const s of ['plain', 'tint', 'untinted']) document.getElementById(s).media = s === v ? 'all' : 'not all'
     stage.innerHTML = ''
     holder = document.createElement('div')
     holder.className = 'holder'
     holder.style.width = W + 'px'
     holder.style.height = H + 'px'
+    holder.style.filter = locked ? 'saturate(.35) brightness(.6)' : ''
     root = document.createElement('span')
     root.className = 'cc cc-' + id + (still ? ' still' : '')
     for (const c of ['cc-c', 'cc-a', 'cc-b']) {
@@ -270,20 +278,39 @@ async function bake() {
   const req = createRequire(join(web, 'package.json'))
   const { chromium } = req('playwright')
   const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {})
-  const pg = await browser.newPage({ viewport: { width: VIEW[0], height: VIEW[1] } })
+  const pg = await browser.newPage({ viewport: { width: VIEW[0], height: VIEW[1] }, deviceScaleFactor: DPR })
+  const pgSwatch = await browser.newPage({ viewport: { width: VIEW[0], height: VIEW[1] }, deviceScaleFactor: SWATCH_DPR })
   pg.on('pageerror', (e) => console.error(e))
-  await pg.goto(`http://127.0.0.1:${server.address().port}/`)
-  await pg.waitForFunction('window.READY === true')
+  for (const p of [pg, pgSwatch]) {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`)
+    await p.waitForFunction('window.READY === true')
+  }
 
   const images = [] // { buf, w, h, card } (packed later)
   let current = ''
   const hashes = new Map()
-  const addImage = async (buf, scale = 1) => {
+  // Half the pixels when that loses nothing you'd see: the mean difference (0-255, colour weighted
+  // by how solid it is) between the picture and itself shrunk and grown back.
+  const soft = async (buf, w, h) => {
+    if (w < 8 || h < 8) return false
+    const hw = Math.round(w / 2), hh = Math.round(h / 2)
+    const a = await sharp(buf).ensureAlpha().raw().toBuffer()
+    const half = await sharp(buf).ensureAlpha().resize(hw, hh, { kernel: 'lanczos3' }).png().toBuffer()
+    const b = await sharp(half).resize(w, h, { fit: 'fill', kernel: 'cubic' }).ensureAlpha().raw().toBuffer()
+    let sum = 0
+    for (let i = 0; i < a.length; i += 4) {
+      const wa = a[i + 3] / 255, wb = b[i + 3] / 255
+      sum += (Math.abs(a[i] * wa - b[i] * wb) + Math.abs(a[i + 1] * wa - b[i + 1] * wb) + Math.abs(a[i + 2] * wa - b[i + 2] * wb)) / 3 + Math.abs(a[i + 3] - b[i + 3]) / 2
+    }
+    return sum / (w * h) < SOFT
+  }
+  const addImage = async (buf, scale = 1, sharpOnly = false) => {
     const hash = createHash('sha1').update(buf).digest('hex')
     if (hashes.has(hash)) return hashes.get(hash)
     let img = sharp(buf)
     const meta = await img.metadata()
     let w = meta.width, h = meta.height
+    if (!sharpOnly && (await soft(buf, w, h))) scale = Math.min(scale, 0.5)
     // Bigger than a sheet (a huge spinning sunburst): drawn smaller, Roblox scales it back up.
     const fit = Math.min(1, (PAGE - 2 * GAP) / Math.max(w, h), scale)
     if (fit < 1) {
@@ -306,7 +333,9 @@ async function bake() {
     const w = x1 - x0 + 1, h = y1 - y0 + 1
     return { x: x0, y: y0, w, h, buf: await sharp(buf).extract({ left: x0, top: y0, width: w, height: h }).png().toBuffer() }
   }
-  const shot = (clip) => pg.screenshot({ clip, omitBackground: true, animations: 'allow' })
+  const shot = (clip, page = pg) => page.screenshot({ clip, omitBackground: true, animations: 'allow' })
+  // trim() boxes are in the shot's pixels; layers are placed in CSS px.
+  const css = (t) => ({ ...t, x: t.x / DPR, y: t.y / DPR, w: t.w / DPR, h: t.h / DPR })
   const clamp = (r) => {
     const x = Math.max(0, Math.floor(r.x)), y = Math.max(0, Math.floor(r.y))
     return { x, y, width: Math.min(VIEW[0], Math.ceil(r.x + r.w)) - x, height: Math.min(VIEW[1], Math.ceil(r.y + r.h)) - y }
@@ -320,11 +349,12 @@ async function bake() {
     const PAD = 40
     const clip = clamp({ x: box.x - PAD, y: box.y - PAD, w: box.w + 2 * PAD, h: box.h + 2 * PAD })
     if (clip.width <= 0 || clip.height <= 0) return null
-    const t = await trim(await shot(clip))
-    if (!t) return null
+    const tp = await trim(await shot(clip))
+    if (!tp) return null
+    const t = css(tp)
     // Picture pixel p -> the piece's own coordinates q = H^-1 (p + d), d = clip corner - layout corner.
     const dx = clip.x + t.x - box.ox, dy = clip.y + t.y - box.oy
-    const layer = { o: item.o + (tint ? 0.5 : 0), img: await addImage(t.buf), tint, step: tr.step || undefined, p: tr.p }
+    const layer = { o: item.o + (tint ? 0.5 : 0), img: await addImage(tp.buf), tint, step: tr.step || undefined, p: tr.p }
     const ch = { cx: [], cy: [], w: [], h: [], r: [], a: [] }
     let lastR = null
     for (const s of tr.samples) {
@@ -352,7 +382,7 @@ async function bake() {
     return layer
   }
 
-  const data = { shapes: SHAPES, still: STILL, cards: {}, ground: null }
+  const data = { shapes: SHAPES, swatches: SWATCH, cards: {}, ground: null }
   for (const id of ids) {
     current = id
     const card = { ...stage[id] }
@@ -368,8 +398,9 @@ async function bake() {
             const buf = await shot({ x: AT[0], y: AT[1], width: W, height: H })
             if (!tint) card[shape] = { base: await addImage(buf), layers }
             else {
-              const t = await trim(buf)
-              if (t) layers.push({ o: 0.5, img: await addImage(t.buf), tint: true, cx: t.x + t.w / 2, cy: t.y + t.h / 2, w: t.w, h: t.h, r: 0, a: 1, p: 1 })
+              const tp = await trim(buf)
+              const t = tp && css(tp)
+              if (t) layers.push({ o: 0.5, img: await addImage(tp.buf), tint: true, cx: t.x + t.w / 2, cy: t.y + t.h / 2, w: t.w, h: t.h, r: 0, a: 1, p: 1 })
             }
             continue
           }
@@ -389,9 +420,10 @@ async function bake() {
             }
             if (!box) continue
             const rect = { left: box.x0, top: box.y0, width: box.x1 - box.x0, height: box.y1 - box.y0 }
+            // A flipbook's frames at CSS size: it's many pictures, and its motion hides the rest.
             const frames = []
-            for (const buf of bufs) frames.push(await addImage(await sharp(buf).extract(rect).png().toBuffer()))
-            layers.push({ o: item.o + (tint ? 0.5 : 0), flip: frames, x: rect.left, y: rect.top, w: rect.width, h: rect.height, p: item.p || 1, tint })
+            for (const buf of bufs) frames.push(await addImage(await sharp(buf).extract(rect).png().toBuffer(), 1 / DPR, true))
+            layers.push({ o: item.o + (tint ? 0.5 : 0), flip: frames, x: rect.left / DPR, y: rect.top / DPR, w: rect.width / DPR, h: rect.height / DPR, p: item.p || 1, tint })
             continue
           }
           if (item.kind === 'clip') {
@@ -410,12 +442,16 @@ async function bake() {
         }
       }
       layers.sort((x, y) => x.o - y.o)
-      // The still (pickers): no motion at all, as the web's .still.
-      await pg.evaluate(([id, W, H]) => window.cc.mount(id, W, H, 'plain', true), [id, W, H])
-      await pg.evaluate(() => window.cc.prep({ all: true }))
-      const still = await sharp(await shot({ x: AT[0], y: AT[1], width: W, height: H })).resize(Math.round(W * STILL), Math.round(H * STILL)).png().toBuffer()
+      // The swatch (pickers): no motion at all, as the web's .still, at the swatch's own size.
+      const [sw, sh] = SWATCH[shape]
       current = '~stills'
-      card[shape].still = await addImage(still)
+      for (const locked of [false, true]) {
+        await pgSwatch.evaluate(([id, W, H, locked]) => window.cc.mount(id, W, H, 'plain', true, locked), [id, sw, sh, locked])
+        await pgSwatch.evaluate(() => window.cc.prep({ all: true }))
+        const n = await addImage(await shot({ x: AT[0], y: AT[1], width: sw, height: sh }, pgSwatch), 1, true)
+        if (locked) card[shape].lock = n
+        else card[shape].still = n
+      }
       current = id
     }
     data.cards[id] = card
@@ -425,8 +461,9 @@ async function bake() {
   {
     const r = await pg.evaluate(() => window.cc.ground())
     const clip = clamp({ x: r.x - 40, y: r.y - 40, w: r.w + 80, h: r.h + 80 })
-    const t = await trim(await shot(clip))
-    data.ground = { img: (await addImage(t.buf)) + 1, H: r.H, x: clip.x + t.x - r.gx, y: clip.y + t.y - r.gy, w: t.w, h: t.h }
+    const tp = await trim(await shot(clip))
+    const t = css(tp)
+    data.ground = { img: (await addImage(tp.buf)) + 1, H: r.H, x: clip.x + t.x - r.gx, y: clip.y + t.y - r.gy, w: t.w, h: t.h }
   }
   await browser.close()
   server.close()
@@ -535,8 +572,8 @@ const layerOut = (l) => {
 const lines = [
   '--!strict',
   "-- Generated by tools/callcards/build.mjs from the web game's Call Cards (src/ui/call-cards.css); do not edit.",
-  '-- Each card at two shapes (wide, tall; CSS px): its backdrop, its layers bottom to top and a',
-  '-- half-size still. A picture is an index into `images` ({ sheet, x, y, w, h } in pixels of the',
+  '-- Each card at two shapes (wide, tall; CSS px): its backdrop, its layers bottom to top, and a',
+  '-- still swatch drawn at `swatches` size (`lock`: greyed, not owned yet). A picture is an index into `images` ({ sheet, x, y, w, h } in pixels of the',
   '-- sheet). A moving layer gives its middle (cx, cy), size (w, h), turn (r, degrees) and opacity',
   '-- (a) through its loop of p seconds: a number when fixed, else { t, value, t, value, ... } with t',
   '-- from 0 to 1 (`step`: hold each value instead of easing between). A flipbook layer plays its',
@@ -549,7 +586,7 @@ const lines = [
   'return {',
   `\tsheets = ${lua(sheetIds)},`,
   `\tshapes = ${lua(data.shapes)},`,
-  `\tstill = ${data.still},`,
+  `\tswatches = ${lua(data.swatches)},`,
   `\timages = {`,
   ...data.images.map((im) => `\t\t${lua(im)},`),
   '\t},',
@@ -562,7 +599,7 @@ for (const [id, c] of Object.entries(data.cards)) {
   for (const shape of Object.keys(data.shapes)) {
     const s = c[shape]
     lines.push(`\t\t\t${shape} = {`)
-    lines.push(`\t\t\t\tbase = ${s.base + 1}, still = ${s.still + 1},`)
+    lines.push(`\t\t\t\tbase = ${s.base + 1}, still = ${s.still + 1}, lock = ${s.lock + 1},`)
     lines.push('\t\t\t\tlayers = {')
     for (const l of s.layers) lines.push(`\t\t\t\t\t${lua(layerOut(l))},`)
     lines.push('\t\t\t\t},')

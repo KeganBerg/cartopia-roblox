@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local clock = require(Shared:WaitForChild("Game"):WaitForChild("clock")) :: any
 local Catalog = require(Shared:WaitForChild("Models"):WaitForChild("Catalog")) :: any
 local Horizon = require(script.Parent.Horizon)
+local ClockShift = require(script.Parent.ClockShift)
 
 local DayNight = {}
 
@@ -239,7 +240,7 @@ function DayNight.start()
 	-- Every frame, just after the camera moves (and before TownWeather nudges what it sets), so the
 	-- light glides rather than stepping.
 	RunService:BindToRenderStep("DayNight", Enum.RenderPriority.Camera.Value + 1, function()
-		apply(DateTime.now().UnixTimestampMillis)
+		apply(ClockShift.now())
 	end)
 end
 
@@ -248,7 +249,7 @@ DayNight.apply = apply
 -- Starts or ends a race's fog, at once rather than at the next tick.
 function DayNight.setRaceFog(fog: Fog?)
 	DayNight.raceFog = fog
-	apply(DateTime.now().UnixTimestampMillis)
+	apply(ClockShift.now())
 end
 
 export type Indoor = { ambient: Color3, brightness: number, exposure: number, bloom: number, threshold: number, saturation: number, contrast: number, fog: Color3, fogStart: number, fogEnd: number }
@@ -256,7 +257,7 @@ export type Indoor = { ambient: Color3, brightness: number, exposure: number, bl
 -- Starts or ends an indoor scene's light (CrateScene), at once.
 function DayNight.setIndoor(look: Indoor?)
 	DayNight.indoor = look
-	apply(DateTime.now().UnixTimestampMillis)
+	apply(ClockShift.now())
 end
 
 return DayNight
