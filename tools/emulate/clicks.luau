@@ -2051,6 +2051,9 @@ if SHOTS then
 			hud.openPanel("friends", "clan")
 			Emu.resumeWaits()
 			shot("crew-goal", nil)
+			if not hud.gui:FindFirstChild("OpenChat", true) then
+				table.insert(problems, "no crew chat row for a player who can chat")
+			end
 			local chest = hud.gui:FindFirstChild("Chest", true)
 			local open = chest and chest:FindFirstChild("Open", true)
 			local openButton = open and (if open:IsA("GuiButton") then open else open:FindFirstChildWhichIsA("GuiButton", true))
