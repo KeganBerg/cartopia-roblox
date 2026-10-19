@@ -217,12 +217,14 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 				p.CanCollide = false
 			end
 		end
+		-- Flat layers at least 0.25 apart where they cross at a junction: kerbs (top -0.85) under
+		-- the crossing road (-0.5), white edges (-0.2) under the yellow middle line (0.1).
 		strip("Road", World.ROAD_W, 0, GROUND_TOP + 0.2, 0.4, ROAD)
 		for _, side in { -1, 1 } do
-			strip("Kerb", KERB, side * (World.ROAD_W + KERB) / 2, GROUND_TOP + 0.15, 0.3, KERB_COLOR)
+			strip("Kerb", KERB, side * (World.ROAD_W + KERB) / 2, GROUND_TOP - 0.1, 0.3, KERB_COLOR)
 			strip("Edge", 1, side * (World.ROAD_W / 2 - 2.5), GROUND_TOP + 0.6, 0.2, EDGE)
 		end
-		strip("Line", 1.2, 0, GROUND_TOP + 0.6, 0.2, LINE)
+		strip("Line", 1.2, 0, GROUND_TOP + 0.9, 0.2, LINE)
 	end
 	local length = (2 * RINGS + 1) * World.PITCH
 	for k = -RINGS, RINGS + 1 do
