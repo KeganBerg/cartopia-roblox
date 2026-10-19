@@ -2,9 +2,10 @@
 -- The prize cards a race leaves behind (index.css .prize): a campaign chapter cleared or starred
 -- (Race.tsx CampaignPrizePopup), a paint rival beaten (PaintRivals.tsx), a tuner trial won
 -- (TunerTrials.tsx), a mastery step (ClassCups.tsx MasteryPrizePopup) and a class cup's free
--- crate (CupPrizePopup), and a Grand Prix series won (Race.tsx PrizePopup: a mystery box to open,
--- then the car inside). They come in the snapshot's popups and show once the race screen is gone.
--- The World Tour and event prizes belong to their own race pages.
+-- crate (CupPrizePopup), a Pro Tour leg's boss beaten (Race.tsx TourPrizePopup), a weekly event
+-- cleared (EventPrizePopup: its skin on your best car), and a Grand Prix series won (Race.tsx
+-- PrizePopup: a mystery box to open, then the car inside). They come in the snapshot's popups and
+-- show once the race screen is gone. The World Tour's prize belongs to its own race page.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -18,9 +19,13 @@ local mastery = require(Game.mastery) :: any
 local classes = require(Game.classes) :: any
 local cups = require(Game.cups) :: any
 local crates = require(Game.crates) :: any
+local tour = require(Game.tour) :: any
+local events = require(Game.events) :: any
+local venues = require(Game.scene_venues) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local Kit = require(script.Parent.Kit)
+local Thumb = require(script.Parent.Parent.Thumb)
 local Sfx = require(script.Parent.Parent.Sounds.Sfx)
 
 local Prizes = {}
@@ -143,6 +148,59 @@ SHOW.campaignPrize = function(ctx, prize, close)
 	y += big(card, if prize.cleared then "🏁" else "🌟", y)
 	y += prizeRow(card, words, y)
 	y += prizeRow(card, after, y)
+	y += 12
+	Kit.buttons(card, y, { { text = "Awesome!", go = close } })
+end
+
+SHOW.tourPrize = function(ctx, prize, close)
+	local rankUp = tour.tourRankOf(prize.leg + 1) > tour.tourRankOf(prize.leg)
+	local nextLeg = tour.tourLeg(prize.leg + 1)
+	local nv = venues.venue(nextLeg.venue)
+	local nextName = if nextLeg.night then `{nv.name} at Midnight 🌙` else `{nv.name} {nextLeg.name}`
+	local h = 18 + 36 + 110 + (if rankUp then 32 else 0) + 30 + 28 + 12 + 44 + 18
+	local _, card = prizeCard(ctx, h)
+	local y = 18
+	y += h2(card, `Leg {prize.leg + 1} cleared!`, y)
+	y += big(card, if rankUp then tour.tourRank(prize.leg + 1).icon else "👑", y)
+	if rankUp then
+		y += h3(card, `{tour.tourRank(prize.leg + 1).name} rank!`, y)
+	end
+	y += prizeRow(card, { `💵 +${Ui.commas(prize.coins)}` }, y)
+	Ui.text({ Text = `Next up: {nv.icon} {nextName}`, Body = true, TextSize = 16, TextColor3 = INK, TextWrapped = true, Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 22), Parent = card })
+	y += 28
+	y += 12
+	Kit.buttons(card, y, { { text = "Keep going!", go = close } })
+end
+
+SHOW.eventPrize = function(ctx, prize, close)
+	local e = nil
+	for _, x in events.WEEKLY_EVENTS do
+		if x.id == prize.id then
+			e = x
+		end
+	end
+	local skin = e and data.skinDef(e.skin)
+	if not e or not skin then
+		close()
+		return
+	end
+	-- Shown on your best car (EventPrizePopup).
+	local s = store.useGame.getState()
+	local top = raceCar.bestCar(s.cars or {})
+	local d = if top then data.carDef(top.model) else data.CARS[1]
+	local title = `{e.name} cleared!`
+	local th = if Ui.textWidth(title, 26) > W - 44 then 66 else 36
+	local h = 18 + th + 146 + 32 + 30 + 30 + 12 + 44 + 18
+	local _, card = prizeCard(ctx, h)
+	local y = 18
+	y += h2(card, title, y)
+	local stage = Ui.new("Frame", { Name = "Car", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, y), Size = UDim2.fromOffset(198, 140), BackgroundTransparency = 1, Parent = card })
+	local pic = Thumb.car(d.id, UDim2.fromScale(1, 1), { color = if top then top.color else d.colors[1], finish = top and top.finish, stripe = top and top.stripe }, nil, top and top.mods, nil, nil, e.skin)
+	pic.Parent = stage
+	y += 146
+	y += h3(card, if prize.skin then `🎨 {skin.name} skin unlocked` else `You already have {skin.name}`, y)
+	y += prizeRow(card, { `💵 +${Ui.commas(prize.coins)}` }, y)
+	y += prizeRow(card, { `⏭ {events.eventFor(events.nextEventWeek()).name}` }, y)
 	y += 12
 	Kit.buttons(card, y, { { text = "Awesome!", go = close } })
 end
@@ -372,8 +430,10 @@ local CLOSE = {
 	masteryPrize = "closeMasteryPrize",
 	cupPrize = "closeCupPrize",
 	gpPrize = "closePrize",
+	tourPrize = "closeTourPrize",
+	eventPrize = "closeEventPrize",
 }
-local ORDER = { "masteryPrize", "campaignPrize", "paintPrize", "tunerPrize", "cupPrize", "gpPrize" }
+local ORDER = { "masteryPrize", "campaignPrize", "tourPrize", "eventPrize", "paintPrize", "tunerPrize", "cupPrize", "gpPrize" }
 
 function Prizes.start(ctx: any)
 	local function look()

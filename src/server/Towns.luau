@@ -14,8 +14,10 @@ Towns.__index = Towns
 
 -- The tutorial's rules, shared with the client (src/shared/Tutorial.luau): from ReplicatedStorage
 -- in Roblox and the emulator, by path in the tests.
-local Tutorial = if game
-	then require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
+-- (Roblox's `game`, looked up so plain Luau's checker, which has no such global, passes it.)
+local roblox: any = (getfenv(1) :: any).game
+local Tutorial = if roblox
+	then require(roblox:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
 	else (require :: any)("../shared/Tutorial")
 
 -- The season recap (web game/recap.ts) and the season clock, the same two ways.
@@ -286,7 +288,7 @@ end
 -- progress, which isn't part of the save (leaving mid-search forfeits it, as on the web).
 -- The web store's one-off news the game shows as pop-ups (level-up splash, prize cards). Each goes
 -- out once, with the snapshot after it happened.
-Towns.POPUPS = { "levelUp", "gpPrize", "campaignPrize", "tourPrize", "eventPrize", "paintPrize", "tunerPrize", "masteryPrize", "cupPrize" }
+Towns.POPUPS = { "levelUp", "gpPrize", "campaignPrize", "tourPrize", "eventPrize", "paintPrize", "tunerPrize", "masteryPrize", "cupPrize", "bought" }
 
 function Towns.snapshot(self: Towns, userId: number): { save: any, need: any, panel: any, upgrading: any, toasts: { string }, search: any, popups: { [string]: any }, sounds: { any } }
 	local state = assert(self.states[userId], "town not open")

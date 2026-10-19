@@ -7,6 +7,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
+local UserInputService = game:GetService("UserInputService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -27,6 +29,7 @@ local ModShop = require(script.Parent.ModShop)
 local CustomShop = require(script.Parent.CustomShop)
 local TrimShop = require(script.Parent.TrimShop)
 local SkinShop = require(script.Parent.SkinShop)
+local Dyno = require(script.Parent.Dyno)
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 
 local Cars = {}
@@ -194,6 +197,8 @@ function Cars.open(ctx: any, tab: any): Instance
 	CallCards.reset()
 	CrateDepot.reset()
 	local overlay = Ui.new("TextButton", { Name = "Panel", Text = "", AutoButtonColor = false, ZIndex = 20, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = ctx.gui })
+	-- The whole page: it doesn't press or grow like a button (it grew past the screen's edges).
+	overlay:SetAttribute("NoMotion", true)
 	local page = Ui.new("Frame", { Name = "Cars", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0f141d"), BorderSizePixel = 0, Parent = overlay })
 	local showroom = room(page)
 	-- The title bar, as every menu's, square-cornered across the top of the screen.
@@ -202,7 +207,22 @@ function Cars.open(ctx: any, tab: any): Instance
 	})
 	Ui.new("Frame", { Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 1, -3), BorderSizePixel = 0, BackgroundColor3 = LINE, ZIndex = 6, Parent = head })
 	Ui.new("Frame", { BorderSizePixel = 0, BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.65, Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, 0, 0, 3), ZIndex = 6, Parent = head })
-	Ui.text({ Name = "Title", Text = "Cars", TextSize = 32, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(18, 6), Size = UDim2.fromOffset(300, 47), Stroke = 3, Shadow = 4, ZIndex = 6, Parent = head })
+	local title = Ui.text({ Name = "Title", Text = "Cars", TextSize = 32, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(18, 6), Size = UDim2.fromOffset(300, 47), Stroke = 3, Shadow = 4, ZIndex = 6, Parent = head })
+	-- Roblox's own buttons (menu, chat) sit over the bar's left end: the title starts after them.
+	local function clearTopbar()
+		local ok, inset = pcall(function()
+			return GuiService.TopbarInset
+		end)
+		local hudScale = (ctx.gui :: Instance):FindFirstChildOfClass("UIScale")
+		local k = if hudScale then hudScale.Scale else 1
+		local left = if ok and inset and inset.Height > 0 then inset.Min.X / k + 6 else 0
+		title.Position = UDim2.fromOffset(math.max(18, left), 6)
+	end
+	clearTopbar()
+	local topbarChanged = GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(clearTopbar)
+	overlay.Destroying:Connect(function()
+		topbarChanged:Disconnect()
+	end)
 	Ui.closeButton({ Name = "Close", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(42, 42), ZIndex = 6, Parent = head }, ctx.close)
 	local extras = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -66, 0.5, -1), Size = UDim2.fromOffset(240, 34), BackgroundTransparency = 1, ZIndex = 6, Parent = head }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder }),
@@ -238,6 +258,8 @@ function Cars.open(ctx: any, tab: any): Instance
 
 	local content = Ui.new("Frame", { Name = "Content", Position = UDim2.fromOffset(0, 113), Size = UDim2.new(1, 0, 1, -113), BackgroundTransparency = 1, ZIndex = 2, Parent = page })
 	local spin: RBXScriptConnection? = nil
+	-- The dyno run on the stage now (set up with the stage below).
+	local dynoOn: { car: string, before: number, overlay: Instance }? = nil
 	-- The turntable car and how far round it has turned (kept while the same car is shown).
 	local turnModel: string? = nil
 	local turnAngle = 0.7
@@ -279,7 +301,7 @@ function Cars.open(ctx: any, tab: any): Instance
 				place()
 			end)
 		end
-		local badge = Ui.new("Frame", { Position = UDim2.fromOffset(286, 14), Size = UDim2.fromOffset(48, 42), BackgroundColor3 = Ui.WHITE, ZIndex = 3, Parent = content }, {
+		local badge = Ui.new("Frame", { Name = "PI", Position = UDim2.fromOffset(286, 14), Size = UDim2.fromOffset(48, 42), BackgroundColor3 = Ui.WHITE, Visible = dynoOn == nil, ZIndex = 3, Parent = content }, {
 			Ui.corner(9),
 			Ui.stroke(2.5, Ui.WHITE),
 			Ui.gradient("#3d8bff", "#1e5fd0"),
@@ -300,6 +322,56 @@ function Cars.open(ctx: any, tab: any): Instance
 		})
 		Ui.text({ Text = "It turns on its own", Body = true, TextSize = 13, TextColor3 = Color3.fromHex("#37474f"), Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 3, Parent = hint })
 	end
+
+	-- After an upgrade or a part goes on, the car does a dyno pull over the stage showing its old and
+	-- new time and PI (Dyno, the web's DynoOverlay); the PI badge steps aside while it runs. Only a
+	-- gain right after a tap on this page counts, not a save arriving from elsewhere.
+	local lastPi: { car: string, pi: number }? = nil
+	local tapped = -math.huge
+	local dynoLayer = Ui.new("Frame", { Name = "DynoStage", Position = UDim2.fromOffset(280, 123), Size = UDim2.new(1, -700, 1, -153), BackgroundTransparency = 1, ZIndex = 3, Parent = page })
+	local function stopDyno()
+		if dynoOn then
+			local o = dynoOn.overlay
+			dynoOn = nil
+			o:Destroy()
+		end
+		local pi = content:FindFirstChild("PI")
+		if pi then
+			(pi :: Frame).Visible = true
+		end
+	end
+	local function checkDyno(c: any, pi: number)
+		local was = lastPi
+		lastPi = { car = c.uid, pi = pi }
+		if not was or was.car ~= c.uid then
+			stopDyno()
+			return
+		end
+		if pi <= was.pi or os.clock() - tapped > 1.5 then
+			return
+		end
+		local before = if dynoOn and dynoOn.car == c.uid then dynoOn.before else was.pi
+		stopDyno()
+		local run = { before = before, after = pi, model = c.model }
+		local overlay
+		overlay = Dyno.show(dynoLayer, run, function()
+			if dynoOn and dynoOn.overlay == overlay then
+				stopDyno()
+			end
+		end)
+		dynoOn = { car = c.uid, before = before, overlay = overlay }
+		local badge = content:FindFirstChild("PI")
+		if badge then
+			(badge :: Frame).Visible = false
+		end
+	end
+	-- Any tap or click while the page is up (on its buttons too) counts as one.
+	local tapConn = UserInputService.InputBegan:Connect(function(input: InputObject)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+			tapped = os.clock()
+		end
+	end)
 
 	local render: () -> ()
 	-- Switches the tab strip's highlight (set once the tabs are made below).
@@ -411,6 +483,7 @@ function Cars.open(ctx: any, tab: any): Instance
 			modSkin = table.clone(modSkin or {})
 			modSkin[tryModSkin.slot] = tryModSkin.skin or nil
 		end
+		checkDyno(car.c, car.pi)
 		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat, mods, panels, trim, skin, modSkin)
 		-- The car's mod and custom paint meshes, the first time it shows them or opens the Mods or
 		-- Custom tab: drawn again once in.
@@ -810,6 +883,10 @@ function Cars.open(ctx: any, tab: any): Instance
 		clear()
 		-- The crate depot is a real 3D room behind the menu: the page goes see-through for it.
 		showroom.Visible = current ~= "crates"
+		if current ~= "garage" then
+			lastPi = nil
+			stopDyno()
+		end
 		page.BackgroundTransparency = if current == "crates" then 1 else 0
 		local s = store.useGame.getState()
 		Ui.setText(powerText, `⚡{Ui.compact(data.garagePower(s.cars))}`)
@@ -888,6 +965,7 @@ function Cars.open(ctx: any, tab: any): Instance
 	end)
 	overlay.Destroying:Connect(function()
 		conn:Disconnect()
+		tapConn:Disconnect()
 		if spin then
 			spin:Disconnect()
 		end

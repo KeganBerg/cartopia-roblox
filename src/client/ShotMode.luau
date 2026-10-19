@@ -178,7 +178,7 @@ end
 
 -- The two buttons (.shot-dock): place them with the returned frame.
 function ShotMode.dock(root: Instance, ctx: any): Frame
-	local dock = Ui.new("Frame", { Name = "ShotDock", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -340), Size = UDim2.fromOffset(60, 60 * 2 + 12), BackgroundTransparency = 1, Parent = root })
+	local dock = Ui.new("Frame", { Name = "ShotDock", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -408), Size = UDim2.fromOffset(60, 60 * 2 + 12), BackgroundTransparency = 1, Parent = root })
 	local function button(name: string, icon: string, y: number, onClick: () -> ())
 		local _, face = Ui.button({ Name = name, Position = UDim2.fromOffset(2.5, y + 5.5), Size = UDim2.fromOffset(55, 55), Parent = dock }, "white", onClick, { radius = 16, stroke = 2.5, drop = 3, split = 0.5, flat = true })
 		Icons.draw(icon, face, 30, Ui.BLUE, Color3.fromHex("#f3f7fc"), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))

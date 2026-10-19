@@ -55,6 +55,7 @@ local function setup()
 		rivals = require(G .. "rivals"),
 		distance = require(G .. "distance"),
 		DragRace = DragRace,
+		tourRivals = require("../src/shared/TourRivals"),
 		random = rng(7),
 		clock = function()
 			return t
@@ -66,6 +67,8 @@ local function setup()
 			daily = require("../src/server/Modes/Daily"),
 			trial = require("../src/server/Modes/Trial"),
 			ghost = require("../src/server/Modes/Ghost"),
+			tour = require("../src/server/Modes/Tour"),
+			event = require("../src/server/Modes/Event"),
 		},
 		ghosts = ghosts,
 		people = function(userId)
@@ -191,7 +194,7 @@ return function(test)
 		assert(races:start(1, "row", "nobody") == nil, "unknown rival")
 	end)
 
-	test("races: the rival in town, then double or nothing", function()
+	test("races: the rival in town, with no double or nothing", function()
 		local races, towns, wait = setup()
 		local rivals = require(G .. "rivals")
 		local store = require(G .. "store")
@@ -208,19 +211,9 @@ return function(test)
 		wait(60)
 		local result = assert(races:finish(1, run.events))
 		assert(result.won == (mine < theirs), "same winner")
-		if not result.won then
-			assert(races:start(1, "bet") == nil, "no bet after a loss")
-			return
-		end
-		assert(result.bet == started.rival.prize, "double or nothing offered")
-		local fuel = towns:snapshot(1).save.fuel
-		local coins = towns:snapshot(1).save.coins
-		local again = assert(races:start(1, "bet"))
-		assert(again.stake == result.bet and towns:snapshot(1).save.fuel == fuel, "no fuel for the rematch")
-		-- Leaving it half way loses the stake.
-		races:close(1)
-		assert(towns:snapshot(1).save.coins == coins - result.bet, "stake lost")
-		assert(races:start(1, "bet") == nil, "only once")
+		-- No betting on Roblox: a win pays the prize and offers no double or nothing.
+		assert(result.bet == nil, "no double or nothing")
+		assert(races:start(1, "bet") == nil, "no bet mode")
 	end)
 
 	test("races: the World Tour opens at Street Racer and pays through worldTourResult", function()
@@ -243,6 +236,102 @@ return function(test)
 		local result = assert(races:finish(1, run.events))
 		assert(result.won == (mine < theirs), "same winner")
 		assert((towns:snapshot(1).save.worldTour or 0) == (if result.won then 1 else 0), "progress")
+	end)
+
+	test("races: the Pro Tour opens after Back Streets and pays the leg bonus for the boss", function()
+		local races, towns, wait = setup()
+		local store = require(G .. "store")
+		local data = require(G .. "data")
+		local tour = require(G .. "tour")
+		local distance = require(G .. "distance")
+		local fairRace = require(G .. "fairRace")
+		local started, why = races:start(1, "tour", nil)
+		assert(started == nil and why:find("Pro Tour"), tostring(why))
+		local ch = data.CAMPAIGN[1]
+		local done = {}
+		for i = 0, data.CAMPAIGN_RACES - 1 do
+			done[data.campaignRaceId(ch, i)] = 1
+		end
+		-- The leg's boss is next.
+		towns:_with(1, function()
+			store.useGame.setState({ campaign = done, tour = tour.TOUR_RACES - 1, fuel = 500 })
+		end)
+		local won = false
+		for _ = 1, 8 do
+			local coins = towns:snapshot(1).save.coins
+			started, why = races:start(1, "tour", nil)
+			assert(started, `start: {why}`)
+			local race = tour.TOUR_RACES - 1
+			assert(started.rival.id == `tour-{race}` and started.rival.boss and started.rival.name == tour.tourRivalName(race), started.rival.id)
+			assert(started.venue.id == tour.tourLeg(0).venue and started.venue.dist == distance.tourDist(race), "the leg's venue and distance")
+			towns:_with(1, function()
+				assert(started.rival.prize == fairRace.tourPayNow(race), "pays what the web's button says")
+			end)
+			local run = drive(started.spec)
+			local mine, theirs = DragRace.times(run)
+			wait(60)
+			local result = assert(races:finish(1, run.events))
+			assert(result.won == (mine < theirs), "same winner")
+			local snap = towns:snapshot(1)
+			local save = snap.save
+			if result.won then
+				assert(save.tour == tour.TOUR_RACES and result.tour == tour.TOUR_RACES, "next leg")
+				assert(result.legBonus == tour.tourLegBonus(0), "boss bonus")
+				assert(save.coins - coins >= tour.tourLegBonus(0) + started.rival.prize, `paid {save.coins - coins}`)
+				local popup = snap.popups.tourPrize
+				assert(popup and popup.leg == 0 and popup.coins == tour.tourLegBonus(0), "prize card")
+				won = true
+				break
+			end
+			assert(save.tour == tour.TOUR_RACES - 1 and result.legBonus == nil, "a loss stays put")
+		end
+		assert(won, "beat the boss in eight goes")
+		-- The next leg starts at its first race.
+		started = assert(races:start(1, "tour", nil))
+		assert(started.rival.id == `tour-{tour.TOUR_RACES}` and started.venue.id == tour.tourLeg(1).venue, "leg 2")
+	end)
+
+	test("races: the weekly event locks in your PI, climbs to the boss and wins its skin", function()
+		local races, towns, wait = setup()
+		local store = require(G .. "store")
+		local events = require(G .. "events")
+		local raceCar = require(G .. "raceCar")
+		local e = events.eventFor()
+		towns:_with(1, function()
+			store.useGame.setState({ fuel = 1000 })
+		end)
+		local base = raceCar.carPi(raceCar.bestCar(towns:snapshot(1).save.cars))
+		local wins = 0
+		for _ = 1, 30 do
+			if wins >= events.EVENT_RACES then
+				break
+			end
+			local started, why = races:start(1, "event", nil)
+			assert(started, `start: {why}`)
+			assert(started.rival.id == `event-{e.id}-{wins}` and started.rival.name == e.rivals[wins + 1], started.rival.id)
+			assert(started.rival.prize == events.eventPrize(base, wins) and started.venue.id == e.venue, "prize and venue")
+			local ev = towns:snapshot(1).save.event
+			assert(ev and ev.pi == base and ev.won == wins, "entered at your best car's PI")
+			local run = drive(started.spec)
+			local mine, theirs = DragRace.times(run)
+			wait(60)
+			local result = assert(races:finish(1, run.events))
+			assert(result.won == (mine < theirs), "same winner")
+			if result.won then
+				wins += 1
+			end
+			assert(towns:snapshot(1).save.event.won == wins, "progress")
+			if wins == events.EVENT_RACES then
+				local save = towns:snapshot(1).save
+				assert(table.find(save.skins or {}, e.skin), "the event's skin")
+				assert(result.eventPrize and result.eventPrize.skin == e.skin and result.eventPrize.coins == events.eventBonus(base), "boss bonus")
+			else
+				assert(result.eventPrize == nil, "no prize card yet")
+			end
+		end
+		assert(wins == events.EVENT_RACES, `won {wins}`)
+		local again, why = races:start(1, "event", nil)
+		assert(again == nil and why:find("next week"), tostring(why))
 	end)
 
 	test("races: the Daily Run races the day's loaner against par and pays the first run", function()

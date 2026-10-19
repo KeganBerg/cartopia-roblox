@@ -26,11 +26,16 @@ local function signal()
 	function s:Wait() end
 	return s
 end
-for _, pair in { { "ClickDetector", "MouseClick" }, { "GuiButton", "Activated" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "RemoteEvent", "OnServerEvent" }, { "RunService", "RenderStepped" }, { "RunService", "Heartbeat" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "GuiObject", "MouseEnter" }, { "GuiObject", "MouseLeave" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputEnded" }, { "TextBox", "FocusLost" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" }, { "Player", "CharacterAdded" }, { "Instance", "ChildAdded" }, { "Instance", "DescendantAdded" } } do
+for _, pair in { { "ClickDetector", "MouseClick" }, { "GuiButton", "Activated" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "RemoteEvent", "OnServerEvent" }, { "RunService", "RenderStepped" }, { "RunService", "Heartbeat" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "GuiObject", "MouseEnter" }, { "GuiObject", "MouseLeave" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputEnded" }, { "TextBox", "FocusLost" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" }, { "Player", "CharacterAdded" }, { "Players", "PlayerAdded" }, { "Players", "PlayerRemoving" }, { "Instance", "ChildAdded" }, { "Instance", "DescendantAdded" } } do
 	pcall(roblox.implementProperty, pair[1], pair[2], function()
 		return signal()
 	end)
 end
+
+-- No other players here.
+pcall(roblox.implementMethod, "Players", "GetPlayers", function()
+	return {}
+end)
 
 -- The emulator stands in for a desktop with a mouse (TouchEnabled and MouseEnabled are set on
 -- the service when the place loads: they exist but have no default to read).
@@ -106,6 +111,22 @@ roblox.implementMethod("Model", "PivotTo", function(model, cf)
 		model:SetAttribute("EmuPivoted", true)
 	end)
 end)
+-- The model's bounding box size in its pivot's frame, as Roblox's (each part's corners).
+roblox.implementMethod("Model", "GetExtentsSize", function(model)
+	local pivot = pivots[model] or pivotOf(model)
+	local lo, hi = nil, nil
+	for _, d in model:GetDescendants() do
+		if d:IsA("BasePart") then
+			local h = d.Size / 2
+			for _, c in { Vector3.new(1, 1, 1), Vector3.new(1, 1, -1), Vector3.new(1, -1, 1), Vector3.new(1, -1, -1), Vector3.new(-1, 1, 1), Vector3.new(-1, 1, -1), Vector3.new(-1, -1, 1), Vector3.new(-1, -1, -1) } do
+				local p = pivot:PointToObjectSpace(d.CFrame:PointToWorldSpace(h * c))
+				lo = if lo then lo:Min(p) else p
+				hi = if hi then hi:Max(p) else p
+			end
+		end
+	end
+	return if lo and hi then hi - lo else Vector3.new()
+end)
 -- Model scale, as Roblox keeps it: ScaleTo resizes every part about the pivot.
 roblox.implementMethod("Model", "GetScale", function(model)
 	return model:GetAttribute("EmuScale") or 1
@@ -144,8 +165,14 @@ roblox.implementMethod("Model", "GetBoundingBox", function(model)
 	end
 	return CFrame.new((lo + hi) / 2), hi - lo
 end)
-roblox.implementMethod("Instance", "WaitForChild", function(inst, name)
-	return inst:FindFirstChild(name) or error(`emulator: {inst:GetFullName()} has no {name}`)
+-- Nothing arrives later here: with a timeout it gives up at once (nil, as Roblox does once the
+-- time is up); without one it's an error, since it would wait forever.
+roblox.implementMethod("Instance", "WaitForChild", function(inst, name, timeout)
+	local c = inst:FindFirstChild(name)
+	if c or timeout then
+		return c
+	end
+	error(`emulator: {inst:GetFullName()} has no {name}`)
 end)
 
 roblox.implementMethod("TweenService", "Create", function(_, inst, _info, goal)
@@ -327,7 +354,7 @@ function Emu.load(placeFile: string)
 		e.Instance = setmetatable({
 			new = function(class, parent)
 				local inst = roblox.Instance.new(class)
-				if inst:IsA("GuiObject") then
+				if inst:IsA("GuiBase2d") then
 					inst.AbsoluteSize = roblox.Vector2.new(0, 0)
 					inst.AbsolutePosition = roblox.Vector2.new(0, 0)
 				end

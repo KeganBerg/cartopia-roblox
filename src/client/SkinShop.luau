@@ -1,9 +1,10 @@
 --!strict
 -- Skin pickers (the web's Skins.tsx): body skins in the garage's Paint tab, mod skins for the part
--- in a slot in the Mods tab. Tapping a skin tries it on the car on the turntable; owned skins go on
+-- in a slot in the Mods tab, and a tank's track skins under its Tracks slot. Tapping a skin tries it on the car on the turntable; owned skins go on
 -- free from the bar, gem skins are bought there, and the rest say where they come from.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -40,16 +41,124 @@ local function source(d: any): string
 	return "🎁 Crates"
 end
 
--- A skin drawn small: its base tile in the car's colour with its glow over it.
-local function chip(parent: Instance, n: number, color: string, tier: Color3?)
-	local c = Ui.new("Frame", { Name = "Chip", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.fromOffset(36, 36), BackgroundColor3 = Color3.fromHex(color), ClipsDescendants = true, ZIndex = 3, Parent = parent }, {
+-- Paints skin `id`'s swatch (the web's SkinDef.swatch, drawn by tools/models/skins.mjs) into the
+-- round frame `c`, with the light sweeping across it every 2.6 seconds (.skin-chip::after). Without
+-- a drawn swatch in the build, the swatch's colours as a gradient.
+function SkinShop.swatch(c: GuiObject, id: string, swatch: string?)
+	local pic = Skins.swatch(id)
+	if pic and pic.image ~= 0 then
+		local img = Ui.new("ImageLabel", { Name = "Swatch", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Crop, ZIndex = c.ZIndex, Parent = c }, { Ui.round() })
+		Pictures.set(img, "Image", pic.image)
+	else
+		local keys = {}
+		for hex in string.gmatch(swatch or "", "#%x%x%x%x?%x?%x?") do
+			local ok, col = pcall(Color3.fromHex, hex)
+			if ok then
+				table.insert(keys, col)
+			end
+		end
+		if #keys > 0 then
+			c.BackgroundColor3 = keys[1]
+		end
+		if #keys > 1 then
+			local seq = {}
+			for i, col in keys do
+				table.insert(seq, ColorSequenceKeypoint.new((i - 1) / (#keys - 1), col))
+			end
+			Ui.new("UIGradient", { Color = ColorSequence.new(seq), Rotation = 45, Parent = c })
+		end
+	end
+	-- The shine: a soft white band at 115deg, held at one side, sweeping over, held at the other.
+	local shine = Ui.new("Frame", { Name = "Shine", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Ui.WHITE, ZIndex = c.ZIndex, Parent = c }, { Ui.round() })
+	local band = Ui.new("UIGradient", {
+		Rotation = 25,
+		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4, 1), NumberSequenceKeypoint.new(0.5, 0.45), NumberSequenceKeypoint.new(0.6, 1), NumberSequenceKeypoint.new(1, 1) }),
+		Offset = Vector2.new(-1, 0),
+		Parent = shine,
+	})
+	TweenService:Create(band, TweenInfo.new(1.04, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, false, 1.56), { Offset = Vector2.new(1, 0) }):Play()
+end
+
+-- Puts the drawn swatch of the skin whose CSS swatch is `css` into the round frame `c` (for prize
+-- lists that only know the CSS). False when no skin has it or the build has no picture for it.
+function SkinShop.picture(c: GuiObject, css: string?): boolean
+	if not css then
+		return false
+	end
+	for _, list in { data.SKINS, data.MOD_SKINS, { data.CUSTOM_PAINT } } do
+		for _, d in list do
+			if d and d.swatch == css then
+				local pic = Skins.swatch(d.id)
+				if pic and pic.image ~= 0 then
+					SkinShop.swatch(c, d.id, css)
+					return true
+				end
+				return false
+			end
+		end
+	end
+	return false
+end
+
+-- A skin drawn small (.skin-chip): its swatch in a white ring edged in its tier's colour, or the
+-- grey "none" chip for no skin. Locked skins are greyed and dimmed.
+local function chip(parent: Instance, d: any?, tier: Color3?, locked: boolean)
+	local c = Ui.new("Frame", { Name = "Chip", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.fromOffset(36, 36), BackgroundColor3 = Color3.fromHex("#eceff1"), ZIndex = 3, Parent = parent }, {
+		Ui.round(),
+		Ui.stroke(2, Ui.WHITE),
+	})
+	if tier then
+		-- The tier's ring just outside the white one.
+		Ui.new("Frame", { Name = "Ring", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, 7, 1, 7), BackgroundTransparency = 1, ZIndex = 3, Parent = c }, {
+			Ui.round(),
+			Ui.stroke(1.5, tier),
+		})
+	end
+	if d then
+		SkinShop.swatch(c, d.id, d.swatch)
+		if locked then
+			-- saturate(.35) brightness(.8): a grey wash over it.
+			Ui.new("Frame", { Name = "Dim", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#6d7378"), BackgroundTransparency = 0.45, ZIndex = 3, Parent = c }, { Ui.round() })
+		end
+	end
+	return c
+end
+
+-- A track skin drawn small (the web's swatch, a CSS stripe of its link colours): stripes across
+-- the chip in the swatch's colours and widths, or a slant of its colours for a smooth one.
+local function trackChip(parent: Instance, d: any, tier: Color3?): Frame
+	local c = Ui.new("Frame", { Name = "Chip", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.fromOffset(36, 36), BackgroundColor3 = Color3.fromHex(d.look.plate), ClipsDescendants = true, ZIndex = 3, Parent = parent }, {
 		Ui.round(),
 		Ui.stroke(2, tier or Ui.WHITE),
 	})
-	local base, glow = Skins.tiles(n)
-	for i, t in { base, glow } do
-		if t and t.image ~= 0 then
-			Ui.new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = Pictures.content(t.image), ImageColor3 = if i == 1 then Color3.fromHex(color) else Color3.new(1, 1, 1), ScaleType = Enum.ScaleType.Crop, ZIndex = 3, Parent = c }, { Ui.round() })
+	local sw: string = d.swatch or ""
+	local stops = {}
+	for color, a, b in sw:gmatch("(#%x%x%x%x%x%x) (%d+)p?x? (%d+)px") do
+		table.insert(stops, { color = color, from = tonumber(a) :: number, to = tonumber(b) :: number })
+	end
+	if sw:find("^repeating") and #stops > 0 then
+		local period = stops[#stops].to
+		local x = 0
+		while x < 36 do
+			for _, st in stops do
+				if st.to > st.from then
+					Ui.new("Frame", { Position = UDim2.fromOffset(x + st.from, 0), Size = UDim2.new(0, st.to - st.from, 1, 0), BackgroundColor3 = Color3.fromHex(st.color), BorderSizePixel = 0, ZIndex = 3, Parent = c })
+				end
+			end
+			x += period
+		end
+	else
+		local list = {}
+		for color in sw:gmatch("#%x%x%x%x%x%x") do
+			table.insert(list, color)
+		end
+		if #list >= 2 then
+			local keys = {}
+			for i, color in list do
+				table.insert(keys, ColorSequenceKeypoint.new((i - 1) / (#list - 1), Color3.fromHex(color)))
+			end
+			c.BackgroundColor3 = Ui.WHITE
+			Ui.new("UIGradient", { Rotation = 45, Color = ColorSequence.new(keys), Parent = c })
 		end
 	end
 	return c
@@ -69,6 +178,8 @@ local function chooser(parent: Instance, order: number, opts: {
 	trying: Trying,
 	setTrying: (Trying) -> (),
 	apply: (string?) -> boolean,
+	-- Draws a skin's chip instead of its baked tiles (the track skins').
+	chip: ((Instance, any, Color3?) -> Frame)?,
 })
 	local has: { [string]: boolean } = {}
 	for _, id in opts.owned do
@@ -129,7 +240,8 @@ local function chooser(parent: Instance, order: number, opts: {
 		Ui.new("UIGridLayout", { CellSize = UDim2.fromOffset(62, 66), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 		Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingTop = UDim.new(0, 3), PaddingBottom = UDim.new(0, 3) }),
 	})
-	local function option(order2: number, id: string?, name: string, sel: boolean, tier: Color3?, locked: boolean, n: number, onTap: () -> ())
+	local function option(order2: number, d: any?, name: string, sel: boolean, tier: Color3?, locked: boolean, onTap: () -> ())
+		local id = d and d.id
 		local b = Ui.new("TextButton", { Name = id or "none", Text = "", AutoButtonColor = false, LayoutOrder = order2, BackgroundColor3 = Ui.WHITE, ZIndex = 3, Parent = grid }, {
 			Ui.corner(12),
 			Ui.stroke(if sel then 2.5 else 1.5, if sel then Color3.fromHex("#1e88e5") else Color3.fromHex("#dfe5ea")),
@@ -137,23 +249,30 @@ local function chooser(parent: Instance, order: number, opts: {
 		if tier then
 			Ui.new("Frame", { Name = "Tier", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 6, 1, -1), Size = UDim2.new(1, -12, 0, 3), BackgroundColor3 = tier, BorderSizePixel = 0, ZIndex = 3, Parent = b }, { Ui.corner(2) })
 		end
-		local c = chip(b, n, opts.color, tier)
-		if n == 0 then
-			Ui.text({ Text = "∅", TextSize = 16, TextColor3 = SOFT, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = c })
+		local c
+		if d and opts.chip then
+			c = opts.chip(b, d, tier)
+			if locked then
+				Ui.new("Frame", { Name = "Dim", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#6d7378"), BackgroundTransparency = 0.45, ZIndex = 3, Parent = c }, { Ui.round() })
+			end
+		else
+			c = chip(b, d, tier, locked)
+		end
+		if not d then
+			Ui.text({ Text = "∅", TextSize = 16, TextColor3 = Color3.fromHex("#90a4ae"), Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = c })
 		end
 		if locked then
-			c.BackgroundTransparency = 0.3
 			Ui.text({ Name = "Lock", Text = "🔒", TextSize = 12, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(14, 14), ZIndex = 4, Parent = b })
 		end
 		Ui.text({ Text = name, TextSize = 11, TextColor3 = Color3.fromHex("#37474f"), TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(2, 45), Size = UDim2.new(1, -4, 0, 14), ZIndex = 3, Parent = b })
 		b.Activated:Connect(onTap)
 	end
-	option(0, nil, "None", pick == nil, nil, false, 0, function()
+	option(0, nil, "None", pick == nil, nil, false, function()
 		opts.setTrying(if opts.now == nil then nil else false)
 	end)
 	for i, s in opts.defs do
 		local tier = Color3.fromHex(data.SKIN_TIERS[s.tier].color)
-		option(i, s.id, s.name, pick == s.id, tier, not has[s.id], s.n, function()
+		option(i, s, s.name, pick == s.id, tier, not has[s.id], function()
 			opts.setTrying(if s.id == opts.now then nil else s.id)
 		end)
 	end
@@ -194,6 +313,27 @@ function SkinShop.mod(parent: Instance, order: number, car: any, slot: string, t
 			local ok, done = Remote.act("skinMod", car.uid, slot, id)
 			return ok and done == true
 		end,
+	})
+end
+
+-- Track skins for a tracked car (the Tomahawk), under its Tracks slot in the Mods tab: free by
+-- level, kept in the car's modSkin.tracks.
+function SkinShop.tracks(parent: Instance, order: number, car: any, trying: Trying, setTrying: (Trying) -> ())
+	local s = store.useGame.getState()
+	chooser(parent, order, {
+		name = "TrackSkins",
+		title = "Track skin",
+		defs = data.TRACK_SKINS,
+		owned = data.ownedTrackSkins(s.level),
+		now = car.modSkin and car.modSkin.tracks,
+		color = data.TRACK_STEEL.look.plate,
+		trying = trying,
+		setTrying = setTrying,
+		apply = function(id: string?): boolean
+			local ok, done = Remote.act("skinTracks", car.uid, id)
+			return ok and done == true
+		end,
+		chip = trackChip,
 	})
 end
 

@@ -19,23 +19,13 @@ local Thumb = {}
 -- Whether there's a picture of that model (the landmarks only once the model build has them).
 function Thumb.has(kind: "Cars" | "Buildings", id: string): boolean
 	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
-	return lib ~= nil and (lib :: any)[kind]:FindFirstChild(id) ~= nil
+	local folder = lib and lib:FindFirstChild(kind)
+	return folder ~= nil and folder:FindFirstChild(id) ~= nil
 end
 
--- theme: a building's colour theme (cityLook.themeFor), to show it in the colours it wears in town.
-function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: Color3?, theme: any?): ViewportFrame
-	local vp = Instance.new("ViewportFrame")
-	vp.Size = size
-	vp.BackgroundTransparency = 1
-	vp.Ambient = Color3.fromRGB(170, 175, 185)
-	vp.LightColor = Color3.new(1, 1, 1)
-	vp.LightDirection = Vector3.new(-1, -2, -1.2)
-	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
-	local src = lib and (lib :: any)[kind]:FindFirstChild(id)
-	if not src then
-		return vp
-	end
-	local m = src:Clone()
+-- Puts a copy of the library's model in the picture and points its camera at it.
+local function fill(vp: ViewportFrame, src: Instance, paint: Color3?, theme: any?): Model
+	local m = src:Clone() :: Model
 	if paint then
 		for _, d in m:GetDescendants() do
 			if d:IsA("BasePart") and d:GetAttribute("Paint") then
@@ -53,18 +43,56 @@ function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: C
 	cam.CFrame = CFrame.lookAt(cf.Position + dir * r * 3.6, cf.Position)
 	cam.Parent = vp
 	vp.CurrentCamera = cam
+	return m
+end
+
+-- The server builds the library after the town's meshes, while players are already in, and it
+-- takes a while to reach a phone: a picture asked for before then fills itself in once its model
+-- arrives (it stopped after a few minutes, or once the picture is gone).
+local function fillLater(vp: ViewportFrame, kind: string, id: string, paint: Color3?, theme: any?, ready: ((Model) -> ())?)
+	task.spawn(function()
+		local lib = ReplicatedStorage:WaitForChild("ModelLibrary", 600)
+		local folder = lib and lib:WaitForChild(kind, 60)
+		local src = folder and folder:WaitForChild(id, 600)
+		if not src or not vp.Parent or vp:FindFirstChildOfClass("Model") then
+			return
+		end
+		local m = fill(vp, src, paint, theme)
+		if ready then
+			ready(m)
+		end
+	end)
+end
+
+-- theme: a building's colour theme (cityLook.themeFor), to show it in the colours it wears in town.
+-- ready: runs with the model once it's in the picture (at once, or when the library brings it).
+function Thumb.new(kind: "Cars" | "Buildings", id: string, size: UDim2, paint: Color3?, theme: any?, ready: ((Model) -> ())?): ViewportFrame
+	local vp = Instance.new("ViewportFrame")
+	vp.Size = size
+	vp.BackgroundTransparency = 1
+	vp.Ambient = Color3.fromRGB(170, 175, 185)
+	vp.LightColor = Color3.new(1, 1, 1)
+	vp.LightDirection = Vector3.new(-1, -2, -1.2)
+	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
+	local folder = lib and lib:FindFirstChild(kind)
+	local src = folder and folder:FindFirstChild(id)
+	if not src then
+		fillLater(vp, kind, id, paint, theme, ready)
+		return vp
+	end
+	local m = fill(vp, src, paint, theme)
+	if ready then
+		ready(m)
+	end
 	return vp
 end
 
 -- A car in a whole paint job (its colour in its finish, and its stripes), its custom paint, the
 -- hat it wears, its mods, its trim and its skins.
 function Thumb.car(id: string, size: UDim2, job: Paint.Job, hat: any?, mods: { string }?, panels: any?, trim: any?, skin: string?, modSkin: any?): ViewportFrame
-	local vp = Thumb.new("Cars", id, size)
-	local m = vp:FindFirstChildOfClass("Model")
-	if m then
+	return Thumb.new("Cars", id, size, nil, nil, function(m)
 		Thumb.dress(m, id, job, hat, mods, panels, trim, skin, modSkin)
-	end
-	return vp
+	end)
 end
 
 -- Puts a whole look on a car model from the library: paint job, custom paint, trim, hat, mods and skins.

@@ -70,6 +70,10 @@ function Rave.start(remotes: Instance)
 			return false, "slow down"
 		end
 		lastPress[player.UserId] = t
+		return Rave.go(player)
+	end
+	-- A press by `player` (the DJ's button, or the admin panel's): on here, then in every server.
+	function Rave.go(player: Player): (boolean, string?)
 		local was = current()
 		local w, why = Rave.press(player, now())
 		if not w then

@@ -69,6 +69,14 @@ if process.env.PLACE then
 		assert(placed, `no room for {id}`)
 	end
 end
+-- TOWN_FILE=tools/emulate/showcase-town.json: the starter town's roads with that file's buildings
+-- (levels and merges, to compare with the web game's same layout).
+if process.env.TOWN_FILE then
+	local town = serde.decode("json", fs.readFile(process.env.TOWN_FILE))
+	towns:_with(1, function()
+		store.useGame.setState({ level = 60, buildings = town.buildings })
+	end)
+end
 -- A busy town: a job running, one done, some new buildings and a bought car.
 local save = towns:snapshot(1).save
 local folder = Instance.new("Folder")
@@ -110,7 +118,17 @@ if skyStep then
 		pcall(Builder.useLibrary, 1)
 	end
 	local Horizon = emu.require(game:GetService("StarterPlayer").StarterPlayerScripts.Client.Horizon)
-	Horizon.draw(Vector3.new(0, 0, 0), folder)
+	-- WORLD=1: the shared world's ground and roads (server/World) round the middle as well, and the
+	-- far land cut back past them as in the shared world.
+	if process.env.WORLD then
+		local World = emu.require(SSS.Server.World)
+		World.build(folder, roblox.Color3.fromHex("#8c9a43"))
+		local w = folder:FindFirstChild("World")
+		local reach = (w:GetAttribute("Rings") + 0.5) * w:GetAttribute("Pitch") + 600
+		Horizon.draw(Vector3.new(0, 0, 0), folder, reach)
+	else
+		Horizon.draw(Vector3.new(0, 0, 0), folder)
+	end
 	-- The turning rotors and the balloons, HORIZON_T seconds after they appeared.
 	local t = tonumber(process.env.HORIZON_T or "") or 0
 	Horizon.movers(Vector3.new(0, 0, 0), folder)(1 / 30, t)
@@ -270,6 +288,7 @@ make("RemoteFunction", "Race", remotes)
 make("RemoteFunction", "Crate", remotes)
 make("RemoteFunction", "Social", remotes)
 make("RemoteFunction", "Meshes", remotes)
+make("RemoteFunction", "WebLink", remotes)
 make("RemoteEvent", "Kart", remotes)
 remotes.Parent = RS
 -- The model library the server makes for shop pictures.
@@ -277,6 +296,7 @@ local Builder = emu.require(RS.Shared.Models.Builder)
 local data = emu.require(RS.Shared.Game.data)
 local lib = Instance.new("Folder")
 lib.Name = "ModelLibrary"
+lib:SetAttribute("Ready", true)
 for _, kind in { "Cars", "Buildings" } do
 	make("Folder", kind, lib)
 end

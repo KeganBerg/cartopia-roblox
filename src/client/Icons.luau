@@ -3,6 +3,9 @@
 -- same at any size: white glyphs on the coloured buttons, the coin and fuel can in full colour.
 -- Built once with the screen; nothing here runs per frame.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Pictures = require(ReplicatedStorage.Shared.Pictures)
+
 local Icons = {}
 
 local LINE = Color3.fromHex("#14213d")
@@ -174,6 +177,37 @@ DRAW.save = function(c)
 	part(c, 3, 18.2, 18, 2.8, 1)
 end
 
+-- Free camera: a house with an arrow sweeping round it (the web's orbit icon).
+DRAW.orbit = function(c)
+	part(c, 7.8, 8.8, 8.4, 6.2, 0.4)
+	-- The roof: a turned square, only its top half showing.
+	local roof = clip(c, 6, 4, 12, 4.9)
+	part(inClip(c, roof, 6, 4, 12, 4.9), 9.03, 6.03, 5.94, 5.94, 0.3, 45)
+	-- The sweep: the lower half of a flat ring round the house.
+	local sweep = clip(c, 0, 10.6, 24, 9)
+	local sub = inClip(c, sweep, 0, 10.6, 24, 9)
+	local ell = part(sub, 2, 9, 20, 9, 4.5)
+	ell.BackgroundTransparency = 1
+	local k = ell:FindFirstChildOfClass("UICorner")
+	if k then
+		k.CornerRadius = UDim.new(0.5, 0)
+	end
+	local s = Instance.new("UIStroke")
+	s.Thickness = 2.2 / 24 * c.size
+	s.Color = c.color
+	s.Parent = ell
+	-- Its arrow head, pointing on round: a turned square, only its right half showing.
+	local head = clip(c, 10.6, 14.8, 4.4, 6.4)
+	part(inClip(c, head, 10.6, 14.8, 4.4, 6.4), 8.6, 16, 4, 4, 0.2, 45)
+end
+
+-- Back to the bird's-eye view: town blocks seen from above (the web's birdseye icon).
+DRAW.birdseye = function(c)
+	for _, at in { { 12, 7 }, { 6.5, 12.5 }, { 17.5, 12.5 }, { 12, 18 } } do
+		part(c, at[1] - 3, at[2] - 3, 6, 6, 0.6, 45)
+	end
+end
+
 DRAW.bolt = function(c)
 	bar(c, 13.5, 2, 5.5, 12.5, 4.2)
 	part(c, 5, 10.8, 13, 3.6, 1)
@@ -331,6 +365,40 @@ function Icons.draw(name: string, parent: Instance, size: number, color: Color3?
 	end
 	holder.Parent = parent
 	return holder
+end
+
+-- A baked icon ("coin", "bucks", "parts", "fuel", "car" or "town"), size pixels square: vector
+-- art baked into one picture by tools/icons/build.mjs, so it stays smooth and centred at any size.
+-- Until that picture is uploaded, the coin is drawn with frames and the rest are emoji.
+local EMOJI = { bucks = "💎", parts = "⚙️", fuel = "⛽", car = "🚗", town = "🏙️" }
+function Icons.picture(kind: string, parent: Instance, size: number): GuiObject
+	local IconImages = require(ReplicatedStorage.Shared.IconImages) :: any
+	local at = IconImages.at[kind]
+	if IconImages.sheet ~= 0 and at then
+		local img = Instance.new("ImageLabel")
+		img.Name = "Icon"
+		img.BackgroundTransparency = 1
+		img.Size = UDim2.fromOffset(size, size)
+		img.ImageRectOffset = at
+		img.ImageRectSize = Vector2.new(IconImages.size, IconImages.size)
+		img.ResampleMode = Enum.ResamplerMode.Default
+		Pictures.set(img, "Image", IconImages.sheet)
+		-- For the previews (tools/emulate/render.mjs finds the sheet by this).
+		img:SetAttribute("Key", "icons:icons")
+		img.Parent = parent
+		return img
+	end
+	if kind == "coin" then
+		return Icons.draw("coin", parent, size)
+	end
+	local t = Instance.new("TextLabel")
+	t.Name = "Icon"
+	t.BackgroundTransparency = 1
+	t.Size = UDim2.fromOffset(size, size)
+	t.Text = EMOJI[kind] or ""
+	t.TextSize = math.floor(size * 0.8)
+	t.Parent = parent
+	return t
 end
 
 -- Recolours an icon drawn by Icons.draw (a tab turning on, a muted speaker): glyph parts only.

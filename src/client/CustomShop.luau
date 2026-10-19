@@ -17,6 +17,7 @@ local tuner = require(Game.tuner) :: any
 local Models = ReplicatedStorage.Shared.Models
 local Catalog = require(Models.Catalog)
 local Panels = require(Models.Panels)
+local ColourPicker = require(script.Parent.ColourPicker)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 
@@ -139,6 +140,7 @@ function CustomShop.draw(parent: Instance, ctx: any, car: any, panels: any, setP
 	end
 
 	local body = Ui.scroller({ Name = "CustomShop", Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = parent })
+	Ui.keepScroll(body, `custom:{car.uid}:{info.id}`)
 	Ui.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = body })
 
 	if changed then
@@ -190,6 +192,7 @@ function CustomShop.draw(parent: Instance, ctx: any, car: any, panels: any, setP
 		end
 		button.Name = "Go"
 		button.ZIndex = 3
+		Ui.sticky(bar, body)
 	end
 
 	-- The parts, each with a chip in its colour.
@@ -281,6 +284,22 @@ function CustomShop.draw(parent: Instance, ctx: any, car: any, panels: any, setP
 				Ui.text({ Name = "Lock", Text = "🔒", TextSize = 11, AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 6, 1, 6), Size = UDim2.fromOffset(14, 14), ZIndex = 3, Parent = d })
 			end
 		end
+		-- Custom Colour at the end of the row: any colour, once won.
+		local onChart = false
+		for _, p in data.PAINTS do
+			if mine and p.color == mine.color then
+				onChart = true
+			end
+		end
+		ColourPicker.draw(dots, #data.PAINTS + 1, body, 7, {
+			key = "custom",
+			color = if mine and mine.color then mine.color else colour(info.id),
+			custom = mine ~= nil and mine.color ~= nil and not onChart,
+			onPick = function(c: string)
+				pick({ color = c })
+			end,
+			ctx = ctx,
+		})
 	end
 	Ui.new("Frame", { LayoutOrder = 9, Size = UDim2.new(1, 0, 0, 6), BackgroundTransparency = 1, Parent = body })
 end

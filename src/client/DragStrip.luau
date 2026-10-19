@@ -21,6 +21,7 @@ local Trim = require(ReplicatedStorage.Shared.Models.Trim)
 local Skins = require(ReplicatedStorage.Shared.Models.Skins)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Snapshot = require(script.Parent.Snapshot)
 local Mastery = require(script.Parent.Mastery)
 local TownCamera = require(script.Parent.TownCamera)
 local DayNight = require(script.Parent.DayNight)
@@ -45,6 +46,39 @@ local ORIGIN = Vector3.new(-30000, 0, 0) -- far from every town and its countrys
 local FALLBACK = { "pizza", "donut", "burger", "diner", "house", "motel", "carwash", "tires", "gas", "bowling", "icecream", "house" }
 
 local LIT = { "#ff1744", "#ff1744", "#ffab00" } -- the countdown's lamps, lit
+
+-- The views the 🎥 button (or C) steps through during a race (scene/raceCam.ts DRAG_VIEWS), the
+-- pick kept for the next race. The chase is the race's own camera.
+local VIEWS = { "chase", "far", "bumper", "tv" }
+local VIEW_NAME = { chase = "Chase", far = "Wide", bumper = "Bumper", tv = "TV" }
+local VIEW_GLIDE = 0.45 -- seconds to ease from one view to the next
+local dragView = "chase"
+
+-- Where a picked view other than the chase puts the camera (raceCam.ts dragViewCam), in studs from
+-- the strip's origin: me at (x, z), the rival at (rx, rz), `nose` from my car's centre to its
+-- bumper. Returns the camera, where it looks, and the extra field of view.
+local function viewCam(v: string, x: number, z: number, rx: number, rz: number, nose: number, tall: boolean): (Vector3, Vector3, number)
+	if v == "far" then
+		-- High and well back over the middle of the road: both cars, both lanes and the street ahead.
+		-- A rival falling far behind drops out of the frame rather than dragging the camera back.
+		local lo = math.max(math.min(z, rz), z - 2.5 * S)
+		local hi = math.min(math.max(z, rz), z + 5 * S)
+		return Vector3.new(0, (if tall then 4.4 else 3.2) * S, lo - (if tall then 8.6 else 6.5) * S), Vector3.new(0, 0.2 * S, hi + (if tall then 4 else 1.2) * S), if tall then 0 else -2
+	elseif v == "bumper" then
+		-- Just off the front bumper at headlight height, looking down the lane.
+		return Vector3.new(x, 0.3 * S, z + nose + 0.06 * S), Vector3.new(x * 0.85, 0.26 * S, z + nose + 12 * S), 6
+	end
+	-- TV: a broadcast camera up over the kerb on my side, panning with the pair a little ahead of them.
+	local mid = (z + rz) / 2
+	local spread = math.min(6 * S, math.abs(z - rz))
+	return Vector3.new(ROAD + (if tall then 0.85 else 1.2) * S, (if tall then 3.1 else 2.4) * S, mid + (if tall then 4.4 else 4) * S + spread * 0.3),
+		Vector3.new((x + rx) / 2, 0.25 * S, mid - 0.4 * S),
+		if tall then -6 else -12
+end
+
+local function ease(t: number): number
+	return if t <= 0 then 0 elseif t >= 1 then 1 else t * t * (3 - 2 * t)
+end
 
 local strip: Model? = nil
 local horizon: Model? = nil
@@ -89,15 +123,14 @@ local function library(kind: string, id: string): Model?
 	return m
 end
 
--- Main Street's shops on their paving, facing the road, with a tree or palm in the gap after each
--- (RaceScene useStreet and StreetShops streetPieces).
--- len: the strip's length in web units.
-local function mainStreet(into: Model, len: number)
+-- Main Street's shop slots along both kerbs, to `untilZ` web units: where each sits, which
+-- side and which shop (RaceScene useStreet).
+function DragStrip.streetSlots(untilZ: number): { { z: number, side: number, def: string } }
 	local slots = {}
 	for _, side in { -1, 1 } do
 		local z = -10 + (if side > 0 then 1.5 else 0)
 		local i = if side > 0 then 3 else 0
-		while z < (DRESS / S + len) + 30 do
+		while z < untilZ do
 			local def = FALLBACK[i % #FALLBACK + 1]
 			i += 1
 			local w = data.buildingDef(def).w * data.TILE
@@ -105,24 +138,38 @@ local function mainStreet(into: Model, len: number)
 			z += w + 1.4
 		end
 	end
-	for i, sl in slots do
+	return slots
+end
+
+-- Main Street's shops on their paving, facing the road, with a tree or palm in the gap after each
+-- (RaceScene useStreet and StreetShops streetPieces). Each slot is its own model with its place
+-- along the street (web units) as its Z attribute.
+-- len: the strip's length in web units; origin: where the street starts (the strip's own).
+local function mainStreet(into: Model, len: number, origin: Vector3?)
+	local o = origin or ORIGIN
+	for i, sl in DragStrip.streetSlots((DRESS / S + len) + 30) do
 		local d = data.buildingDef(sl.def)
 		local depth = d.h * data.TILE
 		local turn = if sl.side < 0 then math.pi / 2 else -math.pi / 2
-		local at = CFrame.new(ORIGIN + Vector3.new(sl.side * (1.6 + 1.0 + depth / 2 + 0.1), 0, sl.z) * S) * CFrame.Angles(0, turn, 0)
-		part({ Name = "Paving", Size = Vector3.new(d.w * data.TILE - 0.1, 0.05, depth - 0.1) * S, CFrame = at * CFrame.new(0, 0.2, 0), Color = hex("#eadfc8"), Material = Enum.Material.Pavement }, into)
+		local slot = Instance.new("Model")
+		slot.Name = "Slot"
+		slot:SetAttribute("Z", sl.z)
+		local at = CFrame.new(o + Vector3.new(sl.side * (1.6 + 1.0 + depth / 2 + 0.1), 0, sl.z) * S) * CFrame.Angles(0, turn, 0)
+		part({ Name = "Paving", Size = Vector3.new(d.w * data.TILE - 0.1, 0.05, depth - 0.1) * S, CFrame = at * CFrame.new(0, 0.2, 0), Color = hex("#eadfc8"), Material = Enum.Material.Pavement }, slot)
 		local b = library("Buildings", sl.def)
 		if b then
 			b:PivotTo(at)
-			b.Parent = into
+			b.Parent = slot
 		end
 		local tree = library("Buildings", if (i - 1) % 3 ~= 0 then "tree" else "palm")
 		if tree then
-			tree:PivotTo(CFrame.new(ORIGIN + Vector3.new(sl.side * (1.6 + 1.0 + 0.9), 0, sl.z + d.w + 0.7) * S))
-			tree.Parent = into
+			tree:PivotTo(CFrame.new(o + Vector3.new(sl.side * (1.6 + 1.0 + 0.9), 0, sl.z + d.w + 0.7) * S))
+			tree.Parent = slot
 		end
+		slot.Parent = into
 	end
 end
+DragStrip.mainStreet = mainStreet
 
 -- The countdown bar hanging under the START banner (RaceScene StartLights): three lamps, the reds
 -- coming on with the count and all green at GO. Returns the bar and its lamps, left to right as the
@@ -152,7 +199,8 @@ end
 -- the longer one races on the quarter mile's street, the finish line just isn't drawn.
 local function buildStrip(venueId: string, dist: string?): (Model, Model?)
 	local long = if dist and dist ~= "quarter" and Builder.has(`race:{venueId}:{dist}`) then dist else nil
-	local key = `{venueId}:{long or "quarter"}`
+	-- (Built again once the venue's full-detail meshes have come in since, Builder.sharpenRaces.)
+	local key = `{venueId}:{long or "quarter"}:{Builder.meshVersion}`
 	if strip and stripKey == key then
 		return strip, horizon
 	end
@@ -182,8 +230,33 @@ local function buildStrip(venueId: string, dist: string?): (Model, Model?)
 	return m, far
 end
 
--- A car on the strip, with its boost flame and wheelspin smoke.
-local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any, x: number, parent: Instance): (Model, BasePart, ParticleEmitter)
+-- The boost's glowing ribbon on the road behind a car (RaceScene's BoostTrail, BOOST_TRAIL): pale
+-- gold at the car, burning to orange and fading out over 0.4 s, 0.55 units across.
+local TRAIL_WIDTH = 0.55 * S
+local function boostTrail(parent: Instance): (BasePart, Trail)
+	local at = part({ Name = "BoostTrail", Size = Vector3.new(1, 1, 1), Transparency = 1 }, parent)
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(-TRAIL_WIDTH / 2, 0, 0)
+	a0.Parent = at
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(TRAIL_WIDTH / 2, 0, 0)
+	a1.Parent = at
+	local trail = Instance.new("Trail")
+	trail.Attachment0, trail.Attachment1 = a0, a1
+	trail.Color = ColorSequence.new(hex("#ffe082"), hex("#ff3d00"))
+	trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(1, 1) })
+	trail.Lifetime = 0.4
+	trail.LightEmission = 1
+	trail.LightInfluence = 0
+	trail.FaceCamera = false
+	trail.Enabled = false
+	trail.Parent = at
+	return at, trail
+end
+
+-- A car dressed as its owner has it (paint, panels, trim, hat, mods, skins), drawn 1.4 times its
+-- town size as RaceScene draws racers, at the origin facing up the strip.
+function DragStrip.carModel(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any): Model
 	local m = library("Cars", model) or Instance.new("Model")
 	Paint.apply(m, job, library("Stripes", model))
 	Panels.apply(m, model, panels, job.finish, Builder.build)
@@ -200,8 +273,16 @@ local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string 
 			d.CFrame = pivot * (rel - rel.Position + rel.Position * CAR_SCALE)
 		end
 	end
+	return m
+end
+
+-- A car on the strip, with its boost trail and wheelspin smoke.
+-- Returns the car, its trail's part and trail, its smoke, and how far its back bumper sits
+-- behind its pivot (studs).
+local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any, x: number, parent: Instance): (Model, BasePart, Trail, ParticleEmitter, number)
+	local m = DragStrip.carModel(model, job, hat, mods, panels, trim, skin, modSkin)
 	m.Parent = parent
-	local flame = part({ Name = "Flame", Size = Vector3.new(2.2, 1.2, 4), Color = hex("#ff9100"), Material = Enum.Material.Neon, Transparency = 1 }, parent)
+	local flame, trail = boostTrail(parent)
 	local smokeAt = part({ Name = "Smoke", Size = Vector3.new(1, 1, 1), Transparency = 1 }, parent)
 	local smoke = Instance.new("ParticleEmitter")
 	smoke.Texture = "rbxasset://textures/particles/smoke_main.dds"
@@ -217,7 +298,12 @@ local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string 
 	smoke.Parent = smokeAt
 	m:PivotTo(CFrame.new(ORIGIN + Vector3.new(x, 0, 0)))
 	m:SetAttribute("X", x)
-	return m, flame, smoke
+	local back = 8 * CAR_SCALE
+	if #m:GetChildren() > 0 then
+		local box, size = m:GetBoundingBox()
+		back = math.max(0, ORIGIN.Z - (box.Position.Z - size.Z / 2))
+	end
+	return m, flame, trail, smoke, back
 end
 
 local function money(n: number): string
@@ -238,6 +324,17 @@ export type Extras = {
 	heading: ((res: any) -> string?)?,
 	quote: ((res: any) -> string?)?,
 	buttons: ((res: any) -> { Button }?)?,
+	live: Live?,
+}
+
+-- A live race against another player (client/Popups/Duel): their car is drawn from where their
+-- game says it is, not raced here, and the result waits for their finish.
+-- send: passes where my car is on to them; them: where theirs was last heard of ({ dist, speed,
+-- burning, done, at = os.clock() when heard }), kept up to date by the caller; leave: the X.
+export type Live = {
+	send: (payload: any) -> (),
+	them: { dist: number, speed: number, burning: boolean, done: boolean, at: number },
+	leave: () -> (),
 }
 
 -- Opens the race. started: what Remote.race("start") answered ({ spec, rival, mode, venue });
@@ -245,7 +342,12 @@ export type Extras = {
 function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extras: Extras?)
 	local spec, rival, venue = started.spec, started.rival, started.venue or {}
 	local ex: Extras = extras or {}
+	local live = ex.live
 	local r = DragRace.new(spec)
+	-- The race is over for this screen: both across the line, or in a live race, me.
+	local function over(): boolean
+		return r.done or (live ~= nil and r.me.finished ~= nil)
+	end
 	local len = spec.track * STUDS_PER_M
 	local look = venues.venue(venue.id or "main")
 	local world, far = buildStrip(look.id, venue.dist)
@@ -254,8 +356,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local carsFolder = Instance.new("Folder")
 	carsFolder.Name = "RaceCars"
 	carsFolder.Parent = world
-	local meModel, meFlame, meSmoke = placeCar(car.model, Paint.jobOf(car), car.hat, car.mods, car.panels, car.trim, car.skin, car.modSkin, LANE, carsFolder)
-	local themModel, themFlame, themSmoke = placeCar(rival.model, { color = rival.color }, nil, rival.mods, rival.panels, rival.trim, rival.skin, rival.modSkin, -LANE, carsFolder)
+	local meModel, meFlame, meTrail, meSmoke, meBack = placeCar(car.model, Paint.jobOf(car), car.hat, car.mods, car.panels, car.trim, car.skin, car.modSkin, LANE, carsFolder)
+	local themModel, themFlame, themTrail, themSmoke, themBack = placeCar(rival.model, { color = rival.color }, nil, rival.mods, rival.panels, rival.trim, rival.skin, rival.modSkin, -LANE, carsFolder)
 	if spec.ghost then
 		-- A solo run's ghost: see-through, as the web's trial ghost.
 		for _, d in themModel:GetDescendants() do
@@ -322,11 +424,33 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local title = ex.title or `Drag Race vs {rival.name}`
 	Ui.text({ Text = title, TextSize = 26, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), Size = UDim2.new(1, -200, 0, 34), Stroke = 2.5, Shadow = 3, Parent = screen })
 	local quit = Ui.closeButton({ Name = "Leave", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14), Size = UDim2.fromOffset(44, 44), Parent = screen }, function()
-		if r.done then
+		if over() then
 			return
+		end
+		if live then
+			live.leave()
 		end
 		close()
 	end)
+
+	-- The camera button (CamButton.tsx): a tap (or C) steps to the next view, and its name flashes up.
+	local camBtn = Ui.new("TextButton", { Name = "Camera", Text = "🎥", TextSize = 20, AutoButtonColor = false, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -70, 0, 16), Size = UDim2.fromOffset(40, 40), BackgroundColor3 = Color3.fromHex("#102038"), BackgroundTransparency = 0.28, TextColor3 = Ui.WHITE, Parent = screen }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
+	local camFlash = Ui.new("Frame", { Name = "CameraName", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 64), Size = UDim2.fromOffset(130, 30), BackgroundColor3 = Color3.fromHex("#102038"), BackgroundTransparency = 0.18, Visible = false, Parent = screen }, { Ui.corner(15) })
+	local camFlashText = Ui.text({ Text = "", TextSize = 16, Size = UDim2.fromScale(1, 1), Parent = camFlash })
+	local flashToken = 0
+	local function stepView()
+		dragView = VIEWS[(table.find(VIEWS, dragView) or 1) % #VIEWS + 1]
+		Ui.setText(camFlashText, `🎥 {VIEW_NAME[dragView]}`)
+		camFlash.Visible = true
+		flashToken += 1
+		local mine = flashToken
+		task.delay(1.2, function()
+			if flashToken == mine then
+				camFlash.Visible = false
+			end
+		end)
+	end
+	camBtn.Activated:Connect(stepView)
 
 	-- ── The lanes: how far along each car is ───────────────────────────────────────────────────
 	local lanes = Ui.new("Frame", { Name = "Lanes", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 58), Size = UDim2.fromOffset(520, 64), BackgroundTransparency = 1, Visible = false, Parent = screen }, {
@@ -354,9 +478,9 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	-- Each car's skill, flashed while it is working (Race.tsx skill-flash); the rival's takes the
 	-- place of its boost note.
 	local mySkill = spec.mySkill and data.SKILLS[spec.mySkill]
-	local theirSkill = rival.skill and data.SKILLS[rival.skill]
+	local theirSkill = if live then nil else rival.skill and data.SKILLS[rival.skill]
 	local skillNote = Ui.text({ Text = if mySkill then `{mySkill.icon} {mySkill.name}!` else "", TextSize = 24, AnchorPoint = Vector2.new(0, 0), Position = UDim2.new(0, 20, 0, 70), Size = UDim2.fromOffset(320, 30), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromHex("#ffe082"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
-	local theirNote = Ui.text({ Text = `{rival.name}: 🔥 Boost!`, TextSize = 20, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 70), Size = UDim2.fromOffset(320, 28), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromHex("#ffab91"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
+	local theirNote = Ui.text({ Text = `{rival.name}: 🔥 Boost!`, TextSize = 20, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 102), Size = UDim2.fromOffset(320, 28), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromHex("#ffab91"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
 
 	-- ── Bottom: BOOST under the left thumb, the tach in the middle, SHIFT under the right ─────
 	local bottom = Ui.new("Frame", { Name = "Controls", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(1, -40, 0, 190), BackgroundTransparency = 1, Parent = screen })
@@ -456,6 +580,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			pressDown()
 		elseif input.KeyCode == Enum.KeyCode.B or input.KeyCode == Enum.KeyCode.Up or input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 			fireBoost()
+		elseif input.KeyCode == Enum.KeyCode.C then
+			stepView()
 		end
 	end))
 
@@ -470,6 +596,10 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		local overlay = Ui.new("Frame", { Name = "Result", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0a1630"), BackgroundTransparency = 0.45, ZIndex = 45, Parent = screen })
 		local shadow, card = Ui.shadowed({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(420, 470), Parent = overlay }, { radius = 24, stroke = 4, drop = 8, color = Ui.SHEET })
 		local _ = shadow
+		-- A won race's postcard (the web's SnapshotButton).
+		if won then
+			Snapshot.button(card, overlay, screen, `🏆 Beat {rival.name}`)
+		end
 		local function line(text: string, y: number, size: number, color: Color3?, props: { [string]: any }?)
 			local p: { [string]: any } = { Text = text, TextSize = size, Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 0, size + 6), TextColor3 = color or Ui.INK, Parent = card }
 			for k, v in (props or {}) :: { [string]: any } do
@@ -584,6 +714,12 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local sentFinish = false
 	local runOut = { { z = 0, v = 0 }, { z = 0, v = 0 } } -- each car past the line, coasting to a stop
 	local camPos: Vector3? = nil
+	local chasePos: Vector3? = nil
+	local lastAt: Vector3? = nil
+	local shownView = dragView
+	local glide: { pos: Vector3, at: Vector3, fov: number, t: number }? = nil
+	-- From my car's centre to its front bumper, as the views frame it.
+	local nose = meModel:GetExtentsSize().Z / 2
 	local band = { lo = 0, hi = 0 }
 	local bandKey = ""
 	local lastCall: number = -1
@@ -597,8 +733,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		end
 		return ro.z
 	end
-	local function coast(dt: number)
-		for i, racer in { r.me, r.them } do
+	local function coast(dt: number, th: any)
+		for i, racer in { r.me, th } do
 			local ro = runOut[i]
 			if racer.finished ~= nil and ro.z < len + RUN_OUT then
 				local left = math.max(1, len + RUN_OUT * 0.92 - ro.z)
@@ -607,6 +743,17 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			end
 		end
 	end
+
+	-- A live rival where their game last said, carried on at their speed for a moment.
+	local function liveThem(): any
+		local l = (live :: Live).them
+		local ahead = if l.done then 0 else math.min(0.3, os.clock() - l.at) * l.speed
+		local dist = math.min(spec.track, l.dist + ahead)
+		return { dist = dist, speed = l.speed, burning = l.burning, launched = dist > 0, finished = if l.done then 0 else nil }
+	end
+	local sendAcc = 0
+	local sentDone = false
+	local finishNote = "" -- under the race while the server checks it
 
 	local function frame(dt: number)
 		if wait > 0 then
@@ -619,15 +766,25 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 				acc -= DragRace.DT
 			end
 		end
-		coast(dt)
-		local me, th = r.me, r.them
+		local me, th = r.me, if live then liveThem() else r.them
+		coast(dt, th)
+		-- Where my car is, for the other racer's screen, ten times a second.
+		if live and counting and not sentDone then
+			sendAcc += dt
+			if sendAcc >= 0.1 or me.finished ~= nil then
+				sendAcc = 0
+				sentDone = me.finished ~= nil
+				live.send({ t = DragRace.time(r), dist = me.dist, speed = me.speed, burning = me.burning == true, done = sentDone })
+			end
+		end
 		local mz, tz = carZ(1, me), carZ(2, th)
 		meModel:PivotTo(CFrame.new(ORIGIN + Vector3.new(LANE, 0, mz)))
 		themModel:PivotTo(CFrame.new(ORIGIN + Vector3.new(-LANE, 0, tz)))
-		meFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 1.6 * CAR_SCALE, mz - 12 * CAR_SCALE))
-		meFlame.Transparency = if me.burning then 0.15 else 1
-		themFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 1.6 * CAR_SCALE, tz - 12 * CAR_SCALE))
-		themFlame.Transparency = if th.burning then 0.15 else 1
+		-- The trails ride just over the road at each car's back bumper.
+		meFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 0.5, mz - meBack))
+		meTrail.Enabled = me.burning == true
+		themFlame.CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 0.5, tz - themBack))
+		themTrail.Enabled = th.burning == true
 		;(meSmoke.Parent :: BasePart).CFrame = CFrame.new(ORIGIN + Vector3.new(LANE, 0.6, mz - 9 * CAR_SCALE))
 		;(themSmoke.Parent :: BasePart).CFrame = CFrame.new(ORIGIN + Vector3.new(-LANE, 0.6, tz - 9 * CAR_SCALE))
 		local t = DragRace.time(r)
@@ -637,10 +794,40 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		-- The chase camera, off my rear bumper (RaceScene's chase view).
 		local pace = math.min(1, me.speed / 80)
 		local lead = math.max(mz, tz)
+		-- It is tracked every frame, even under a picked view, so the view can hand back to it.
 		local want = ORIGIN + Vector3.new(LANE * 0.5, 22, mz - 42 - pace * 8)
+		chasePos = if chasePos then chasePos:Lerp(want, math.min(1, dt * 8)) else want
+		local pos = chasePos :: Vector3
 		local look = ORIGIN + Vector3.new(LANE * 0.3, 3, math.min(mz + 30 + (lead - mz) * 0.3, len + RUN_OUT + 40))
-		camPos = if camPos then camPos:Lerp(want, math.min(1, dt * 8)) else want
-		cam.CFrame = CFrame.lookAt(camPos :: Vector3, look)
+		local fov = 55
+		-- The view picked by the 🎥 button (raceCam.ts dragViewCam).
+		if dragView ~= "chase" then
+			local vp = cam.ViewportSize
+			local p, a, extra = viewCam(dragView, LANE, mz, -LANE, tz, nose, vp.Y > vp.X)
+			pos, look, fov = ORIGIN + p, ORIGIN + a, 55 + extra
+		end
+		-- A change of view glides over from where the camera was, carried along with the car.
+		local carAt = Vector3.new(0, 0, mz)
+		if dragView ~= shownView then
+			shownView = dragView
+			if camPos and lastAt then
+				glide = { pos = camPos - carAt, at = lastAt - carAt, fov = cam.FieldOfView, t = 0 }
+			end
+		end
+		local g = glide
+		if g then
+			g.t += dt
+			local w = ease(g.t / VIEW_GLIDE)
+			pos = (g.pos + carAt):Lerp(pos, w)
+			look = (g.at + carAt):Lerp(look, w)
+			fov = g.fov + (fov - g.fov) * w
+			if w >= 1 then
+				glide = nil
+			end
+		end
+		camPos, lastAt = pos, look
+		cam.FieldOfView = fov
+		cam.CFrame = CFrame.lookAt(pos, look)
 
 		-- The far hills and skyline ride along with the camera (RaceVenues Horizon).
 		if far then
@@ -687,7 +874,10 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		if me.finished == nil and not (not onLine and me.gear >= race.TOP_GEAR) then
 			light = if rpm >= b.lo and rpm <= b.hi then "now" elseif rpm > b.hi then "late" elseif rpm >= b.lo - 0.12 then "soon" else ""
 		end
-		Ui.setText(hint, if onLine and counting and n > 0 then (if r.held then (if light == "now" then "Hold it there!" elseif light == "late" then "Too many revs!" else "Revving...") else "Hold the pedal: revs in the green") else "")
+		if live and sentFinish and finishNote ~= "" then
+			finishNote = if th.finished == nil then `Waiting for {rival.name} to finish...` else "Checking the result..."
+		end
+		Ui.setText(hint, if sentFinish then finishNote elseif onLine and counting and n > 0 then (if r.held then (if light == "now" then "Hold it there!" elseif light == "late" then "Too many revs!" else "Revving...") else "Hold the pedal: revs in the green") else "")
 		if r.call and r.callTick ~= lastCall then
 			lastCall = r.callTick
 			Ui.setText(callLabel, r.call)
@@ -698,8 +888,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		spinNote.Visible = r.spin and callLabel.Text == ""
 		local theirsOn = theirSkill ~= nil and r.theirSkillOn
 		Ui.setText(theirNote, if theirsOn then `{rival.name}: {theirSkill.icon} {theirSkill.name}!` else `{rival.name}: 🔥 Boost!`)
-		theirNote.Visible = not r.done and (theirsOn or th.burning)
-		skillNote.Visible = mySkill ~= nil and r.mySkillOn and not r.done
+		theirNote.Visible = not over() and (theirsOn or th.burning)
+		skillNote.Visible = mySkill ~= nil and r.mySkillOn and not over()
 		Ui.setText(speed, `{race.kmh(me.speed)} km/h`)
 		Ui.setText(gearText, `GEAR {me.gear + 1}`)
 		needle.Rotation = -210 + math.min(1.05, rpm) * 240
@@ -730,17 +920,19 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		boostBtn.BackgroundTransparency = if spent then 0.5 else 0.15
 
 		-- Both across the line: the server races it again from the presses and pays it.
-		if r.done and not sentFinish then
+		if over() and not sentFinish then
 			sentFinish = true
 			bottom.Visible = false
 			quit.Visible = false
-			Ui.setText(hint, "Checking the result...")
+			finishNote = "Checking the result..."
+			Ui.setText(hint, finishNote)
 			task.spawn(function()
 				task.wait(1.2)
 				local ok, res = Remote.race("finish", r.events, true)
 				if closed then
 					return
 				end
+				finishNote = ""
 				Ui.setText(hint, "")
 				if ok then
 					showResult(res)

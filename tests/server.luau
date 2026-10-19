@@ -344,4 +344,64 @@ return function(test)
 		expectEq(b.ui.graphics, "saver", "settings kept through a sound change")
 		expectEq(b.ui.tips[1], "gems", "tips kept")
 	end)
+	test("towns: track skins go on a tank by level, and only on a tank", function()
+		expectEq(Towns.check("skinTracks", { "c1", "magma" }, 2), true, "skinTracks")
+		expectEq(Towns.check("skinTracks", { "c1", nil }, 2), true, "skinTracks off")
+		towns:open(8, nil)
+		towns:_with(8, function()
+			local s = store.useGame.getState()
+			local cars = table.clone(s.cars)
+			local base = cars[1] or { upgrades = {}, mods = {} }
+			local tank = table.clone(base)
+			tank.uid, tank.model, tank.color = "tank1", "tomahawk", "#556b2f"
+			local pip = table.clone(base)
+			pip.uid, pip.model = "pip1", "pip"
+			table.insert(cars, tank)
+			table.insert(cars, pip)
+			store.useGame.setState({ cars = cars, level = 40 })
+		end)
+		local function tracks(uid: string): any
+			for _, c in towns:save(8).cars do
+				if c.uid == uid then
+					return c.modSkin and c.modSkin.tracks
+				end
+			end
+			return nil
+		end
+		expectEq(towns:run(8, "skinTracks", "tank1", "magma"), false, "Magma opens at level 44")
+		expectEq(towns:run(8, "skinTracks", "tank1", "hazard"), true, "Hazard is open at level 40")
+		expectEq(tracks("tank1"), "hazard", "the tank wears Hazard")
+		expectEq(towns:run(8, "skinTracks", "pip1", "hazard"), false, "a car with wheels takes none")
+		expectEq(towns:run(8, "skinTracks", "tank1", nil), true, "taken off")
+		expectEq(tracks("tank1"), nil, "plain tracks again")
+	end)
+
+	test("towns: any colour paints once Custom Colour is won", function()
+		towns:open(9, nil)
+		towns:_with(9, function()
+			local s = store.useGame.getState()
+			local cars = table.clone(s.cars)
+			local base = cars[1] or { upgrades = {}, mods = {} }
+			local car = table.clone(base)
+			car.uid, car.model, car.color = "pip9", "pip", "#c62828"
+			table.insert(cars, car)
+			store.useGame.setState({ cars = cars, coins = 1e6 })
+		end)
+		local job = { color = "#12ab34", finish = "gloss", stripe = false }
+		expectEq(towns:run(9, "paintCar", "pip9", job), false, "off the chart before it's won")
+		towns:_with(9, function()
+			local s = store.useGame.getState()
+			local skins = table.clone(s.skins or {})
+			table.insert(skins, "custompaint")
+			store.useGame.setState({ skins = skins })
+		end)
+		expectEq(towns:run(9, "paintCar", "pip9", job), true, "any colour once won")
+		local color
+		for _, c in towns:save(9).cars do
+			if c.uid == "pip9" then
+				color = c.color
+			end
+		end
+		expectEq(color, "#12ab34", "the car wears it")
+	end)
 end

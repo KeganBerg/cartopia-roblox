@@ -17,6 +17,7 @@ local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 local Icons = require(script.Parent.Icons)
 local Bank = require(script.Parent.Bank)
+local Confirm = require(script.Parent.Confirm)
 local Mixer = require(script.Parent.Sounds.Mixer)
 local Sfx = require(script.Parent.Sounds.Sfx)
 local Prefs = require(script.Parent.Prefs)
@@ -424,7 +425,64 @@ local GRAPHICS = {
 
 local TOUCH = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 
-local function settingsTab(list: Instance, redraw: () -> ()): number
+-- Brings the player's web town over (server/WebLink) with the code from the web game's Settings,
+-- Play on Roblox. Only what was earned by playing comes over; packs paid for on the web stay there.
+local function webTownGroup(ctx: any, list: Instance, order: number): Frame
+	local g, row = group(list, order, "🌐", "Web town")
+	local r = row(100)
+	label(r, "Bring your web town", "Already play on the web? Type its code here")
+	local field = Ui.new("Frame", { Size = UDim2.new(1, -126, 0, 40), Position = UDim2.fromOffset(12, 50), BackgroundColor3 = Ui.WHITE, Parent = r }, {
+		Ui.corner(10),
+		Ui.stroke(2, Color3.fromHex("#cfd8dc")),
+	})
+	local box = Ui.new("TextBox", {
+		Name = "WebCode",
+		Text = "",
+		PlaceholderText = "Code, like ABCD2345",
+		ClearTextOnFocus = false,
+		FontFace = Ui.BODY,
+		TextSize = 18,
+		TextColor3 = Ui.INK,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(1, -24, 1, 0),
+		Parent = field,
+	}) :: TextBox
+	local busy = false
+	Ui.buy({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 52), Size = UDim2.fromOffset(96, 36), Parent = r }, "Link", "green", function()
+		local code = box.Text
+		if busy or not code:match("%w") then
+			return
+		end
+		Confirm.ask(ctx.gui, {
+			pref = "askLink",
+			icon = "🌐",
+			title = "Swap in your web town?",
+			ok = "Swap",
+			z = 41,
+			body = function(b)
+				Ui.text({ Text = "Your web town replaces this one. Paid web packs stay on the web.", Body = true, TextSize = 14, TextWrapped = true, TextColor3 = Ui.INK, ZIndex = 41, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 1, 0), Parent = b })
+			end,
+			onOk = function()
+				busy = true
+				task.spawn(function()
+					local ok, why = Remote.webLink(code)
+					busy = false
+					if ok then
+						box.Text = ""
+						ctx.toast("Your web town is here!")
+					else
+						ctx.toast(why or "That didn't work. Try again.")
+					end
+				end)
+			end,
+		})
+	end, 16)
+	return g
+end
+
+local function settingsTab(ctx: any, list: Instance, redraw: () -> ()): number
 	local sound = SoundService:FindFirstChild("Cartopia") :: SoundGroup?
 	local prefs = Prefs.get()
 	local g1, row1 = group(list, 1, "🔊", "Sound")
@@ -483,8 +541,9 @@ local function settingsTab(list: Instance, redraw: () -> ()): number
 	switch(r, prefs.askSell, function(on)
 		Prefs.set({ askSell = on })
 	end)
+	local g6 = webTownGroup(ctx, list, 6)
 	local h = 0
-	for _, g in { g1, g2, g3, g4, g5 } do
+	for _, g in { g1, g2, g3, g4, g5, g6 } do
 		h += g.Size.Y.Offset + GAP
 	end
 	return h
@@ -567,7 +626,7 @@ function Menu.open(ctx: any): Instance
 	local function show()
 		clear(list)
 		local s = store.useGame.getState()
-		local h = if tab == "town" then townTab(ctx, list, s) elseif tab == "settings" then settingsTab(list, show) elseif tab == "account" then accountTab(list) else helpTab(ctx, list)
+		local h = if tab == "town" then townTab(ctx, list, s) elseif tab == "settings" then settingsTab(ctx, list, show) elseif tab == "account" then accountTab(list) else helpTab(ctx, list)
 		limit.MaxSize = Vector2.new(W, 61 + 64 + h + 22)
 	end
 	Ui.tabs(body, TABS, tab, function(id)

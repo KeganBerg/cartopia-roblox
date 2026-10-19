@@ -1,0 +1,1023 @@
+--!strict
+-- The Social menu's Crew tab, as the web game's crew screens (ui/Social.tsx): without a crew, the
+-- crews to join (search by name or tag) and "Start a crew" ($2,000 and a Crew House); in one, the
+-- crew's banner, its drivers by rank, join requests and settings for its Leader and Co-Leaders,
+-- and Leave (server/Crews).
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
+local data = require(Game.data) :: any
+local store = require(Game.store) :: any
+local Ui = require(script.Parent.Parent.Ui)
+local Remote = require(script.Parent.Parent.Remote)
+local RaceMenu = require(script.Parent.Parent.RaceMenu)
+local Thumb = require(script.Parent.Parent.Thumb)
+
+local Crew = {}
+
+local RANKS = {
+	leader = { icon = "👑", label = "Leader", order = 0 },
+	co_leader = { icon = "🎖️", label = "Co-Leader", order = 1 },
+	member = { icon = "🛡️", label = "Member", order = 2 },
+}
+local MODES = {
+	{ id = "open", icon = "🔓", label = "Open" },
+	{ id = "request", icon = "✋", label = "Request" },
+	{ id = "closed", icon = "🔒", label = "Closed" },
+}
+local MODE_ICON = { open = "🔓", request = "✋", closed = "🔒" }
+
+local function hex(h: string): Color3
+	local ok, c = pcall(Color3.fromHex, h)
+	return if ok then c else Color3.fromHex("#ff7043")
+end
+
+local function money(n: number): string
+	return `${Ui.commas(n)}`
+end
+
+-- The crew's badge: its emblem on a circle of its colour.
+function Crew.crest(parent: Instance, c: any, size: number, pos: UDim2?): Frame
+	local f = Ui.new("Frame", { Name = "Crest", Position = pos or UDim2.new(), Size = UDim2.fromOffset(size, size), BackgroundColor3 = hex(c.color or "#ff7043"), Parent = parent }, {
+		Ui.round(),
+		Ui.stroke(2, Ui.WHITE),
+	})
+	Ui.text({ Text = c.emblem or "🏁", TextSize = math.floor(size * 0.55), Size = UDim2.fromScale(1, 1), Parent = f })
+	return f
+end
+
+-- The emblem and tag on a pill of the crew's colour (web ClanTag), for names elsewhere.
+function Crew.tag(parent: Instance, c: any, props: { [string]: any }?): Frame
+	local text = `{c.emblem or "🏁"} {c.tag or "??"}`
+	local p: { [string]: any } = { Name = "CrewTag", Size = UDim2.fromOffset(math.ceil(Ui.textWidth(text, 13)) + 14, 20), BackgroundColor3 = hex(c.color or "#ff7043"), Parent = parent }
+	for k, v in props or {} do
+		p[k] = v
+	end
+	local pill = Ui.new("Frame", p, { Ui.corner(10) })
+	Ui.text({ Text = text, TextSize = 13, Size = UDim2.fromScale(1, 1), Stroke = 1.5, Parent = pill })
+	return pill
+end
+
+local function box(parent: Instance, order: number, h: number, name: string?): Frame
+	return Ui.new("Frame", { Name = name or "Box", LayoutOrder = order, Size = UDim2.new(1, 0, 0, h), BackgroundColor3 = Ui.WHITE, Parent = parent }, {
+		Ui.corner(12),
+		Ui.stroke(2, Color3.fromHex("#e0e0e0")),
+	})
+end
+
+-- "3d 4h", "5h": how long until the week ends (web CrewGoal's left()).
+local function left(seconds: number): string
+	local h = math.max(1, math.ceil(seconds / 3600))
+	if h > 24 then
+		return if h % 24 > 0 then `{h // 24}d {h % 24}h` else `{h // 24}d`
+	end
+	return `{h}h`
+end
+
+-- What a crew chest pays at the player's level (data.CREW_CHEST).
+local function chestPay(): string
+	local level = store.useGame.getState().level or 1
+	local pay = data.payAt(data.CREW_CHEST, level)
+	return `{money(pay.coins)} · 💎 {data.CREW_CHEST.bucks} · ⚙ {data.CREW_CHEST.parts}`
+end
+
+-- A chest row: its icon, name, what it pays (or what's missing) and its button.
+local function chestRow(parent: Instance, order: number, name: string, title: string, sub: string, button: string, kind: string, onOpen: (() -> ())?): Frame
+	local row = box(parent, order, 58, name)
+	Ui.text({ Text = if button == "✔" then "📭" else "🧰", TextSize = 28, Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(44, 58), Parent = row })
+	Ui.text({ Text = title, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(56, 9), Size = UDim2.new(1, -160, 0, 20), Parent = row })
+	Ui.text({ Name = "Pay", Text = sub, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(56, 30), Size = UDim2.new(1, -160, 0, 17), Parent = row })
+	if button == "✔" then
+		Ui.text({ Text = "✔", TextSize = 22, TextColor3 = Color3.fromHex("#43a047"), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(84, 36), Parent = row })
+	else
+		Ui.buy({ Name = "Open", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(88, 36), Parent = row }, button, kind, onOpen, 16)
+	end
+	return row
+end
+
+-- The crew's weekly goal (web CrewGoalCard): the shared bar, how points are made, and the chest at
+-- the end; last week's chest above it while it still waits. open(week) opens a chest.
+function Crew.goal(parent: Instance, nextOrder: () -> number, goal: any, open: (string) -> ())
+	if not goal then
+		return
+	end
+	local min = goal.rules and goal.rules.minPoints or 30
+	if goal.last then
+		chestRow(parent, nextOrder(), "LastChest", "Last week's chest", chestPay(), "Open", "green", function()
+			open(goal.last.week)
+		end)
+	end
+	local w = goal.current
+	if not w then
+		return
+	end
+	local card = box(parent, nextOrder(), 84, "CrewGoal")
+	Ui.text({ Text = "🧰 Crew goal", Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 8), Size = UDim2.new(0.6, 0, 0, 20), Parent = card })
+	Ui.text({ Name = "Left", Text = `⏱ {left(goal.left or 0)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 9), Size = UDim2.new(0.4, -12, 0, 18), Parent = card })
+	local bar = Ui.new("Frame", { Name = "Bar", Position = UDim2.fromOffset(12, 34), Size = UDim2.new(1, -24, 0, 16), BackgroundColor3 = Color3.fromHex("#e3e8ef"), Parent = card }, { Ui.corner(8) })
+	local pct = math.clamp(w.points / math.max(1, w.target), 0, 1)
+	Ui.new("Frame", { Name = "Fill", Size = UDim2.fromScale(pct, 1), Visible = pct > 0, BackgroundColor3 = if w.reached then Color3.fromHex("#43a047") else Color3.fromHex("#ffa726"), Parent = bar }, { Ui.corner(8) })
+	Ui.text({ Name = "Points", Text = `{Ui.commas(w.points)} / {Ui.commas(w.target)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 56), Size = UDim2.new(0.5, -12, 0, 18), Parent = card })
+	Ui.text({ Text = `🍕 +{data.CREW_POINTS.job} a job · 🏁 +{data.CREW_POINTS.race} a race`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 57), Size = UDim2.new(0.5, 0, 0, 17), Parent = card })
+	local ready = w.reached and not w.opened and w.mine >= min
+	local sub = if w.mine < min and not w.opened then `Add {min - w.mine} more points to earn yours` else chestPay()
+	local button = if w.opened then "✔" elseif ready then "Open" else "🔒"
+	chestRow(parent, nextOrder(), "Chest", "Crew chest", sub, button, if ready then "green" else "broke", function()
+		if ready then
+			open(w.week)
+		end
+	end)
+end
+
+-- A crew war's chests from last week (victory, MVP, war chests), while they wait. claim(op, arg)
+-- opens one.
+function Crew.battleChests(parent: Instance, nextOrder: () -> number, battle: any, claim: (string, any) -> ())
+	local last = battle and battle.last
+	for _, kind in (last and last.claimable) or {} do
+		local title = if kind == "mvp" then "⭐ War MVP chest" else "⚔️ War victory chest"
+		chestRow(parent, nextOrder(), if kind == "mvp" then "MvpChest" else "BattleChest", title, chestPay(), "Open", "green", function()
+			claim("crewBattleChest", kind)
+		end)
+	end
+	for _, t in (last and last.tiers) or {} do
+		if t.claimable then
+			chestRow(parent, nextOrder(), `LastWarChest{t.tier}`, `🧰 Last week's war chest {t.tier}`, chestPay(), "Open", "green", function()
+				claim("crewWarChest", { week = last.week, tier = t.tier })
+			end)
+		end
+	end
+end
+
+-- "3W 1L · 🔥2": a crew's war record.
+local function recordText(r: any): string
+	return `{r.wins}W {r.losses}L{if r.draws > 0 then ` {r.draws}D` else ""}{if r.streak > 1 then ` · 🔥{r.streak}` else ""}`
+end
+
+-- This week's crew battle (web CrewBattle): both crews and their scores, the tug bar, how points
+-- are made, the player's points towards a victory chest, and each side's top drivers.
+function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me: number, heading: (Instance, number, string) -> (), claim: ((string, any) -> ())?, map: (() -> ())?)
+	local x = battle and battle.current
+	if not x then
+		return
+	end
+	local rules = battle.rules or {}
+	heading(parent, nextOrder(), "⚔️ Crew war")
+	-- The crew's league (web warLeague): its rating from wins and losses, and the next one up.
+	local lg = battle.league
+	if lg then
+		local leagueRow = box(parent, nextOrder(), 44, "League")
+		Ui.text({ Name = "LeagueName", Text = `{lg.icon} {lg.name} league · {Ui.commas(lg.rating)}`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.55, -12, 1, 0), Parent = leagueRow })
+		Ui.text({ Text = if lg.next then `Next {lg.next.icon} {lg.next.name} at {Ui.commas(lg.next.min)}` else "Top league!", Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.new(0.45, -12, 1, 0), Parent = leagueRow })
+	end
+	local card = box(parent, nextOrder(), 176, "Battle")
+	local us, them = x.us, x.them
+	-- The two crews, face to face.
+	Crew.crest(card, us, 44, UDim2.fromOffset(12, 12))
+	Ui.text({ Name = "UsName", Text = us.tag, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(62, 12), Size = UDim2.new(0.5, -90, 0, 18), Parent = card })
+	Ui.text({ Name = "UsScore", Text = Ui.commas(us.score), Body = true, Weight = "heavy", TextSize = 22, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(62, 30), Size = UDim2.new(0.5, -90, 0, 26), Parent = card })
+	Ui.text({ Text = "VS", TextSize = 18, Stroke = 1.5, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 22), Size = UDim2.fromOffset(40, 24), Parent = card })
+	Crew.crest(card, them, 44, UDim2.new(1, -56, 0, 12))
+	Ui.text({ Name = "ThemName", Text = if them.bot then `{them.tag} · street crew` else them.tag, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -62, 0, 12), Size = UDim2.new(0.5, -90, 0, 18), Parent = card })
+	Ui.text({ Name = "ThemScore", Text = Ui.commas(them.score), Body = true, Weight = "heavy", TextSize = 22, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -62, 0, 30), Size = UDim2.new(0.5, -90, 0, 26), Parent = card })
+	-- The tug bar: our share of the points in our colour, theirs in theirs.
+	local bar = Ui.new("Frame", { Name = "Tug", Position = UDim2.fromOffset(12, 66), Size = UDim2.new(1, -24, 0, 14), BackgroundColor3 = hex(them.color or "#546e7a"), ClipsDescendants = true, Parent = card }, { Ui.corner(7) })
+	local total = us.score + them.score
+	local share = if total > 0 then us.score / total else 0.5
+	Ui.new("Frame", { Name = "Fill", Size = UDim2.fromScale(share, 1), Visible = share > 0, BackgroundColor3 = hex(us.color or "#ff7043"), Parent = bar }, { Ui.corner(7) })
+	local gap = us.score - them.score
+	local status = if gap > 0 then `Winning by {Ui.commas(gap)}` elseif gap < 0 then `Behind by {Ui.commas(-gap)}` else "Neck and neck"
+	Ui.text({ Name = "Status", Text = status, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = if gap > 0 then Color3.fromHex("#2e7d32") elseif gap < 0 then Color3.fromHex("#c62828") else Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 86), Size = UDim2.new(0.5, -12, 0, 18), Parent = card })
+	Ui.text({ Name = "Left", Text = `⏱ {left(battle.left or 0)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 86), Size = UDim2.new(0.5, -12, 0, 18), Parent = card })
+	local min = rules.minPoints or 20
+	local mine = if x.mine >= min then `Your points: {Ui.commas(x.mine)} ✔ chest if you win` else `Your points: {Ui.commas(x.mine)} · score {min - x.mine} more for a chest`
+	Ui.text({ Name = "Mine", Text = mine, Body = true, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 110), Size = UDim2.new(1, -24, 0, 17), Parent = card })
+	Ui.text({ Text = `🏁 +{rules.race or 1} a race, +{rules.win or 3} a win · ⚔️ live win +{rules.live or 10}, +{rules.h2h or 25} vs {them.tag}`, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(12, 130), Size = UDim2.new(1, -24, 0, 34), Parent = card })
+	-- The war map, under the score.
+	if map then
+		map()
+	end
+	-- The top drivers on each side.
+	local shown = math.max(math.min(#us.members, 5), math.min(#them.members, 5))
+	if shown > 0 then
+		local roster = box(parent, nextOrder(), 16 + shown * 22, "Rosters")
+		for side, list in { us.members, them.members } do
+			for i = 1, math.min(#list, 5) do
+				local m = list[i]
+				local xPos = if side == 1 then UDim2.new(0, 12, 0, 8 + (i - 1) * 22) else UDim2.new(0.5, 6, 0, 8 + (i - 1) * 22)
+				local name = if side == 1 and m.id == me then "You" else m.name
+				Ui.text({ Name = `Driver{side}_{i}`, Text = `{if i == 1 then "⭐" else `{i}.`} {name}`, Body = true, Weight = if side == 1 and m.id == me then "heavy" else nil, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = xPos, Size = UDim2.new(0.5, -62, 0, 20), Parent = roster })
+				Ui.text({ Text = Ui.commas(m.points), Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, Position = xPos + UDim2.new(0.5, -62, 0, 0), Size = UDim2.fromOffset(44, 20), Parent = roster })
+			end
+		end
+	end
+	-- The war chest track (web WarTrack): the crew's score climbing to par, a chest at 40% and 100%.
+	if x.par and x.tiers then
+		local track = box(parent, nextOrder(), 64, "WarTrack")
+		Ui.text({ Text = "🧰 War chests", Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(0.5, -12, 0, 18), Parent = track })
+		Ui.text({ Name = "Par", Text = `{Ui.commas(us.score)} / {Ui.commas(x.par)}`, Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 7), Size = UDim2.new(0.5, -12, 0, 17), Parent = track })
+		-- (The bar stops short of the right edge, where the last chest sits.)
+		local bar = Ui.new("Frame", { Name = "Bar", Position = UDim2.fromOffset(12, 38), Size = UDim2.new(1, -60, 0, 12), BackgroundColor3 = Color3.fromHex("#e3e8ef"), Parent = track }, { Ui.corner(6) })
+		local pct = math.clamp(us.score / math.max(1, x.par), 0, 1)
+		Ui.new("Frame", { Name = "Fill", Size = UDim2.fromScale(pct, 1), Visible = pct > 0, BackgroundColor3 = hex(us.color or "#ff7043"), Parent = bar }, { Ui.corner(6) })
+		for _, t in x.tiers do
+			local f = t.need / math.max(1, x.par)
+			local label = if t.claimed then "✔" elseif t.claimable then "🧰" else "🔒"
+			Ui.buy({ Name = `WarChest{t.tier}`, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(f, 12 - 48 * f, 0, 44), Size = UDim2.fromOffset(40, 32), ZIndex = 3, Parent = track }, label, if t.claimable then "green" elseif t.claimed then "grey" else "broke", function()
+				if t.claimable and claim then
+					claim("crewWarChest", { week = x.week, tier = t.tier })
+				end
+			end, 16)
+		end
+	end
+	-- The war log (web WarLogList): the last wars, newest first.
+	local log = battle.log or {}
+	if #log > 0 then
+		heading(parent, nextOrder(), `📜 War log · {recordText(battle.record)}`)
+		for i, w in log do
+			local row = box(parent, nextOrder(), 40, `War{i}`)
+			local icon = if w.result == "win" then "🏆" elseif w.result == "loss" then "💥" else "🤝"
+			Ui.text({ Text = `{icon} vs {w.rival.emblem} {w.rival.tag} · {w.rival.name}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0), Parent = row })
+			Ui.text({ Text = `{Ui.commas(w.us)} – {Ui.commas(w.them)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = if w.result == "win" then Color3.fromHex("#2e7d32") elseif w.result == "loss" then Color3.fromHex("#c62828") else Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.fromOffset(110, 40), Parent = row })
+		end
+	end
+end
+
+
+-- ── The war map (web WarMap, lib/warMap.ts) ───────────────────────────────────────────────────
+-- Cars for street crew drivers: picked from the crew's tag so they stay put.
+local STREET_BODIES = { sedan = true, sports = true, muscle = true, coupe = true, rally = true, wedge = true, super = true }
+local streetPicks: { any }? = nil
+local function streetCar(tag: string, i: number): any
+	if not streetPicks then
+		local picks = {}
+		for _, c in data.CARS do
+			if c.price > 0 and not c.rescueOnly and not c.season and not c.secret and not c.pack and STREET_BODIES[c.body] then
+				table.insert(picks, c)
+			end
+		end
+		streetPicks = picks
+	end
+	local picks = streetPicks :: { any }
+	local h = i * 7919
+	for k = 1, #tag do
+		h = (h * 31 + string.byte(tag, k)) % 4294967296
+	end
+	return picks[1 + h % math.max(1, #picks)] or data.CARS[1]
+end
+
+-- The player's race car's performance, and the time a street crew driver runs against it.
+local function myWarPi(): number
+	local s = store.useGame.getState()
+	local car = (require(Game.raceCar) :: any).raceCarOf(s.cars or {}, s.raceCar)
+	return if car then data.performance(data.carDef(car.model), car.upgrades, car.mods) else 0
+end
+local function streetTime(myPi: number, w: number): number
+	local floor = (require(Game.race) :: any).raceFloor(myPi)
+	return math.round(floor * (1.34 - 0.05 * math.clamp(w, 0.4, 1.6)) * 100) / 100
+end
+
+-- One crew's spots on the map, with the most stars the other crew took off each (by: whose races).
+local function spots(side: any, x: any, by: string, me: number): { any }
+	local function tally(id: string): (number, number)
+		local stars, hits = 0, 0
+		for _, a in x.attacks or {} do
+			if a.side == by and a.target == id then
+				stars = math.max(stars, a.stars)
+				hits += 1
+			end
+		end
+		return stars, hits
+	end
+	local out = {}
+	if side.bot then
+		for i, m in side.members do
+			local c = streetCar(side.tag, i)
+			local stars, hits = tally(m.id)
+			table.insert(out, { id = m.id, name = m.name, car = c.name, model = c.id, color = side.color, w = m.w or 1, stars = stars, hits = hits })
+		end
+		return out
+	end
+	for _, m in side.roster or {} do
+		local stars, hits = tally(m.id)
+		-- Rivals who took stars off you: race them back first.
+		local revenge = false
+		if by == "us" then
+			for _, a in x.attacks or {} do
+				if a.side == "them" and a.target == tostring(me) and tostring(a.by) == m.id and a.stars > 0 then
+					revenge = true
+				end
+			end
+		end
+		table.insert(out, { id = m.id, name = m.name, car = m.car or "No car yet", model = m.model, color = m.color or side.color, pi = m.pi, t = m.t, me = m.id == tostring(me), revenge = revenge, stars = stars, hits = hits })
+	end
+	return out
+end
+
+-- The next rival worth racing (web nextTarget): revenge first, then the fewest stars taken, then
+-- the slowest time; once all are beaten, a rematch.
+local function nextTarget(list: { any }, myPi: number): any?
+	local open = {}
+	for _, sp in list do
+		if sp.stars < 3 and (sp.t or sp.w) then
+			table.insert(open, sp)
+		end
+	end
+	if #open == 0 then
+		for _, sp in list do
+			if sp.t or sp.w then
+				table.insert(open, sp)
+			end
+		end
+	end
+	local function time(sp: any): number
+		return sp.t or streetTime(myPi, sp.w or 1)
+	end
+	table.sort(open, function(a, b)
+		if (a.revenge == true) ~= (b.revenge == true) then
+			return a.revenge == true
+		end
+		if a.stars ~= b.stars then
+			return a.stars < b.stars
+		end
+		return time(a) > time(b)
+	end)
+	return open[1]
+end
+
+-- Three stars in a row: the ones taken gold, the rest grey (a font's ☆ can look filled).
+local function starRow(parent: Instance, n: number, pos: UDim2, size: number): Frame
+	local f = Ui.new("Frame", { Name = "Stars", Position = pos, Size = UDim2.fromOffset(size * 3, size + 2), BackgroundTransparency = 1, Parent = parent })
+	for i = 1, 3 do
+		Ui.text({ Name = if i <= n then "On" else "Off", Text = "★", TextSize = size, TextColor3 = if i <= n then Color3.fromHex("#ffb300") else Color3.fromHex("#cfd8dc"), Position = UDim2.fromOffset((i - 1) * size, 0), Size = UDim2.fromOffset(size, size + 2), Parent = f })
+	end
+	return f
+end
+
+-- A row of one crew's spots: car, stars taken and name; their spots can be picked.
+local function spotRow(parent: Instance, y: number, list: { any }, name: string, pickedId: string?, onPick: ((any) -> ())?)
+	local row = Ui.new("ScrollingFrame", { Name = name, Position = UDim2.fromOffset(8, y), Size = UDim2.new(1, -16, 0, 96), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4, ScrollingDirection = Enum.ScrollingDirection.X, CanvasSize = UDim2.fromOffset(#list * 92, 0), Parent = parent }, {
+		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+	for i, sp in list do
+		local picked = pickedId == sp.id
+		local cell = Ui.new(if onPick then "TextButton" else "Frame", { Name = `Spot{sp.id}`, LayoutOrder = i, Size = UDim2.fromOffset(86, 90), BackgroundColor3 = if picked then Color3.fromHex("#fff3e0") elseif sp.stars == 3 then Color3.fromHex("#eceff1") else Ui.WHITE, Parent = row }, {
+			Ui.corner(10),
+			Ui.stroke(if picked then 3 else 2, if picked then Color3.fromHex("#ff9800") else Color3.fromHex("#e0e0e0")),
+		})
+		if onPick then
+			local b = cell :: TextButton
+			b.Text = ""
+			b.AutoButtonColor = true
+			b.Activated:Connect(function()
+				onPick(sp)
+			end)
+		end
+		if sp.model then
+			local pic = Thumb.new("Cars", sp.model, UDim2.fromOffset(70, 40), hex(sp.color or "#eceff1"))
+			pic.Position = UDim2.fromOffset(8, 4)
+			pic.Parent = cell
+		else
+			Ui.text({ Text = "🚗", TextSize = 26, Position = UDim2.fromOffset(8, 4), Size = UDim2.fromOffset(70, 40), Parent = cell })
+		end
+		if sp.stars == 3 then
+			Ui.text({ Text = "✔", TextSize = 18, TextColor3 = Color3.fromHex("#43a047"), AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 2), Size = UDim2.fromOffset(20, 20), Parent = cell })
+		elseif sp.revenge then
+			Ui.text({ Text = "🔥", TextSize = 16, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 2), Size = UDim2.fromOffset(20, 20), Parent = cell })
+		end
+		starRow(cell, sp.stars, UDim2.fromOffset(43 - 24, 46), 16)
+		Ui.text({ Text = if sp.me then "You" else sp.name, Body = true, Weight = "heavy", TextSize = 12, TextColor3 = Ui.INK, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(4, 66), Size = UDim2.new(1, -8, 0, 18), Parent = cell })
+	end
+end
+
+-- The war map: the stars each crew has taken, their racers to pick from, the one to race next with
+-- the Race button, the latest race, and your crew below (the stars they took off you).
+function Crew.warMap(parent: Instance, nextOrder: () -> number, battle: any, me: number, kit: any)
+	local x = battle and battle.current
+	if not x or x.result or not x.attacks then
+		return
+	end
+	local rules = battle.rules or {}
+	local theirs = spots(x.them, x, "us", me)
+	local ours = spots(x.us, x, "them", me)
+	local myPi = myWarPi()
+	local map = box(parent, nextOrder(), 360, "WarMap")
+	local pickedId: string? = nil
+	local function draw()
+		for _, c in map:GetChildren() do
+			if c:IsA("GuiObject") then
+				c:Destroy()
+			end
+		end
+		local took, lost = 0, 0
+		for _, sp in theirs do
+			took += sp.stars
+		end
+		for _, sp in ours do
+			lost += sp.stars
+		end
+		local swept = #theirs > 0 and took >= #theirs * 3
+		Ui.text({ Name = "UsStars", Text = `{x.us.tag} ⭐ {took}`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(0.3, -12, 0, 20), Parent = map })
+		Ui.text({ Text = if swept then "👑 All beaten!" else "Beat their racers for ⭐", Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 6), Size = UDim2.new(0.4, 0, 0, 20), TextTruncate = Enum.TextTruncate.AtEnd, Parent = map })
+		Ui.text({ Text = `⭐ {lost} {x.them.tag}`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 6), Size = UDim2.new(0.3, -12, 0, 20), Parent = map })
+		local target: any = nil
+		for _, sp in theirs do
+			if sp.id == pickedId then
+				target = sp
+			end
+		end
+		target = target or nextTarget(theirs, myPi)
+		spotRow(map, 30, theirs, "Them", target and target.id, function(sp: any)
+			pickedId = sp.id
+			draw()
+		end)
+		-- The one to race next, and the only button.
+		local duel = Ui.new("Frame", { Name = "Duel", Position = UDim2.fromOffset(8, 132), Size = UDim2.new(1, -16, 0, 74), BackgroundColor3 = Color3.fromHex("#f5f7fa"), Parent = map }, { Ui.corner(10) })
+		local left = battle.attacksLeft or 0
+		if target then
+			local time = target.t or streetTime(myPi, target.w or 1)
+			local tag = if target.revenge and target.stars < 3 then "🔥 REVENGE · " elseif target.stars == 3 then "🔁 REMATCH · " else ""
+			Ui.text({ Name = "Target", Text = `{tag}{target.name}`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -170, 0, 20), Parent = duel })
+			Ui.text({ Text = `⏱ {if target.t then "" else "~"}{string.format("%.2f", time)}s · {target.car} · ⭐ {target.stars}/3`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 30), Size = UDim2.new(1, -170, 0, 17), Parent = duel })
+			local hours = math.max(1, math.ceil((battle.dayLeft or 0) / 3600))
+			Ui.text({ Name = "Tickets", Text = if left > 0 then `🎟 {left}/{rules.attacksPerDay or 3} today · ★ win, ★★ by 1%, ★★★ by 3%` else `🎟 More war races in {hours}h`, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 50), Size = UDim2.new(1, -170, 0, 16), Parent = duel })
+			Ui.buy({ Name = "WarRace", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(140, 44), Parent = duel }, `⚔️ Race ⛽{data.RACE_FUEL}`, if left > 0 then "green" else "broke", function()
+				if left > 0 then
+					RaceMenu.start(kit.ctx, "war", { target = target.id }, "hub")
+				else
+					kit.toast("No war races left today")
+				end
+			end, 17)
+		else
+			Ui.text({ Text = "Nobody on their side has a car to race yet", Body = true, TextSize = 14, TextColor3 = Ui.MUTED, Size = UDim2.fromScale(1, 1), Parent = duel })
+		end
+		-- The latest war race, either side.
+		local latest = (x.attacks or {})[1]
+		if latest then
+			local function nameOf(id: string): string
+				for _, sp in theirs do
+					if sp.id == id then
+						return sp.name
+					end
+				end
+				for _, sp in ours do
+					if sp.id == id then
+						return if sp.me then "you" else sp.name
+					end
+				end
+				return "?"
+			end
+			local by = if tostring(latest.by) == tostring(me) then "You" else latest.byName
+			local text = if latest.won then `{by} took {string.rep("★", latest.stars)} off {nameOf(latest.target)}` else `{by} lost to {nameOf(latest.target)}`
+			Ui.text({ Name = "Latest", Text = `{if latest.side == "us" then "🟢" else "🔴"} {text}`, Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 210), Size = UDim2.new(1, -24, 0, 18), Parent = map })
+		end
+		Ui.text({ Text = `🛡️ {x.us.name}: stars {x.them.tag} took off you`, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 232), Size = UDim2.new(1, -24, 0, 16), Parent = map })
+		spotRow(map, 252, ours, "Us", nil, nil)
+	end
+	draw()
+end
+
+local function label(parent: Instance, text: string, y: number)
+	Ui.text({ Text = text, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 18), Parent = parent })
+end
+
+local function field(parent: Instance, y: number, text: string, placeholder: string, maxLen: number, upper: boolean?, name: string?): TextBox
+	local f = Ui.new("Frame", { Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 40), BackgroundColor3 = Color3.fromHex("#f7f9fc"), Parent = parent }, {
+		Ui.corner(10),
+		Ui.stroke(2, Color3.fromHex("#cfd8dc")),
+	})
+	local tb = Ui.new("TextBox", {
+		Name = name or "Field",
+		Text = text,
+		PlaceholderText = placeholder,
+		ClearTextOnFocus = false,
+		FontFace = Ui.BODY,
+		TextSize = 17,
+		TextColor3 = Ui.INK,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.new(1, -20, 1, 0),
+		Parent = f,
+	}) :: TextBox
+	tb:GetPropertyChangedSignal("Text"):Connect(function()
+		local t = tb.Text
+		if upper then
+			t = t:upper():gsub("[^A-Z0-9]", "")
+		end
+		if utf8.len(t) and (utf8.len(t) :: number) > maxLen then
+			t = t:sub(1, (utf8.offset(t, maxLen + 1) or (#t + 1)) - 1)
+		end
+		if t ~= tb.Text then
+			tb.Text = t
+		end
+	end)
+	return tb
+end
+
+-- The look a crew picks: emblem, colour, motto, level needed, who may join. Draws into a box
+-- from height y and returns the look being edited and the height reached.
+local function lookEditor(parent: Frame, y: number, start: any): (any, number)
+	local look = { emblem = start.emblem, color = start.color, motto = start.motto or "", minLevel = start.minLevel or 1, joinMode = start.joinMode or "open" }
+	label(parent, "Emblem", y)
+	local emblems = Ui.new("Frame", { Name = "Emblems", Position = UDim2.fromOffset(12, y + 22), Size = UDim2.new(1, -24, 0, 84), BackgroundTransparency = 1, Parent = parent }, {
+		Ui.new("UIGridLayout", { CellSize = UDim2.fromOffset(38, 38), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+	local emblemButtons: { [string]: TextButton } = {}
+	local function paintEmblems()
+		for e, b in emblemButtons do
+			local st = b:FindFirstChildOfClass("UIStroke")
+			if st then
+				st.Color = if e == look.emblem then Color3.fromHex("#1e88e5") else Color3.fromHex("#cfd8dc")
+				st.Thickness = if e == look.emblem then 3 else 2
+			end
+		end
+	end
+	for i, e in data.CLAN_EMBLEMS do
+		local b = Ui.new("TextButton", { Name = `Emblem{i}`, LayoutOrder = i, Text = e, TextSize = 20, AutoButtonColor = true, BackgroundColor3 = Ui.WHITE, Parent = emblems }, { Ui.corner(10), Ui.stroke(2, Color3.fromHex("#cfd8dc")) }) :: TextButton
+		emblemButtons[e] = b
+		b.Activated:Connect(function()
+			look.emblem = e
+			paintEmblems()
+		end)
+	end
+	paintEmblems()
+	y += 112
+	label(parent, "Colour", y)
+	local colors = Ui.new("Frame", { Name = "Colors", Position = UDim2.fromOffset(12, y + 22), Size = UDim2.new(1, -24, 0, 36), BackgroundTransparency = 1, Parent = parent }, {
+		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+	local colorButtons: { [string]: TextButton } = {}
+	local function paintColors()
+		for c, b in colorButtons do
+			local st = b:FindFirstChildOfClass("UIStroke")
+			if st then
+				st.Color = if c == look.color then Ui.INK else Ui.WHITE
+				st.Thickness = if c == look.color then 3 else 2
+			end
+		end
+	end
+	for i, c in data.CLAN_COLORS do
+		local b = Ui.new("TextButton", { Name = c, LayoutOrder = i, Text = "", AutoButtonColor = true, BackgroundColor3 = hex(c), Size = UDim2.fromOffset(32, 32), Parent = colors }, { Ui.round(), Ui.stroke(2, Ui.WHITE) }) :: TextButton
+		colorButtons[c] = b
+		b.Activated:Connect(function()
+			look.color = c
+			paintColors()
+		end)
+	end
+	paintColors()
+	y += 64
+	label(parent, "Motto", y)
+	local motto = field(parent, y + 22, look.motto, "What your crew is about", 140, nil, "Motto")
+	motto:GetPropertyChangedSignal("Text"):Connect(function()
+		look.motto = motto.Text
+	end)
+	y += 70
+	label(parent, "Level needed", y)
+	local lvl = Ui.new("Frame", { Name = "Level", Position = UDim2.fromOffset(12, y + 22), Size = UDim2.fromOffset(150, 36), BackgroundTransparency = 1, Parent = parent })
+	local lvlText = Ui.text({ Text = `Lvl {look.minLevel}+`, TextSize = 17, TextColor3 = Ui.INK, Position = UDim2.fromOffset(40, 0), Size = UDim2.fromOffset(70, 36), Parent = lvl })
+	local function step(d: number)
+		look.minLevel = math.clamp(look.minLevel + d, 1, 99)
+		Ui.setText(lvlText, `Lvl {look.minLevel}+`)
+	end
+	Ui.buy({ Name = "Less", Size = UDim2.fromOffset(36, 36), Parent = lvl }, "−", "garage", function()
+		step(-1)
+	end, 18)
+	Ui.buy({ Name = "More", Position = UDim2.fromOffset(114, 0), Size = UDim2.fromOffset(36, 36), Parent = lvl }, "+", "garage", function()
+		step(1)
+	end, 18)
+	y += 66
+	label(parent, "Who can join", y)
+	local modes = Ui.new("Frame", { Name = "Modes", Position = UDim2.fromOffset(12, y + 22), Size = UDim2.new(1, -24, 0, 36), BackgroundTransparency = 1, Parent = parent }, {
+		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+	local modeFaces: { [string]: Frame } = {}
+	local function paintModes()
+		for id, f in modeFaces do
+			f.BackgroundTransparency = if id == look.joinMode then 0 else 0.6
+		end
+	end
+	for i, m in MODES do
+		local _, face = Ui.buy({ Name = m.id, LayoutOrder = i, Size = UDim2.fromOffset(112, 34), Parent = modes }, `{m.icon} {m.label}`, "garage", function()
+			look.joinMode = m.id
+			paintModes()
+		end, 15)
+		modeFaces[m.id] = face :: any
+	end
+	paintModes()
+	y += 66
+	-- (The motto box too: its text is read again when sent, in case a change wasn't heard.)
+	return look, y, motto
+end
+
+-- Draws the tab into list. kit: the Friends panel's heading and note, card(userId, name, town),
+-- toast and ctx. state keeps the search and whether the start form is open between redraws.
+function Crew.draw(list: Instance, kit: any, state: any)
+	-- Marks the list as the Crew tab's: when another tab clears it, late answers draw nothing.
+	local mark = Ui.new("Frame", { Name = "CrewTab", LayoutOrder = 0, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, Parent = list })
+	local function clear()
+		for _, c in list:GetChildren() do
+			if c:IsA("GuiObject") then
+				c:Destroy()
+			end
+		end
+	end
+	local function redraw()
+		if not mark.Parent then
+			return
+		end
+		clear()
+		Crew.draw(list, kit, state)
+	end
+	local loading = Ui.text({ Name = "Loading", Text = "Finding crews…", Body = true, TextSize = 15, TextColor3 = Ui.MUTED, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 40), Parent = list })
+	local busy = false
+	-- Runs a crew op, then draws the tab again.
+	local function call(op: string, arg: any?, after: ((any) -> ())?)
+		if busy then
+			return
+		end
+		busy = true
+		task.spawn(function()
+			local ok, r = Remote.social(op, arg)
+			busy = false
+			if ok and after then
+				after(r)
+			end
+			redraw()
+		end)
+	end
+
+	task.spawn(function()
+		local ok, res = Remote.social("crew", state.q, true)
+		if not mark.Parent or not loading.Parent then
+			return
+		end
+		loading:Destroy()
+		if not ok then
+			kit.note(list, 1, "Couldn't load crews right now. Try again in a moment.")
+			return
+		end
+		local order = 1
+		local function nextOrder(): number
+			order += 1
+			return order
+		end
+		local me = Players.LocalPlayer and Players.LocalPlayer.UserId or 0
+		local function openChest(week: string)
+			call("crewChest", week)
+		end
+		local function claimBattle(op: string, arg: any)
+			call(op, arg)
+		end
+
+		-- ── In a crew ─────────────────────────────────────────────────────────────────────────
+		if res.crew then
+			local c, role = res.crew, res.role
+			local sum = res.summary or {}
+			local officer = role == "leader" or role == "co_leader"
+			local hero = box(list, nextOrder(), 96, "Hero")
+			hero.BackgroundColor3 = hex(c.color)
+			Crew.crest(hero, c, 64, UDim2.fromOffset(14, 16))
+			Ui.text({ Name = "CrewName", Text = c.name, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Stroke = 2, Position = UDim2.fromOffset(90, 12), Size = UDim2.new(1, -190, 0, 28), Parent = hero })
+			Crew.tag(hero, c, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 16) })
+			Ui.text({ Text = `{RANKS[role].icon} {RANKS[role].label} · 👥 {sum.members or 0}/{c.cap} · ⚡ {Ui.commas(sum.power or 0)} · {MODE_ICON[c.joinMode] or ""}`, Body = true, Weight = "heavy", TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, Stroke = 1.5, Position = UDim2.fromOffset(90, 42), Size = UDim2.new(1, -100, 0, 18), Parent = hero })
+			if c.motto ~= "" then
+				Ui.text({ Text = c.motto, Body = true, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Stroke = 1.5, Position = UDim2.fromOffset(90, 64), Size = UDim2.new(1, -100, 0, 18), Parent = hero })
+			end
+			Crew.goal(list, nextOrder, res.goal, openChest)
+			Crew.battleChests(list, nextOrder, res.battle, claimBattle)
+			Crew.battle(list, nextOrder, res.battle, me, kit.heading, claimBattle, function()
+				Crew.warMap(list, nextOrder, res.battle, me, kit)
+			end)
+
+			-- Crew chat: the crew's tab in Roblox's chat (server/CrewChat), for players Roblox lets chat.
+			local lp = Players.LocalPlayer
+			if lp and lp:GetAttribute("CanChat") == true then
+				local chatRow = box(list, nextOrder(), 50, "CrewChat")
+				Ui.text({ Text = `💬 Crew chat · the "Crew {c.tag}" tab`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -150, 0, 20), Parent = chatRow })
+				Ui.text({ Text = "Crewmates in this server", Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 26), Size = UDim2.new(1, -150, 0, 17), Parent = chatRow })
+				Ui.buy({ Name = "OpenChat", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(120, 36), Parent = chatRow }, "Open chat", "garage", function()
+					kit.ctx.close()
+					pcall(function()
+						game:GetService("StarterGui"):SetCore("ChatActive", true)
+					end)
+				end, 15)
+			end
+
+			-- Part requests (web CrewPartsTile): ask once a day, give crewmates a part each.
+			kit.heading(list, nextOrder(), "⚙ Part requests")
+			local asks = res.parts or {}
+			local mineAsk = nil
+			for _, a in asks do
+				if a.id == me then
+					mineAsk = a
+				end
+			end
+			local askRow = box(list, nextOrder(), 50, "MyAsk")
+			if mineAsk then
+				Ui.text({ Text = `Your ask: ⚙ {mineAsk.given}/{mineAsk.want}`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0), Parent = askRow })
+				Ui.text({ Text = if mineAsk.given >= mineAsk.want then "Filled ✔" else "Collected as they come", Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.fromOffset(170, 50), Parent = askRow })
+			else
+				Ui.text({ Text = `Ask your crew for ⚙ 10 parts today`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0), Parent = askRow })
+				Ui.buy({ Name = "AskParts", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(100, 36), Parent = askRow }, "Ask", "green", function()
+					call("crewPartsAsk")
+				end, 16)
+			end
+			for _, a in asks do
+				if a.id ~= me then
+					local row = box(list, nextOrder(), 50, `PartAsk{a.id}`)
+					local full = a.given >= a.want
+					Ui.text({ Text = `{a.name} · ⚙ {a.given}/{a.want}`, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0), Parent = row })
+					if full then
+						Ui.text({ Text = "✔", TextSize = 20, TextColor3 = Color3.fromHex("#43a047"), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(100, 36), Parent = row })
+					else
+						Ui.buy({ Name = "Give", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(100, 36), Parent = row }, "Give ⚙1", if a.mine >= 5 then "broke" else "garage", function()
+							call("crewPartGive", a.id)
+						end, 15)
+					end
+				end
+			end
+			-- Each driver's points towards the goal this week.
+			local goalPts: { [number]: number } = {}
+			for _, g in (res.goal and res.goal.current and res.goal.current.members) or {} do
+				goalPts[g.id] = g.points
+			end
+
+			-- Join requests, for the Leader and Co-Leaders.
+			local requests = {}
+			for uid, r in c.requests or {} do
+				table.insert(requests, { id = tonumber(uid), name = r.name, level = r.level, power = r.power, at = r.at })
+			end
+			table.sort(requests, function(a, b)
+				return a.at < b.at
+			end)
+			if officer and #requests > 0 then
+				kit.heading(list, nextOrder(), `✋ Requests ({#requests})`)
+				for _, r in requests do
+					local row = box(list, nextOrder(), 50, `Request{r.id}`)
+					Ui.text({ Text = r.name, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -150, 0, 20), Parent = row })
+					Ui.text({ Text = `Lvl {r.level} · ⚡ {Ui.commas(r.power or 0)}`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 26), Size = UDim2.new(1, -150, 0, 17), Parent = row })
+					Ui.buy({ Name = "Yes", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -62, 0.5, 0), Size = UDim2.fromOffset(54, 34), Parent = row }, "✔", "green", function()
+						call("crewRespond", { id = r.id, yes = true })
+					end, 16)
+					Ui.buy({ Name = "No", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(48, 34), Parent = row }, "✖", "grey", function()
+						call("crewRespond", { id = r.id, yes = false })
+					end, 16)
+				end
+			end
+
+			-- The drivers: Leader, Co-Leaders, Members; strongest garage first in each.
+			local members = {}
+			for uid, m in c.members do
+				local row = table.clone(m)
+				row.id = tonumber(uid)
+				table.insert(members, row)
+			end
+			table.sort(members, function(a, b)
+				local ra, rb = RANKS[a.role].order, RANKS[b.role].order
+				if ra ~= rb then
+					return ra < rb
+				end
+				return (a.power or 0) > (b.power or 0)
+			end)
+			kit.heading(list, nextOrder(), "👥 Drivers", `{#members}/{c.cap}`)
+			for _, m in members do
+				local row = box(list, nextOrder(), 56, `Member{m.id}`)
+				Ui.new("TextButton", { Name = "Open", Text = "", BackgroundTransparency = 1, ZIndex = 0, Size = UDim2.fromScale(1, 1), Parent = row }).Activated:Connect(function()
+					kit.card(m.id, m.name, m.town)
+				end)
+				local mine = m.id == me
+				Ui.text({ Text = RANKS[m.role].icon, TextSize = 22, Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(34, 56), Parent = row })
+				local buttons = {}
+				if not mine and role == "leader" then
+					if m.role == "member" then
+						table.insert(buttons, { "🎖️", "Make Co-Leader", function()
+							call("crewRank", { id = m.id, rank = "co_leader" })
+						end })
+					else
+						table.insert(buttons, { "🛡️", "Make Member", function()
+							call("crewRank", { id = m.id, rank = "member" })
+						end })
+					end
+					table.insert(buttons, { "👑", "Make Leader", function()
+						if state.confirm == `lead{m.id}` then
+							state.confirm = nil
+							call("crewRank", { id = m.id, rank = "leader" })
+						else
+							state.confirm = `lead{m.id}`
+							kit.toast(`Tap 👑 again to make {m.name} the Leader`)
+						end
+					end })
+				end
+				if not mine and (role == "leader" or (role == "co_leader" and m.role == "member")) then
+					table.insert(buttons, { "✖", "Remove", function()
+						if state.confirm == `kick{m.id}` then
+							state.confirm = nil
+							call("crewKick", m.id)
+						else
+							state.confirm = `kick{m.id}`
+							kit.toast(`Tap ✖ again to remove {m.name}`)
+						end
+					end })
+				end
+				local right = 8
+				for i = #buttons, 1, -1 do
+					local b = buttons[i]
+					local _, face = Ui.buy({ Name = b[2], AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -right, 0.5, 0), Size = UDim2.fromOffset(42, 34), Parent = row }, b[1], if b[1] == "✖" then "grey" else "garage", b[3], 16)
+					face.Name = b[2]
+					right += 48
+				end
+				Ui.text({ Text = if mine then `{m.name} (you)` else m.name, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(46, 8), Size = UDim2.new(1, -54 - right, 0, 20), Parent = row })
+				Ui.text({ Text = `Lvl {m.level or 1} · ⚡ {Ui.commas(m.power or 0)} · 🏁 {Ui.commas(m.wins or 0)} · 🏆 {Ui.commas(m.trophies or 0)} · 🧰 {Ui.commas(goalPts[m.id] or 0)}`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(46, 29), Size = UDim2.new(1, -54 - right, 0, 17), Parent = row })
+			end
+
+			-- The crew ladder (web CrewLadder): every crewmate's ghost by best run; Race runs it.
+			kit.heading(list, nextOrder(), "🏁 Crew ladder")
+			local ladder = Ui.new("Frame", { Name = "Ladder", LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, Parent = list }, {
+				Ui.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+			})
+			local ladderNote = Ui.text({ Text = "Loading the ladder…", Body = true, TextSize = 14, TextColor3 = Ui.MUTED, Size = UDim2.new(1, 0, 0, 40), Parent = ladder })
+			task.spawn(function()
+				local okL, lad = Remote.social("crewLadder", nil, true)
+				if not ladder.Parent then
+					return
+				end
+				if not okL then
+					Ui.setText(ladderNote, "Couldn't load the ladder right now.")
+					return
+				end
+				ladderNote:Destroy()
+				local MEDAL = { "🥇", "🥈", "🥉" }
+				local place = 0
+				for i, r in lad.rows do
+					-- Equal real times share a place (web ladderPlaces).
+					local prev = lad.rows[i - 1]
+					if not (prev and r.t and not r.par and prev.t == r.t and not prev.par) then
+						place = i
+					end
+					local row = box(ladder, i, 52, `Rung{r.id}`)
+					local real = r.t ~= nil and not r.par
+					Ui.text({ Text = if real and MEDAL[place] then MEDAL[place] else `{place}`, Body = true, Weight = "heavy", TextSize = if real and MEDAL[place] then 22 else 16, TextColor3 = Ui.MUTED, Position = UDim2.fromOffset(6, 0), Size = UDim2.fromOffset(34, 52), Parent = row })
+					Ui.text({ Text = if r.id == me then "You" else r.name, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(44, 6), Size = UDim2.new(1, -250, 0, 20), Parent = row })
+					Ui.text({ Text = if r.car then `{r.car} · PI {r.pi or 0}` else "No car yet", Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(44, 27), Size = UDim2.new(1, -250, 0, 17), Parent = row })
+					Ui.text({ Name = "Time", Text = if r.t == nil then "—" elseif r.par then "No time" else `{string.format("%.3f", r.t)}s`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = if real then Ui.INK else Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -126, 0, 0), Size = UDim2.fromOffset(90, 52), Parent = row })
+					if r.id ~= me then
+						Ui.buy({ Name = "Race", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(110, 36), Parent = row }, `🏁 Race ⛽{lad.fuel}`, if r.t then "green" else "broke", function()
+							if r.t then
+								RaceMenu.start(kit.ctx, "ghost", { vs = r.id }, "ghost")
+							end
+						end, 15)
+					end
+				end
+				ladder.Size = UDim2.new(1, 0, 0, #lad.rows * 58)
+			end)
+
+			-- Settings, for the Leader and Co-Leaders.
+			if officer then
+				kit.heading(list, nextOrder(), "⚙️ Crew settings")
+				local panel = box(list, nextOrder(), 10, "Settings")
+				local look, y, motto = lookEditor(panel, 10, c)
+				Ui.buy({ Name = "Save", Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 44), Parent = panel }, "Save settings", "green", function()
+					look.motto = motto.Text
+					call("crewSettings", look, function()
+						kit.toast("Crew settings saved")
+					end)
+				end, 18)
+				panel.Size = UDim2.new(1, 0, 0, y + 56)
+			end
+
+			-- Leave.
+			local leaveRow = Ui.new("Frame", { Name = "LeaveRow", LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 50), BackgroundTransparency = 1, Parent = list })
+			local heirNote = ""
+			if role == "leader" and #members > 1 then
+				local h = nil
+				for _, m in members do
+					if m.id ~= me and (not h or RANKS[m.role].order < RANKS[h.role].order or (m.role == h.role and m.at < h.at)) then
+						h = m
+					end
+				end
+				heirNote = if h then ` ({h.name} will lead)` else ""
+			end
+			Ui.buy({ Name = "Leave", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 4), Size = UDim2.fromOffset(260, 42), Parent = leaveRow }, if state.confirm == "leave" then "Tap again to leave" else "Leave crew", "grey", function()
+				if state.confirm == "leave" then
+					state.confirm = nil
+					call("crewLeave", nil, function()
+						kit.toast(`You left {c.name}{heirNote}`)
+					end)
+				else
+					state.confirm = "leave"
+					kit.toast(if #members <= 1 then "You're the last one: leaving closes the crew. Tap again to leave." else `Tap Leave again to leave{heirNote}`)
+					redraw()
+				end
+			end, 17)
+			return
+		end
+
+		-- ── Not in a crew ─────────────────────────────────────────────────────────────────────
+		-- (Last week's chest still opens after leaving the crew that earned it.)
+		Crew.goal(list, nextOrder, res.goal, openChest)
+		Crew.battleChests(list, nextOrder, res.battle, claimBattle)
+		if not res.house then
+			local lock = box(list, nextOrder(), 120, "Locked")
+			Ui.text({ Text = "🔒 Crews open with a Crew House", TextSize = 19, TextColor3 = Ui.INK, Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 26), Parent = lock })
+			Ui.text({ Text = "Build one in your town to start or join a crew of up to 20 drivers.", Body = true, TextSize = 14, TextColor3 = Ui.MUTED, TextWrapped = true, Position = UDim2.fromOffset(16, 42), Size = UDim2.new(1, -32, 0, 22), Parent = lock })
+			Ui.buy({ Name = "Build", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 70), Size = UDim2.fromOffset(220, 40), Parent = lock }, "🏗️ Build a Crew House", "green", function()
+				kit.ctx.open("shop", "crew")
+			end, 16)
+			return
+		end
+
+		if state.creating then
+			kit.heading(list, nextOrder(), "🛡️ Start a crew")
+			local form = box(list, nextOrder(), 10, "Create")
+			label(form, "Name", 10)
+			local name = field(form, 32, state.name or "", "Crew name (3-24 letters)", 24, nil, "Name")
+			label(form, "Tag", 80)
+			local tag = field(form, 102, state.tag or "", "2-4 letters or numbers", 4, true, "Tag")
+			local look, y, motto = lookEditor(form, 150, { emblem = data.CLAN_EMBLEMS[1], color = data.CLAN_COLORS[1], motto = "", minLevel = 1, joinMode = "open" })
+			local coins = store.useGame.getState().coins or 0
+			local afford = coins >= data.CLAN_COST
+			Ui.buy({ Name = "Start", Position = UDim2.fromOffset(12, y), Size = UDim2.new(0.62, -18, 0, 44), Parent = form }, `Start crew · {money(data.CLAN_COST)}`, if afford then "green" else "broke", function()
+				if not afford then
+					kit.toast(`You need {money(data.CLAN_COST)} to start a crew`)
+					return
+				end
+				local spec = table.clone(look)
+				spec.motto = motto.Text
+				spec.name, spec.tag = name.Text, (tag.Text:upper():gsub("[^A-Z0-9]", ""))
+				state.name, state.tag = name.Text, tag.Text
+				call("crewCreate", spec, function()
+					state.creating, state.name, state.tag = nil, nil, nil
+					kit.toast("🛡️ Your crew is ready!")
+				end)
+			end, 17)
+			Ui.buy({ Name = "Cancel", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, y), Size = UDim2.new(0.38, -12, 0, 44), Parent = form }, "Cancel", "grey", function()
+				state.creating = nil
+				redraw()
+			end, 17)
+			form.Size = UDim2.new(1, 0, 0, y + 56)
+			return
+		end
+
+		-- Search and Start.
+		local bar = Ui.new("Frame", { Name = "Search", LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, Parent = list })
+		local searchHolder = Ui.new("Frame", { Size = UDim2.new(1, -170, 1, 0), BackgroundTransparency = 1, Parent = bar })
+		local q = field(searchHolder, 2, state.q or "", "🔎 Search by name or tag", 24)
+		q.Parent.Position = UDim2.fromOffset(0, 2)
+		q.Parent.Size = UDim2.new(1, -60, 0, 40)
+		Ui.buy({ Name = "Find", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 3), Size = UDim2.fromOffset(54, 38), Parent = searchHolder }, "Go", "garage", function()
+			state.q = q.Text
+			redraw()
+		end, 15)
+		Ui.buy({ Name = "StartCrew", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 3), Size = UDim2.fromOffset(160, 38), Parent = bar }, "+ Start a crew", "green", function()
+			state.creating = true
+			redraw()
+		end, 15)
+
+		local rows = res.browse or {}
+		if #rows == 0 then
+			kit.note(list, nextOrder(), if state.q and state.q ~= "" then "No crews match that search." else "No crews yet. Start the first one and invite your friends!")
+		end
+		local level = res.level or 1
+		for _, c in rows do
+			local row = box(list, nextOrder(), 72, `Crew{c.tag}`)
+			Crew.crest(row, c, 48, UDim2.fromOffset(10, 12))
+			Ui.text({ Text = c.name, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(68, 6), Size = UDim2.new(1, -250, 0, 20), Parent = row })
+			Crew.tag(row, c, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -132, 0, 8) })
+			Ui.text({ Text = `{MODE_ICON[c.joinMode] or ""} 👥 {c.members}/{c.cap} · ⚡ {Ui.commas(c.power or 0)} · Lvl {c.minLevel}+`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(68, 27), Size = UDim2.new(1, -200, 0, 17), Parent = row })
+			if c.motto and c.motto ~= "" then
+				Ui.text({ Text = c.motto, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(68, 46), Size = UDim2.new(1, -200, 0, 16), Parent = row })
+			end
+			local asked = table.find(res.asked or {}, c.id) ~= nil
+			local text, kind, go = "Join", "green", function()
+				call("crewAsk", c.id, function(r)
+					kit.toast(if r == "joined" then `🛡️ You joined {c.name}!` else `✋ Asked to join {c.name}`)
+				end)
+			end
+			if asked then
+				text, kind, go = "⏳ Sent", "garage", function()
+					call("crewCancel", c.id)
+				end
+			elseif c.joinMode == "closed" then
+				text, kind, go = "🔒", "grey", function()
+					kit.toast("That crew isn't taking new drivers")
+				end
+			elseif c.members >= c.cap then
+				text, kind, go = "Full", "grey", function()
+					kit.toast("That crew is full")
+				end
+			elseif level < c.minLevel then
+				text, kind, go = `🔒 Lvl {c.minLevel}`, "grey", function()
+					kit.toast(`Reach level {c.minLevel} to join`)
+				end
+			elseif c.joinMode == "request" then
+				text = "✋ Ask"
+			end
+			Ui.buy({ Name = "Join", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(112, 40), Parent = row }, text, kind, go, 16)
+		end
+	end)
+end
+
+return Crew

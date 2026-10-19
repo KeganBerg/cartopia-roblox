@@ -1,236 +1,539 @@
 {
  "span": 1,
+ "step": 0.5,
  "skins": [
   {
    "n": 1,
    "depth": 0.053,
    "base": "skin1-base.png",
-   "glow": "skin1-glow.png",
-   "glow2": "skin1-glow2.png"
+   "glows": [
+    "skin1-glow1.png",
+    "skin1-glow2.png",
+    "skin1-glow3.png",
+    "skin1-glow4.png"
+   ]
   },
   {
    "n": 2,
    "depth": 0.06,
    "base": "skin2-base.png",
-   "glow": "skin2-glow.png",
-   "glow2": "skin2-glow2.png"
+   "glows": [
+    "skin2-glow1.png",
+    "skin2-glow2.png",
+    "skin2-glow3.png",
+    "skin2-glow4.png"
+   ]
   },
   {
    "n": 3,
    "depth": 0.088,
    "base": "skin3-base.png",
-   "glow": "skin3-glow.png",
-   "glow2": "skin3-glow2.png"
+   "glows": [
+    "skin3-glow1.png",
+    "skin3-glow2.png",
+    "skin3-glow3.png",
+    "skin3-glow4.png"
+   ]
   },
   {
    "n": 4,
    "depth": 0.045,
    "base": "skin4-base.png",
-   "glow": "skin4-glow.png",
-   "glow2": "skin4-glow2.png"
+   "glows": [
+    "skin4-glow1.png",
+    "skin4-glow2.png",
+    "skin4-glow3.png",
+    "skin4-glow4.png"
+   ]
   },
   {
    "n": 5,
    "depth": 0.065,
    "base": "skin5-base.png",
-   "glow": "skin5-glow.png",
-   "glow2": "skin5-glow2.png"
+   "glows": [
+    "skin5-glow1.png",
+    "skin5-glow2.png",
+    "skin5-glow3.png",
+    "skin5-glow4.png"
+   ]
   },
   {
    "n": 6,
    "depth": 0.125,
    "base": "skin6-base.png",
-   "glow": "skin6-glow.png",
-   "glow2": "skin6-glow2.png"
+   "glows": [
+    "skin6-glow1.png",
+    "skin6-glow2.png",
+    "skin6-glow3.png",
+    "skin6-glow4.png"
+   ]
   },
   {
    "n": 7,
    "depth": 0.055,
    "base": "skin7-base.png",
-   "glow": "skin7-glow.png",
-   "glow2": "skin7-glow2.png"
+   "glows": [
+    "skin7-glow1.png",
+    "skin7-glow2.png",
+    "skin7-glow3.png",
+    "skin7-glow4.png"
+   ]
   },
   {
    "n": 8,
    "depth": 0.036,
    "base": "skin8-base.png",
-   "glow": "skin8-glow.png",
-   "glow2": "skin8-glow2.png"
+   "glows": [
+    "skin8-glow1.png",
+    "skin8-glow2.png",
+    "skin8-glow3.png",
+    "skin8-glow4.png"
+   ]
   },
   {
    "n": 9,
    "depth": 0.095,
    "base": "skin9-base.png",
-   "glow": "skin9-glow.png",
-   "glow2": "skin9-glow2.png"
+   "glows": [
+    "skin9-glow1.png",
+    "skin9-glow2.png",
+    "skin9-glow3.png",
+    "skin9-glow4.png"
+   ]
   },
   {
    "n": 10,
    "depth": 0.035,
    "base": "skin10-base.png",
-   "glow": "skin10-glow.png",
-   "glow2": "skin10-glow2.png"
+   "glows": [
+    "skin10-glow1.png",
+    "skin10-glow2.png",
+    "skin10-glow3.png",
+    "skin10-glow4.png"
+   ]
   },
   {
    "n": 11,
    "depth": 0,
    "base": "skin11-base.png",
-   "glow": "skin11-glow.png",
-   "glow2": "skin11-glow2.png"
+   "glows": [
+    "skin11-glow1.png",
+    "skin11-glow2.png",
+    "skin11-glow3.png",
+    "skin11-glow4.png"
+   ]
   },
   {
    "n": 12,
    "depth": 0,
    "base": "skin12-base.png",
-   "glow": "skin12-glow.png",
-   "glow2": "skin12-glow2.png"
+   "glows": [
+    "skin12-glow1.png",
+    "skin12-glow2.png",
+    "skin12-glow3.png",
+    "skin12-glow4.png"
+   ]
   },
   {
    "n": 13,
    "depth": 0.04,
    "base": "skin13-base.png",
-   "glow": "skin13-glow.png",
-   "glow2": "skin13-glow2.png"
+   "glows": [
+    "skin13-glow1.png",
+    "skin13-glow2.png",
+    "skin13-glow3.png",
+    "skin13-glow4.png"
+   ]
   },
   {
    "n": 14,
    "depth": 0.04,
    "base": "skin14-base.png",
-   "glow": "skin14-glow.png",
-   "glow2": "skin14-glow2.png"
+   "glows": [
+    "skin14-glow1.png",
+    "skin14-glow2.png",
+    "skin14-glow3.png",
+    "skin14-glow4.png"
+   ]
   },
   {
    "n": 15,
    "depth": 0.083,
    "base": "skin15-base.png",
-   "glow": "skin15-glow.png",
-   "glow2": "skin15-glow2.png"
+   "glows": [
+    "skin15-glow1.png",
+    "skin15-glow2.png",
+    "skin15-glow3.png",
+    "skin15-glow4.png"
+   ]
   },
   {
    "n": 16,
    "depth": 0.02,
    "base": "skin16-base.png",
-   "glow": "skin16-glow.png",
-   "glow2": "skin16-glow2.png"
+   "glows": [
+    "skin16-glow1.png",
+    "skin16-glow2.png",
+    "skin16-glow3.png",
+    "skin16-glow4.png"
+   ]
   },
   {
    "n": 17,
    "depth": 0.02,
    "base": "skin17-base.png",
-   "glow": "skin17-glow.png",
-   "glow2": "skin17-glow2.png"
+   "glows": [
+    "skin17-glow1.png",
+    "skin17-glow2.png",
+    "skin17-glow3.png",
+    "skin17-glow4.png"
+   ]
   },
   {
    "n": 18,
    "depth": 0.09,
    "base": "skin18-base.png",
-   "glow": "skin18-glow.png",
-   "glow2": "skin18-glow2.png"
+   "glows": [
+    "skin18-glow1.png",
+    "skin18-glow2.png",
+    "skin18-glow3.png",
+    "skin18-glow4.png"
+   ]
   },
   {
    "n": 19,
    "depth": 0.06,
    "base": "skin19-base.png",
-   "glow": "skin19-glow.png",
-   "glow2": "skin19-glow2.png"
+   "glows": [
+    "skin19-glow1.png",
+    "skin19-glow2.png",
+    "skin19-glow3.png",
+    "skin19-glow4.png"
+   ]
   },
   {
    "n": 20,
    "depth": 0.038,
    "base": "skin20-base.png",
-   "glow": "skin20-glow.png",
-   "glow2": "skin20-glow2.png"
+   "glows": [
+    "skin20-glow1.png",
+    "skin20-glow2.png",
+    "skin20-glow3.png",
+    "skin20-glow4.png"
+   ]
   },
   {
    "n": 21,
    "depth": 0.05,
    "base": "skin21-base.png",
-   "glow": "skin21-glow.png",
-   "glow2": "skin21-glow2.png"
+   "glows": [
+    "skin21-glow1.png",
+    "skin21-glow2.png",
+    "skin21-glow3.png",
+    "skin21-glow4.png"
+   ]
   },
   {
    "n": 22,
    "depth": 0.1,
    "base": "skin22-base.png",
-   "glow": "skin22-glow.png",
-   "glow2": "skin22-glow2.png"
+   "glows": [
+    "skin22-glow1.png",
+    "skin22-glow2.png",
+    "skin22-glow3.png",
+    "skin22-glow4.png"
+   ]
   },
   {
    "n": 23,
    "depth": 0.1,
    "base": "skin23-base.png",
-   "glow": "skin23-glow.png",
-   "glow2": "skin23-glow2.png"
+   "glows": [
+    "skin23-glow1.png",
+    "skin23-glow2.png",
+    "skin23-glow3.png",
+    "skin23-glow4.png"
+   ]
   },
   {
    "n": 24,
    "depth": 0,
    "base": "skin24-base.png",
-   "glow": "skin24-glow.png",
-   "glow2": "skin24-glow2.png"
+   "glows": [
+    "skin24-glow1.png",
+    "skin24-glow2.png",
+    "skin24-glow3.png",
+    "skin24-glow4.png"
+   ]
   },
   {
    "n": 25,
    "depth": 0,
    "base": "skin25-base.png",
-   "glow": "skin25-glow.png",
-   "glow2": "skin25-glow2.png"
+   "glows": [
+    "skin25-glow1.png",
+    "skin25-glow2.png",
+    "skin25-glow3.png",
+    "skin25-glow4.png"
+   ]
   },
   {
    "n": 26,
    "depth": 0.042,
    "base": "skin26-base.png",
-   "glow": "skin26-glow.png",
-   "glow2": "skin26-glow2.png"
+   "glows": [
+    "skin26-glow1.png",
+    "skin26-glow2.png",
+    "skin26-glow3.png",
+    "skin26-glow4.png"
+   ]
   },
   {
    "n": 27,
    "depth": 0.04,
    "base": "skin27-base.png",
-   "glow": "skin27-glow.png",
-   "glow2": "skin27-glow2.png"
+   "glows": [
+    "skin27-glow1.png",
+    "skin27-glow2.png",
+    "skin27-glow3.png",
+    "skin27-glow4.png"
+   ]
   },
   {
    "n": 28,
    "depth": 0.073,
    "base": "skin28-base.png",
-   "glow": "skin28-glow.png",
-   "glow2": "skin28-glow2.png"
+   "glows": [
+    "skin28-glow1.png",
+    "skin28-glow2.png",
+    "skin28-glow3.png",
+    "skin28-glow4.png"
+   ]
   },
   {
    "n": 29,
    "depth": 0.063,
    "base": "skin29-base.png",
-   "glow": "skin29-glow.png",
-   "glow2": "skin29-glow2.png"
+   "glows": [
+    "skin29-glow1.png",
+    "skin29-glow2.png",
+    "skin29-glow3.png",
+    "skin29-glow4.png"
+   ]
   },
   {
    "n": 30,
    "depth": 0.07,
    "base": "skin30-base.png",
-   "glow": "skin30-glow.png",
-   "glow2": "skin30-glow2.png"
+   "glows": [
+    "skin30-glow1.png",
+    "skin30-glow2.png",
+    "skin30-glow3.png",
+    "skin30-glow4.png"
+   ]
   },
   {
    "n": 31,
    "depth": 0.13,
    "base": "skin31-base.png",
-   "glow": "skin31-glow.png",
-   "glow2": "skin31-glow2.png"
+   "glows": [
+    "skin31-glow1.png",
+    "skin31-glow2.png",
+    "skin31-glow3.png",
+    "skin31-glow4.png"
+   ]
   },
   {
    "n": 32,
    "depth": 0.085,
    "base": "skin32-base.png",
-   "glow": "skin32-glow.png",
-   "glow2": "skin32-glow2.png"
+   "glows": [
+    "skin32-glow1.png",
+    "skin32-glow2.png",
+    "skin32-glow3.png",
+    "skin32-glow4.png"
+   ]
   },
   {
    "n": 33,
    "depth": 0.075,
    "base": "skin33-base.png",
-   "glow": "skin33-glow.png",
-   "glow2": "skin33-glow2.png"
+   "glows": [
+    "skin33-glow1.png",
+    "skin33-glow2.png",
+    "skin33-glow3.png",
+    "skin33-glow4.png"
+   ]
+  }
+ ],
+ "swatches": [
+  {
+   "id": "hexcore",
+   "file": "swatch-hexcore.png"
+  },
+  {
+   "id": "riptide",
+   "file": "swatch-riptide.png"
+  },
+  {
+   "id": "overclock",
+   "file": "swatch-overclock.png"
+  },
+  {
+   "id": "static",
+   "file": "swatch-static.png"
+  },
+  {
+   "id": "contour",
+   "file": "swatch-contour.png"
+  },
+  {
+   "id": "cascade",
+   "file": "swatch-cascade.png"
+  },
+  {
+   "id": "ghostcamo",
+   "file": "swatch-ghostcamo.png"
+  },
+  {
+   "id": "deepspace",
+   "file": "swatch-deepspace.png"
+  },
+  {
+   "id": "faultline",
+   "file": "swatch-faultline.png"
+  },
+  {
+   "id": "aurora",
+   "file": "swatch-aurora.png"
+  },
+  {
+   "id": "thunderhead",
+   "file": "swatch-thunderhead.png"
+  },
+  {
+   "id": "biolume",
+   "file": "swatch-biolume.png"
+  },
+  {
+   "id": "nightdrive",
+   "file": "swatch-nightdrive.png"
+  },
+  {
+   "id": "petalstorm",
+   "file": "swatch-petalstorm.png"
+  },
+  {
+   "id": "prismatic",
+   "file": "swatch-prismatic.png"
+  },
+  {
+   "id": "horizon",
+   "file": "swatch-horizon.png"
+  },
+  {
+   "id": "coldsnap",
+   "file": "swatch-coldsnap.png"
+  },
+  {
+   "id": "quicksilver",
+   "file": "swatch-quicksilver.png"
+  },
+  {
+   "id": "wyrmscale",
+   "file": "swatch-wyrmscale.png"
+  },
+  {
+   "id": "kaleido",
+   "file": "swatch-kaleido.png"
+  },
+  {
+   "id": "hoarfrost",
+   "file": "swatch-hoarfrost.png"
+  },
+  {
+   "id": "harvestmoon",
+   "file": "swatch-harvestmoon.png"
+  },
+  {
+   "id": "beacon",
+   "file": "swatch-beacon.png"
+  },
+  {
+   "id": "rainglass",
+   "file": "swatch-rainglass.png"
+  },
+  {
+   "id": "shallows",
+   "file": "swatch-shallows.png"
+  },
+  {
+   "id": "mirage",
+   "file": "swatch-mirage.png"
+  },
+  {
+   "id": "custompaint",
+   "file": "swatch-custompaint.png"
+  },
+  {
+   "id": "ember",
+   "file": "swatch-ember.png"
+  },
+  {
+   "id": "hexplate",
+   "file": "swatch-hexplate.png"
+  },
+  {
+   "id": "neonpulse",
+   "file": "swatch-neonpulse.png"
+  },
+  {
+   "id": "tracer",
+   "file": "swatch-tracer.png"
+  },
+  {
+   "id": "checkered",
+   "file": "swatch-checkered.png"
+  },
+  {
+   "id": "goldleaf",
+   "file": "swatch-goldleaf.png"
+  },
+  {
+   "id": "carbonprism",
+   "file": "swatch-carbonprism.png"
+  },
+  {
+   "id": "starlight",
+   "file": "swatch-starlight.png"
+  },
+  {
+   "id": "toxic",
+   "file": "swatch-toxic.png"
+  },
+  {
+   "id": "stormcell",
+   "file": "swatch-stormcell.png"
+  },
+  {
+   "id": "biobloom",
+   "file": "swatch-biobloom.png"
+  },
+  {
+   "id": "holofoil",
+   "file": "swatch-holofoil.png"
+  },
+  {
+   "id": "rime",
+   "file": "swatch-rime.png"
+  },
+  {
+   "id": "mercury",
+   "file": "swatch-mercury.png"
+  },
+  {
+   "id": "dragonhide",
+   "file": "swatch-dragonhide.png"
   }
  ]
 }

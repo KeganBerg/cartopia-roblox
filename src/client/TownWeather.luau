@@ -30,10 +30,12 @@ local clock = require(Game:WaitForChild("clock")) :: any
 local season = require(Game:WaitForChild("scene_season")) :: any
 local DayNight = require(script.Parent.DayNight)
 local TownCamera = require(script.Parent.TownCamera)
+local ClockShift = require(script.Parent.ClockShift)
 
 local TownWeather = {}
 
 local U = 10 -- studs per web unit (Catalog.SCALE, TownCamera.STUDS_PER_UNIT)
+local BOW_SEGMENTS = 16 -- straight pieces in each band of the rainbow
 
 -- Weather.tsx SIZES: how many drops, splashes and flakes at full strength (small: phones).
 -- Roblox draws particles on the CPU's side of the budget, so the town keeps half the web's drops.
@@ -56,9 +58,10 @@ local DUST_SUN = Color3.fromHex("#ffb070")
 local HEAT_SUN = Color3.fromHex("#fff1d0")
 local BOLT = Color3.fromHex("#eef0ff")
 
--- Built-in particle pictures every Roblox client has: a star (squashed into a streak for rain),
--- a soft round glow (snowflakes) and a ring (splashes).
-local TEX_RAIN = "rbxasset://textures/particles/sparkles_main.dds"
+-- Built-in particle pictures every Roblox client has: a soft round glow (squashed into a streak
+-- for rain, and as it is for snowflakes) and a ring (splashes). The rain used to be a squashed
+-- star, whose thin arms all but vanished from the town view: the rain barely read as rain.
+local TEX_RAIN = "rbxasset://textures/particles/forcefield_glow_main.dds"
 local TEX_SNOW = "rbxasset://textures/particles/forcefield_glow_main.dds"
 local TEX_RING = "rbxasset://textures/particles/explosion01_shockwave_main.dds"
 
@@ -226,8 +229,11 @@ local function light(w: any, night: number, fx: { banks: number, low: number, ra
 	local k = clamp01(math.max(far, fx.banks * (1 - 0.35 * fx.low)))
 	if air then
 		local haze = TownWeather.hazeColor(w, night)
+		-- DayNight thins the air the further back the camera stands (0.08 by the streets), so the
+		-- weather's haze thins with it: from the town view a shower used to drown the town in murk.
 		nudge(air, "Density", function(v)
-			return v + (0.42 - v) * k
+			local thick = 0.42 * math.clamp(v / 0.08, 0, 1)
+			return v + (thick - v) * k
 		end)
 		nudge(air, "Haze", function(v)
 			return v + (2.6 - v) * k
@@ -255,7 +261,7 @@ type Kit = {
 	splash: ParticleEmitter,
 	bolt: { Beam },
 	boltAt: { Attachment },
-	bow: { Beam },
+	bow: { { Beam } },
 	bowAt: { { Attachment } },
 }
 local kit: Kit? = nil
@@ -331,23 +337,32 @@ local function build(): Kit
 		b.Parent = anchor
 		table.insert(bolt, b)
 	end
-	-- The rainbow: six bands of the main bow and six of the faint second bow outside it.
+	-- The rainbow: six bands of the main bow and six of the faint second bow outside it. Each band
+	-- is a chain of short straight beams round a half circle (one curved beam per band drew as a
+	-- few straight lines with corners from far off).
 	local bow, bowAt = {}, {}
 	for i = 1, 12 do
-		local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
-		a0.Name, a1.Name = `Bow{i}a`, `Bow{i}b`
-		a0.Parent, a1.Parent = anchor, anchor
-		local b = Instance.new("Beam")
-		b.Name = `Bow{i}`
-		b.Attachment0, b.Attachment1 = a0, a1
-		b.FaceCamera = true
-		b.LightEmission = 1
-		b.LightInfluence = 0
-		b.Segments = 24
-		b.Enabled = false
-		b.Parent = anchor
-		table.insert(bow, b)
-		table.insert(bowAt, { a0, a1 })
+		local ats, beams = {}, {}
+		for j = 0, BOW_SEGMENTS do
+			local a = Instance.new("Attachment")
+			a.Name = `Bow{i}_{j}`
+			a.Parent = anchor
+			table.insert(ats, a)
+		end
+		for j = 1, BOW_SEGMENTS do
+			local b = Instance.new("Beam")
+			b.Name = `Bow{i}_{j}`
+			b.Attachment0, b.Attachment1 = ats[j], ats[j + 1]
+			b.FaceCamera = true
+			b.LightEmission = 1
+			b.LightInfluence = 0
+			b.Segments = 1
+			b.Enabled = false
+			b.Parent = anchor
+			table.insert(beams, b)
+		end
+		table.insert(bow, beams)
+		table.insert(bowAt, ats)
 	end
 	folder.Parent = workspace
 	return { folder = folder, sky = sky, ground = ground, anchor = anchor, rain = rain, snow = snow, splash = splash, bolt = bolt, boltAt = boltAt, bow = bow, bowAt = bowAt }
@@ -460,15 +475,20 @@ local function precip(k: Kit, w: any, night: number, fr: Frame, sizes: { rain: n
 	local fall = fr.top / rainV.Magnitude
 	local alive = sizes.rain * rain
 	local len = 1.3 * U * (0.6 + 0.4 * w.rain)
-	local opacity = math.min(1, 0.32 + 0.25 * w.rain + (w.flash or 0) * 0.3)
+	-- The glow is soft, its edges see-through, so it carries a little more than the web's streak.
+	local opacity = math.min(1, 0.55 + 0.3 * w.rain + (w.flash or 0) * 0.3)
 	local rainColor = RAIN_DAY:Lerp(RAIN_NIGHT, night)
 	for _, e in k.rain do
 		e.Enabled = alive > 1
 		e.Rate = alive / fall / #k.rain
 		e.Lifetime = NumberRange.new(fall * 0.95, fall * 1.05)
 		e.Speed = NumberRange.new(rainV.Magnitude)
-		-- Squash 3 makes a particle about four times taller and a quarter as wide.
-		e.Size = NumberSequence.new(math.max(len / 4, fr.px * 1.5))
+		-- Squash 3 makes a particle about four times taller and a quarter as wide. The web draws
+		-- 1.5 pixels wide; the glow's visible core is only about half its square, and Roblox drops
+		-- anything thinner than a pixel or so, so from the town view it's kept three pixels across
+		-- (a streak about 30 pixels long, as the web's). On foot it is that much thicker than the
+		-- web's thin streak, so the core comes out the web's width.
+		e.Size = NumberSequence.new(if fr.free then math.max(len / 4 * 1.5, fr.px * 6) else math.max(len / 4, fr.px * 12))
 		e.Color = ColorSequence.new(rainColor)
 		e.Transparency = seq({ { 0, 1 }, { 0.06, 1 - opacity }, { 1, 1 - opacity } })
 	end
@@ -596,8 +616,10 @@ local function hue(h: number): Color3
 end
 local function rainbow(k: Kit, o: number, cam: Camera, origin: Vector3)
 	local on = o > 0.01
-	for _, b in k.bow do
-		b.Enabled = on
+	for _, band in k.bow do
+		for _, b in band do
+			b.Enabled = on
+		end
 	end
 	if not on then
 		return
@@ -609,25 +631,31 @@ local function rainbow(k: Kit, o: number, cam: Camera, origin: Vector3)
 	local pull = math.min(d * 0.4, 200)
 	local s = (d - pull) / math.max(d, 1)
 	local feet = origin - up * BOW_RADIUS * 0.25 * s - fwd * pull
+	-- How much of a band shows at t (0 and 1 its feet): faded towards the ground, as the web's.
+	local function shown(t: number): number
+		local e = math.min(t, 1 - t)
+		return if e < 0.08 then 0 elseif e < 0.18 then (e - 0.08) / 0.1 else 1
+	end
 	for i = 1, 12 do
 		local second = i > 6
 		local j = if second then i - 6 else i
 		local b = (j - 0.5) / 6
 		local r = (if second then 1.1 + b * 0.09 else 0.96 - b * 0.1) * BOW_RADIUS * s
 		local a = (if second then 0.35 else 1) * math.sin(b * math.pi) * o * 0.55
-		local beam = k.bow[i]
-		local a0, a1 = k.bowAt[i][1], k.bowAt[i][2]
-		-- Each band is a half circle: a cubic curve from one foot to the other, its handles
-		-- straight up 4/3 of the radius (the attachments' X axis points up the screen).
-		place(k, a0, CFrame.fromMatrix(feet - right * r, up, right))
-		place(k, a1, CFrame.fromMatrix(feet + right * r, up, right))
-		beam.CurveSize0 = r * 4 / 3
-		beam.CurveSize1 = -r * 4 / 3
 		local w = (if second then 0.09 else 0.1) * BOW_RADIUS * s / 6 * 1.15
-		beam.Width0, beam.Width1 = w, w
-		beam.Color = ColorSequence.new(hue(b * 0.78))
-		local tr = 1 - a
-		beam.Transparency = seq({ { 0, 1 }, { 0.08, 1 - a * 0.3 }, { 0.18, tr }, { 0.82, tr }, { 0.92, 1 - a * 0.3 }, { 1, 1 } })
+		local colour = ColorSequence.new(hue(b * 0.78))
+		local ats = k.bowAt[i]
+		for n = 0, BOW_SEGMENTS do
+			local t = n / BOW_SEGMENTS
+			local ang = math.pi * t
+			place(k, ats[n + 1], CFrame.new(feet - right * (r * math.cos(ang)) + up * (r * math.sin(ang))))
+		end
+		for n, beam in k.bow[i] do
+			local t0, t1 = (n - 1) / BOW_SEGMENTS, n / BOW_SEGMENTS
+			beam.Width0, beam.Width1 = w, w
+			beam.Color = colour
+			beam.Transparency = seq({ { 0, 1 - a * shown(t0) }, { 1, 1 - a * shown(t1) } })
+		end
 	end
 end
 
@@ -815,7 +843,7 @@ function TownWeather.start()
 	local t0 = os.clock()
 	-- After DayNight's own step, so the nudges land on this frame's light.
 	RunService:BindToRenderStep("TownWeather", Enum.RenderPriority.Camera.Value + 2, function()
-		TownWeather.step(DateTime.now().UnixTimestampMillis, os.clock() - t0)
+		TownWeather.step(ClockShift.now(), os.clock() - t0)
 	end)
 end
 

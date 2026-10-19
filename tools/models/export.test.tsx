@@ -13,7 +13,7 @@ import { it, vi } from 'vitest'
 import ReactThreeTestRenderer from '@react-three/test-renderer'
 import {
   Color, Euler, InstancedMesh, Matrix4, Mesh, Quaternion, Vector3,
-  type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D,
+  type BoxGeometry, type BufferGeometry, type Material, type MeshBasicMaterial, type MeshStandardMaterial, type Object3D, type PlaneGeometry,
 } from 'three'
 import { BUILDINGS, CARS } from './game/data'
 
@@ -50,6 +50,17 @@ vi.mock('./scene/SkyEnv', async (load) => ({ ...((await load()) as object), SkyE
 // The Speedway's race and crowd (SpeedwayLife.tsx) move every frame, so the game draws them on each
 // player's own screen (client/SpeedwayLife.luau) instead of baking one still frame into the model.
 vi.mock('./scene/SpeedwayLife', async (load) => ({ ...((await load()) as object), SpeedwayLife: () => null }))
+// The nightclub's dancers, bouncer and searchlights (ClubLife.tsx) too: client/ClubLife.luau.
+vi.mock('./scene/ClubLife', async (load) => ({ ...((await load()) as object), ClubLife: () => null }))
+// So do the campuses' people and learner cars (CampusLife.tsx Crowd and StudentCars, drawn by
+// client/CampusLife.luau; the parked LearnerCars stay in the model) and the funfair's visitors
+// (FairCrowd.tsx, client/FairCrowd.luau). Left in, they'd be baked where their first frame put them:
+// the campus crowds and the class all piled up at the middle of the lot.
+vi.mock('./scene/CampusLife', async (load) => ({ ...((await load()) as object), Crowd: () => null, StudentCars: () => null }))
+vi.mock('./scene/FairCrowd', async (load) => ({ ...((await load()) as object), FairCrowd: () => null }))
+// So do the countryside lake's fisherman, gulls and ducks (LakeLife.tsx): client/LakeLife.luau. Until
+// the next conversion the forest still has one still frame of them, which that hides.
+vi.mock('./scene/LakeLife', async (load) => ({ ...((await load()) as object), LakeLife: () => null }))
 
 // --- A canvas that remembers what was painted on it ---------------------------------------
 // Signs and other painted textures are drawn on 2D canvases. jsdom has none, so this records
@@ -296,10 +307,12 @@ const visible = (o: Object3D, root: Object3D) => {
 }
 
 // One drawn piece: its geometry (by id), where it is, and how it looks.
-type Piece = { g: number; group?: number; m: number[]; look: Look }
+type Piece = { g: number; group?: number; m: number[]; look: Look; spin?: number }
 
 type Geo = { type: string; params: Record<string, unknown>; pos: number[]; idx: number[]; nrm?: number[]; col?: number[] }
 
+// Per list of shapes: the same shape drawn again maps to the id it already has in that list.
+const sameShapes = new WeakMap<Geo[], Map<string, number>>()
 function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[]) {
   root.updateMatrixWorld(true)
   const inv = new Matrix4().copy(root.matrixWorld).invert()
@@ -318,10 +331,21 @@ function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[])
     const c = g.getAttribute('color')
     const col: number[] | undefined = c ? [] : undefined
     if (c && col) for (let i = 0; i < c.count; i++) col.push(r4(c.getX(i)), r4(c.getY(i)), r4(c.getZ(i)))
-    id = geoList.length
-    geoList.push({ type: g.type, params: { ...((g as { parameters?: Record<string, unknown> }).parameters ?? {}) }, pos: p, idx, nrm, col })
+    const params = { ...((g as { parameters?: Record<string, unknown> }).parameters ?? {}) }
     // Material groups: which triangles each material slot draws.
-    ;(geoList[id] as Geo & { groups?: { start: number; count: number; materialIndex: number }[] }).groups = g.groups.map((x) => ({ start: x.start, count: x.count, materialIndex: x.materialIndex ?? 0 }))
+    const groups = g.groups.map((x) => ({ start: x.start, count: x.count, materialIndex: x.materialIndex ?? 0 }))
+    // Each render makes its shapes afresh: the same shape drawn again (a building at its next
+    // level) is kept once, so its pieces compare equal.
+    const sum = createHash('sha1').update(JSON.stringify([g.type, params, p, idx, nrm, col, groups])).digest('hex')
+    let sameShape = sameShapes.get(geoList)
+    if (!sameShape) sameShapes.set(geoList, (sameShape = new Map()))
+    id = sameShape.get(sum)
+    if (id === undefined) {
+      id = geoList.length
+      geoList.push({ type: g.type, params, pos: p, idx, nrm, col })
+      ;(geoList[id] as Geo & { groups?: { start: number; count: number; materialIndex: number }[] }).groups = groups
+      sameShape.set(sum, id)
+    }
     geos.set(g, id)
     return id
   }
@@ -333,6 +357,7 @@ function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[])
     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
     const base = new Matrix4().multiplyMatrices(inv, mesh.matrixWorld)
     const emit = (m: Matrix4, tint?: Color) => {
+      const start = out.length
       const groups = mesh.geometry.groups
       if (Array.isArray(mesh.material) && groups.length) {
         groups.forEach((gr, gi) => {
@@ -343,6 +368,9 @@ function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[])
         const look = lookOf(mats[0], tint)
         if (look) out.push({ g, m: m.elements.map(r4), look })
       }
+      // A turning part (a fly-over's rotor or prop): which of the model's spinners it belongs to.
+      const spin = mesh.userData.rbxSpin as number | undefined
+      if (spin !== undefined) for (let k = start; k < out.length; k++) out[k].spin = spin
     }
     const inst = mesh as InstancedMesh
     if (inst.isInstancedMesh) {
@@ -468,7 +496,7 @@ const OUT = process.env.RBX_MODELS_OUT ?? 'rbx-models.json'
 it('exports every building and car', async () => {
   const geos = new Map<BufferGeometry, number>()
   const geoList: Geo[] = []
-  const models: { id: string; kind: string; level?: number; pieces: Piece[]; paint?: number[] }[] = []
+  const models: { id: string; kind: string; level?: number; block?: string; lot?: number[]; pieces: Piece[]; paint?: number[] }[] = []
   // The far land's wind turbines, for the rotors client/Horizon spins: [x, y, z, yaw, tint].
   const turbines: number[][] = []
   const { BuildingModel } = await import('./scene/BuildingModel')
@@ -515,15 +543,52 @@ it('exports every building and car', async () => {
     textures.push({ key: `pattern_${id}`, name, file: `${name}.png`, span })
   }
   if (process.env.RBX_ONLY === 'textures') return void writeFileSync(OUT, JSON.stringify({ textures }))
-  const LEVELS = (process.env.RBX_LEVELS ?? '1').split(',').map(Number)
+  // Every building at every level, alone and merged. Most buildings have their own design at each
+  // level (a storey, an awning, a sign, a roof garden), so each is drawn at all ten. A merged block
+  // is drawn as World.tsx's BuildingLot draws it: the model inside the block's scale, told that
+  // scale (MergeScale) so a pair lays out more windows along its length and props, people and
+  // cars keep their true size. Shapes: a pair along the model's own x or z, and a 2x2 (a 4x4 is
+  // the 2x2 grown twice over; a 2x4 is two 2x2s side by side: game/merge.ts groupParts).
+  // A model drawn the same as at the level below isn't kept: the game falls back to the nearest
+  // level below (Builder.buildingName). RBX_LEVELS=1,4 draws only those levels (a quicker run).
+  const LEVELS = (process.env.RBX_LEVELS ?? '1,2,3,4,5,6,7,8,9,10').split(',').map(Number)
   // RBX_ONLY=outskirts skips the buildings, cars and street pieces (a quicker run while working on
-  // the countryside).
+  // the countryside); RBX_ONLY=buildings draws only the buildings.
   const only = process.env.RBX_ONLY
-  // The Speedway grows with its level (taller glass, a canopy from 4, the upper deck from 7 that
-  // the fans in client/SpeedwayLife.luau stand on), so it's drawn at every level.
-  const levelsOf = (id: string) => (id === 'stadium' ? [...new Set([...LEVELS, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])].sort((a, b) => a - b) : LEVELS)
-  if (!only) for (const d of BUILDINGS) {
-    for (const level of levelsOf(d.id)) models.push({ id: d.id, kind: 'building', level, lot: [d.w * TILE, d.h * TILE], pieces: await render(<BuildingModel def={d} level={level} />) })
+  const { MergeScale, KeepShapes } = await import('./scene/mergeScale')
+  const { limitFor } = await import('./scene/keepShape')
+  const { mergeable } = await import('./game/merge')
+  const BLOCKS: [number, number, number][] = [[1, 1, 1], [2, 1, 1], [1, 1, 2], [2, 2, 2]]
+  if (!only || only === 'buildings') for (const d of BUILDINGS) {
+    const last = new Map<string, string>()
+    for (const level of LEVELS) {
+      for (const scale of BLOCKS) {
+        const one = scale[0] === 1 && scale[2] === 1
+        if (!one && !mergeable(d.id)) continue
+        const pieces = await render(
+          one ? <BuildingModel def={d} level={level} /> : (
+            <group scale={scale}>
+              <MergeScale.Provider value={scale}>
+                <KeepShapes limit={limitFor(d)}>
+                  <BuildingModel def={d} level={level} />
+                </KeepShapes>
+              </MergeScale.Provider>
+            </group>
+          ),
+        )
+        const block = one ? undefined : scale.join('x')
+        const key = JSON.stringify(pieces)
+        if (last.get(block ?? '') === key) continue
+        last.set(block ?? '', key)
+        models.push({ id: d.id, kind: 'building', level, block, lot: [d.w * TILE * scale[0], d.h * TILE * scale[2]], pieces })
+      }
+    }
+  }
+  if (only === 'buildings') {
+    const fd = openSync(`${OUT}.geos`, 'w')
+    for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
+    closeSync(fd)
+    return void writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, textures }))
   }
   // Mods (CarMods.tsx, the Rims and Stance looks): each car drawn with one part fitted at a time
   // and compared with the stock car. The pieces the part adds are its model ("mod:<car>:<part>"),
@@ -573,6 +638,8 @@ it('exports every building and car', async () => {
   }
   const modDrops: Record<string, Record<string, number[]>> = {}
   const wheelsOf: Record<string, number[]> = {}
+  // Each fly-over's turning parts (rotors, props): where it turns about, the axis, how fast, and its pieces.
+  const spinsOf: Record<string, { at: number[]; axis: number[]; speed: number; pieces: number[] }[]> = {}
   const rimsOf: Record<string, number[]> = {}
   // Custom panel paint (panelPaint.ts): the hood, the doors and the roof can each have their own
   // colour and pattern. The web's shader picks the panel per pixel from where it is on the body;
@@ -750,8 +817,9 @@ it('exports every building and car', async () => {
   const { PLOT_MIN, PLOT_MAX } = await import('./game/data')
   const plots: string[] = []
   for (let x = PLOT_MIN; x <= PLOT_MAX; x++) for (let z = PLOT_MIN; z <= PLOT_MAX; z++) plots.push(`${x},${z}`)
-  // The lake's fisherman, his rowboat and the gulls (LakeLife.tsx) are only put in place by their
-  // useFrame, so the forest is drawn a few frames in; until then they sat at the town's middle.
+  // The forest is drawn a few frames in, for anything its useFrames put in place (the lake's
+  // fisherman, rowboat and gulls were, before LakeLife.tsx was left out above: until then they sat
+  // at the town's middle).
   const { useThree: useOutskirtsThree } = await import('@react-three/fiber')
   const outskirtsState: { now?: { internal: { subscribers: { ref: { current: (s: unknown, dt: number) => void } }[] } } } = {}
   const GrabOutskirts = () => {
@@ -796,30 +864,55 @@ it('exports every building and car', async () => {
     const { Airliner, BannerPlane, Blimp, NewsHeli, LIVERIES, BANNERS, airlinerGeo, rocketGeo, flyMat } = await import('./scene/FlyByModels')
     const { BalloonModel } = await import('./scene/Balloon')
     const { signTexture } = await import('./scene/signTexture')
-    const one = async (id: string, el: React.ReactElement, prep?: (root: Object3D) => void) => {
+    const { heliParts } = await import('./scene/ServiceVehicles')
+    // spin picks out the parts that turn (useFrame in FlyByModels.tsx): the axis they turn about,
+    // in their own frame, and how fast (radians a second).
+    type V3 = [number, number, number]
+    type Spin = (o: Mesh) => [V3, number] | null
+    const one = async (id: string, el: React.ReactElement, prep?: (root: Object3D) => void, spin?: Spin) => {
       const r = await ReactThreeTestRenderer.create(el)
       const root = r.scene.instance as Object3D
       root.traverse((o) => {
         if ((o as Mesh).isMesh && ((o as Mesh).material as { isShaderMaterial?: boolean }).isShaderMaterial) o.visible = false
       })
       prep?.(root)
-      models.push({ id, kind: 'piece', pieces: walk(root, geos, geoList) })
+      root.updateMatrixWorld(true)
+      const inv = new Matrix4().copy(root.matrixWorld).invert()
+      const spins: { at: V3; axis: V3; speed: number }[] = []
+      if (spin) root.traverse((o) => {
+        const s = (o as Mesh).isMesh && spin(o as Mesh)
+        if (!s) return
+        const m = new Matrix4().multiplyMatrices(inv, o.matrixWorld)
+        const p = new Vector3().setFromMatrixPosition(m)
+        const axis = new Vector3(...s[0]).transformDirection(m)
+        o.userData.rbxSpin = spins.length
+        spins.push({ at: [r4(p.x), r4(p.y), r4(p.z)], axis: [r4(axis.x), r4(axis.y), r4(axis.z)], speed: s[1] })
+      })
+      const pieces = walk(root, geos, geoList)
+      models.push({ id, kind: 'piece', pieces })
+      if (spins.length)
+        spinsOf[id] = spins.map((s, k) => ({ ...s, pieces: pieces.flatMap((p, i) => (p.spin === k ? [i] : [])) }))
       await r.unmount()
     }
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-3
+    const heliSpin: Spin = (o) => (o.geometry === heliParts.blades ? [[0, 1, 0], 28] : o.geometry === heliParts.tail ? [[1, 0, 0], 28 * 1.6] : null)
+    // The banner plane's prop sits on its nose; the blimp's two hang either side of its gondola.
+    const bannerSpin: Spin = (o) => (near(o.position.z, 0.6) && near(o.position.x, 0) && near(o.position.y, 0) ? [[0, 0, 1], 45] : null)
+    const blimpSpin: Spin = (o) => (near(Math.abs(o.position.x), 0.32) && near(o.position.y, -0.6) ? [[0, 0, 1], 20] : null)
     for (let i = 0; i < LIVERIES.length; i++)
       await one(`fly:plane:${i + 1}`, <group scale={0.9}><Airliner livery={{ current: i }} /></group>, (root) =>
         root.traverse((o) => {
           if ((o as Mesh).isMesh && (o as Mesh).geometry === airlinerGeo(0)) (o as Mesh).geometry = airlinerGeo(i)
         }))
-    await one('fly:heli', <group scale={1.2}><NewsHeli /></group>)
+    await one('fly:heli', <group scale={1.2}><NewsHeli /></group>, undefined, heliSpin)
     for (let i = 0; i < BANNERS.length; i++) await one(`fly:banner:${i + 1}`, <group scale={1.3}><BannerPlane message={{ current: i }} /></group>, (root) => {
       // The banner's lettering is set on its first frame: set it now.
       root.traverse((o) => {
         const m = (o as Mesh).material as MeshStandardMaterial | undefined
         if (m && !Array.isArray(m) && m.map && m.type === 'MeshStandardMaterial' && m !== flyMat) m.map = signTexture(BANNERS[i], '#ffffff', '#d32f2f', 5.2)
       })
-    })
-    await one('fly:blimp', <group scale={1.4}><Blimp /></group>)
+    }, bannerSpin)
+    await one('fly:blimp', <group scale={1.4}><Blimp /></group>, undefined, blimpSpin)
     const COLOURS = [['#e53935', '#fdd835'], ['#1e88e5', '#ffffff'], ['#43a047', '#ff7043'], ['#8e24aa', '#ffca28']]
     for (let i = 0; i < COLOURS.length; i++) await one(`fly:balloon:${i + 1}`, <group scale={0.27}><BalloonModel c={COLOURS[i]} /></group>)
     await one('fly:rocket', (
@@ -898,6 +991,67 @@ it('exports every building and car', async () => {
         }
       })
       if (!turbines.length) throw new Error('horizon: no wind turbine rotors found')
+      // The towns share one world (server/World): a square of ground reaching RBX_WORLD_REACH
+      // studs each way, where the web game has one town's meadow. The land is pushed out to start
+      // at its edge: each point moves out along its bearing, the terrain's inner edge (R0, flat
+      // and just under the meadow) onto the square's edge and R1 left where it is, so the slopes
+      // rise straight from the world's ground with nothing missing under the hills. Heights stay
+      // as they are; trees, towers and rotors move with the ground under them, unstretched.
+      const { R0, R1 } = await import('./scene/horizonLand')
+      const half = Number(process.env.RBX_WORLD_REACH ?? 0) / 10 - 2
+      if (half > 0) {
+        const out = (x: number, z: number): [number, number] => {
+          const r = Math.hypot(x, z)
+          if (r < 1e-6) return [x, z]
+          const c = Math.abs(x) / r, s = Math.abs(z) / r
+          const edge = half / Math.max(c, s)
+          const to = r <= R0 ? (r * edge) / R0 : edge + ((r - R0) * (R1 - edge)) / (R1 - R0)
+          return [(x * to) / r, (z * to) / r]
+        }
+        root.updateMatrixWorld(true)
+        const m = new Matrix4(), inv = new Matrix4(), v = new Vector3(), at = new Vector3(), q = new Quaternion(), sc = new Vector3()
+        root.traverse((o) => {
+          const mesh = o as InstancedMesh
+          if (!mesh.isMesh || !visible(o, root)) return
+          if (mesh.isInstancedMesh) {
+            for (let i = 0; i < mesh.count; i++) {
+              mesh.getMatrixAt(i, m)
+              v.setFromMatrixPosition(m).applyMatrix4(mesh.matrixWorld)
+              const [x, z] = out(v.x, v.z)
+              v.set(x, v.y, z).applyMatrix4(inv.copy(mesh.matrixWorld).invert())
+              m.decompose(at, q, sc)
+              m.compose(v, q, sc)
+              mesh.setMatrixAt(i, m)
+            }
+            mesh.instanceMatrix.needsUpdate = true
+            return
+          }
+          const g = mesh.geometry
+          if (!g.boundingSphere) g.computeBoundingSphere()
+          if ((g.boundingSphere?.radius ?? 0) > 30) {
+            // Ground-sized (the terrain, the water, the highway): every point moves.
+            const geo = (mesh.geometry = g.clone())
+            const pos = geo.getAttribute('position')
+            inv.copy(mesh.matrixWorld).invert()
+            for (let i = 0; i < pos.count; i++) {
+              v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld)
+              const [x, z] = out(v.x, v.z)
+              v.set(x, v.y, z).applyMatrix4(inv)
+              pos.setXYZ(i, v.x, v.y, v.z)
+            }
+            geo.computeBoundingSphere()
+          } else {
+            // A small thing (a mast, a beacon): the whole of it moves.
+            v.setFromMatrixPosition(mesh.matrixWorld)
+            const [x, z] = out(v.x, v.z)
+            const shift = new Vector3(x - v.x, 0, z - v.z)
+            if (mesh.parent) shift.transformDirection(inv.copy(mesh.parent.matrixWorld).invert()).multiplyScalar(Math.hypot(x - v.x, z - v.z))
+            mesh.position.add(shift)
+            mesh.updateMatrixWorld(true)
+          }
+        })
+        for (const t of turbines) [t[0], t[2]] = out(t[0], t[2]).map(r4) as [number, number]
+      }
       // The sky dome (a shader sphere): Roblox shows the baked skybox instead.
       const pieces = walk(root, geos, geoList).filter((p) => {
         const g = geoList[p.g]
@@ -999,6 +1153,91 @@ it('exports every building and car', async () => {
     }
     batching.off = false
   }
+  // Rusty's search lot at each spot (RescueScene.tsx), laid out for 8 to 11 spots as the tow
+  // truck's levels give them, on a wide screen (a Roblox phone is held sideways): the ground, the
+  // dirt loop, the spots' pads, the yard round it and the spot's own scenery (RescueYard,
+  // LotScenery) and Rusty himself, as "rescue:<spot>:<n>". What moves is drawn by the game
+  // (client/RescueLot): each spot's tarp ("rescue:tarp:<spot>:<k>", one per tarp shape, in the
+  // spot's colours), the tow truck with its crane post ("rescue:truck") and the small finds
+  // ("rescue:loot:<kind>").
+  if (!only || only === 'rescue') await rescues()
+  async function rescues() {
+    const { RescueScene } = await import('./scene/RescueScene')
+    const { RESCUE_SPOTS, TRUCK } = await import('./game/data')
+    const counts = [...new Set(TRUCK.map((t: { pins: number }) => t.pins))]
+    const scene = async (spot: string, pins: unknown[], revealed: boolean[]) => {
+      const search = { spot, pins, revealed, truckAt: null, flatAt: null, flat: false }
+      const r = await ReactThreeTestRenderer.create(
+        <RescueScene search={search as never} magnet={false} fast={false} auto={false} leaving={false} onArrive={() => {}} onFound={() => {}} onLeft={() => {}} onBusy={() => {}} />,
+        { width: 1280, height: 800 },
+      )
+      await r.advanceFrames(2, 1 / 60)
+      return r
+    }
+    const isMesh = (o: Object3D, type: string) => ((o as Mesh).geometry as { type?: string } | undefined)?.type === type
+    const has = (o: Object3D, test: (c: Object3D) => boolean) => {
+      let found = false
+      o.traverse((c) => void (found ||= test(c)))
+      return found
+    }
+    // A search spot: its first child is the big invisible tap target.
+    const isSpot = (o: Object3D) => isMesh(o.children[0] ?? o, 'CylinderGeometry') && (((o.children[0] as Mesh).geometry as { parameters?: { radiusTop?: number } }).parameters?.radiusTop === 1.3)
+    // The tow truck: the group with the flashing amber beacons on its cab roof.
+    const isTruck = (o: Object3D) => has(o, (c) => isMesh(c, 'BoxGeometry') && ((c as Mesh).geometry as BoxGeometry).parameters.width === 0.12 && ((c as Mesh).geometry as BoxGeometry).parameters.height === 0.07)
+    const count = (o: Object3D) => {
+      let n = 0
+      o.traverse(() => n++)
+      return n
+    }
+    batching.off = true
+    for (const sp of RESCUE_SPOTS) {
+      for (const n of counts) {
+        const r = await scene(sp.id, Array.from({ length: n }, () => ({ kind: 'nothing' })), Array.from({ length: n }, () => false))
+        const root = r.scene.instance as Object3D
+        const kids = root.children
+        // The lot itself: the biggest group (everything merged into a few draws in the web game).
+        const yard = kids.reduce((a, b) => (count(b) > count(a) ? b : a))
+        const ground = kids.find((o) => isMesh(o, 'PlaneGeometry') && ((o as Mesh).geometry as PlaneGeometry).parameters.width >= 100)
+        const rusty = kids.find((o) => o !== yard && !isSpot(o) && has(o, (c) => isMesh(c, 'CapsuleGeometry')))
+        const keep = new Set([yard, ground, rusty].filter(Boolean))
+        const shown = kids.map((o) => o.visible)
+        kids.forEach((o) => (o.visible = keep.has(o)))
+        const pieces = walk(root, geos, geoList)
+        kids.forEach((o, i) => (o.visible = shown[i]))
+        models.push({ id: `rescue:${sp.id}:${n}`, kind: 'race', pieces })
+        if (n === counts[0]) {
+          // The tarps, each without its turn to face the road (the game turns it).
+          const spots = kids.filter(isSpot)
+          for (let k = 0; k < 3; k++) {
+            const turned = spots[k].children[1].children[0]
+            models.push({ id: `rescue:tarp:${sp.id}:${k}`, kind: 'piece', pieces: walk(turned, geos, geoList) })
+          }
+          if (sp === RESCUE_SPOTS[0]) {
+            // The truck with an empty bed, without the soft shadow under it.
+            const truck = kids.find(isTruck)!
+            truck.traverse((c) => {
+              if (isMesh(c, 'PlaneGeometry')) c.visible = false
+            })
+            models.push({ id: 'rescue:truck', kind: 'piece', pieces: walk(truck, geos, geoList) })
+          }
+        }
+        console.log(`rescue:${sp.id}:${n}: ${pieces.length} pieces`)
+        await r.unmount()
+      }
+    }
+    // The small finds, as they ride in the truck's bed (found before the scene came up, so loaded
+    // at once): each bed slot holds one, drawn at half size.
+    const smalls = ['coins', 'parts', 'fuel', 'trophy'] as const
+    const pins = [...smalls.map((kind) => (kind === 'trophy' ? { kind } : { kind, n: 1 })), ...Array.from({ length: counts[0] - smalls.length }, () => ({ kind: 'nothing' }))]
+    const r = await scene(RESCUE_SPOTS[0].id, pins, pins.map((_, i) => i < smalls.length))
+    const truck = (r.scene.instance as Object3D).children.find(isTruck)!
+    const scaled = truck.children[0]
+    const slots = scaled.children.filter((o) => !(o as Mesh).isMesh && Math.abs(o.scale.x - 0.5) < 1e-6)
+    if (slots.length !== smalls.length) throw new Error(`rescue loot: ${slots.length} bed slots`)
+    slots.forEach((slot, i) => models.push({ id: `rescue:loot:${smalls[i]}`, kind: 'piece', pieces: walk(slot, geos, geoList) }))
+    await r.unmount()
+    batching.off = false
+  }
   // Each car's size in town traffic (townCarSize.ts): drawn smaller so it fits its lane.
   const { townSize, bodyScale } = await import('./scene/townCarSize')
   const townSizes: Record<string, [number, number, number]> = {}
@@ -1011,7 +1250,7 @@ it('exports every building and car', async () => {
   const fd = openSync(`${OUT}.geos`, 'w')
   for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
   closeSync(fd)
-  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, turbines, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, spinsOf, stanceOf, panelDrops, trimOf, townSizes, turbines, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

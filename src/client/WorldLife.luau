@@ -18,6 +18,7 @@ local data = require(Game:WaitForChild("data")) :: any
 local Builder = require(Shared:WaitForChild("Models"):WaitForChild("Builder")) :: any
 local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
 local Catalog = require(Shared.Models:WaitForChild("Catalog")) :: any
+local TownCamera = require(script.Parent:WaitForChild("TownCamera")) :: any
 local CarDetail = require(script.Parent:WaitForChild("CarDetail"))
 
 -- Leaves for the season the models were made in (Catalog.SEASON), like the countryside's trees.
@@ -34,9 +35,12 @@ local CARS = 26
 local CARS_PHONE = 14
 local SCALE = 0.8 -- the size cars are drawn at (server/Drive.SCALE)
 local LANE = 0.25 -- of the road's width, right of the middle
-local GAP = 40 -- studs kept behind the car in front
+local GAP = 22 -- studs between the middles of a stopped car and the one in front
+local HEADWAY = 0.8 -- and seconds kept behind it on the move, so nobody rides a bumper
 local SHOWN = 1400 -- studs from the camera a car is drawn within; past it, it comes back nearer
-local RESPAWN_NEAR, RESPAWN_FAR = 500, 1200 -- how far from the camera it comes back
+-- How far from the camera it comes back: just inside SHOWN, so cars drive in from the distance
+-- rather than popping up close by.
+local RESPAWN_NEAR, RESPAWN_FAR = 1150, 1350
 local VERGE_NEAR = 1100 -- verge stretches within this are built...
 local VERGE_FAR = 1500 -- ...and cleared past this
 local STRETCH = 700 -- studs of road per verge stretch
@@ -54,9 +58,12 @@ type Car = {
 	cruise: number,
 	shown: CFrame?, -- where it's drawn (eases after the sim through turns)
 	taken: boolean,
+	away: boolean, -- off the roads while the player looks down on their town
 }
 
 local cars: { Car } = {}
+-- The road grid (set by attach).
+local theGrid: Grid? = nil
 local byUid: { [string]: Car } = {}
 
 local function phone(): boolean
@@ -175,6 +182,7 @@ local function spawnCars(g: Grid, folder: Folder)
 			cruise = cruise,
 			shown = nil,
 			taken = false,
+			away = false,
 		}
 		table.insert(cars, c)
 		byUid[uid] = c
@@ -241,14 +249,20 @@ end
 
 local function stepCar(g: Grid, c: Car, dt: number, me: Vector3?, rng: Random)
 	local room = clearAhead(g, c, me)
-	local want = if room < GAP then 0 elseif room < GAP * 3 then c.cruise * (room - GAP) / (GAP * 2) else c.cruise
+	-- The speed it can go and still keep its distance: the gap grows with speed.
+	local want = math.clamp((room - GAP) / HEADWAY, 0, c.cruise)
 	c.v += math.clamp(want - c.v, -90 * dt, 25 * dt)
 	local before = c.s
 	c.s += c.v * c.dir * dt
-	-- The end of the road: turn round.
+	-- The end of the road is the outer ring road: turn onto it, as at any crossroads (turning
+	-- round on the spot would slide the car sideways across into the other lane).
 	if math.abs(c.s) > g.reach - 10 then
-		c.s = math.sign(c.s) * (g.reach - 10)
-		c.dir = -c.dir
+		local ring = nearestLine(g, math.sign(c.s) * g.reach)
+		c.s, c.line = c.line, ring
+		c.along = if c.along == "x" then "z" else "x"
+		-- Along the ring, away from its own end if it's at a corner.
+		c.dir = if math.abs(c.s) > g.reach - 30 then -math.sign(c.s) elseif rng:NextNumber() < 0.5 then 1 else -1
+		c.s = math.clamp(c.s, -(g.reach - 11), g.reach - 11)
 		return
 	end
 	-- Crossing a road: now and then turn onto it.
@@ -366,10 +380,12 @@ end
 -- round every plot that nobody has bought: round free plots all but the new town's land (the fenced
 -- lawn), round a neighbour's town all but the plots they own. The player's own town has its own
 -- (client/Countryside). Only plots near where the camera looks are drawn, so phones stay smooth.
--- Drawn out to about twice the camera's height (so a zoomed-out view isn't cut short), between
--- these radii; from higher than WILDS_TOP (the claim screen's view of the whole map) none at all.
+-- Drawn out to about twice the camera's height, between these radii, and only for a camera down
+-- at driving or walking height: each plot's grass is a few big merged meshes, which Roblox draws
+-- coarsely from far off (Automatic render fidelity, see Builder.sharpenRaces), so from a town
+-- camera they came out as flat dark slabs, a patch of them round wherever the camera looked.
 local WILDS_MIN, WILDS_MAX, WILDS_MAX_PHONE = 900, 1400, 1000
-local WILDS_TOP = 2600
+local WILDS_TOP = 400
 local LAND_W = data.PLOT * data.TILE * Catalog.SCALE -- a land plot, across, in studs
 local START: { [string]: boolean } = {}
 for _, k in data.START_LAND do
@@ -510,10 +526,35 @@ function WorldLife.give(uid: string)
 	c.v = 0
 end
 
+-- A parking spot on the verge of the road nearest world point p, just off the asphalt on p's side,
+-- facing along the road with the verge on its right (car models face +Z).
+function WorldLife.roadsideNear(p: Vector3): CFrame?
+	local g = theGrid
+	if not g then
+		return nil
+	end
+	local lx, lz = nearestLine(g, p.X), nearestLine(g, p.Z)
+	local off = g.width / 2 + 9
+	if math.abs(p.X - lx) <= math.abs(p.Z - lz) then
+		-- A road running along z at x = lx.
+		local side = if p.X >= lx then 1 else -1
+		local z = math.clamp(p.Z, -g.reach, g.reach)
+		-- Right of a car facing (0, fz) is (-fz, 0): the verge on the right means fz = -side.
+		return CFrame.new(lx + side * off, g.top, z) * CFrame.Angles(0, math.atan2(0, -side), 0)
+	end
+	local side = if p.Z >= lz then 1 else -1
+	local x = math.clamp(p.X, -g.reach, g.reach)
+	-- Right of a car facing (fx, 0) is (0, fx): fx = side.
+	return CFrame.new(x, g.top, lz + side * off) * CFrame.Angles(0, math.atan2(side, 0), 0)
+end
+
 -- Brings the world's roads to life: returns a function that moves everything on by dt seconds,
--- for a camera at `eye` and the player at `me`.
-function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Vector3?) -> ()
+-- for a camera at `eye` and the player at `me`. `board` is true while the player looks down on
+-- their town (the web game's view of it): the road traffic stays off then, as the camera up there
+-- is far enough off that cars would keep popping in and out round the edge of the town.
+function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Vector3?, board: boolean?) -> ()
 	local g = gridOf(world)
+	theGrid = g
 	local folder = Instance.new("Folder")
 	folder.Name = "RoadTraffic"
 	folder.Parent = workspace
@@ -540,7 +581,7 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 	local stretches: { [string]: Model } = {}
 	local nextVerge = 0
 	local nextUpgrade = 0
-	return function(rawDt: number, eye: Vector3, me: Vector3?)
+	return function(rawDt: number, eye: Vector3, me: Vector3?, board: boolean?)
 		local dt = math.min(rawDt, 0.1)
 		-- Cars built before their meshes reached this player are built again once they have.
 		nextUpgrade -= rawDt
@@ -560,6 +601,18 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 			if c.taken then
 				continue
 			end
+			if board then
+				if not c.away then
+					c.away = true
+					c.shown = nil
+					c.model:PivotTo(HIDDEN)
+				end
+				continue
+			elseif c.away then
+				-- Back out in the world: on a road a little way off.
+				c.away = false
+				respawn(g, c, eye, rng)
+			end
 			stepCar(g, c, dt, me, rng)
 			local pose = poseOf(g, c)
 			if (pose.Position - eye).Magnitude > SHOWN then
@@ -575,6 +628,7 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 			c.shown = shown
 			c.model:PivotTo(shown)
 			CarDetail.lod(c.detail, (shown.Position - eye).Magnitude)
+			CarDetail.wheels(c.detail, shown, dt)
 		end
 		-- The verges near the camera, a couple of times a second.
 		nextVerge -= rawDt
@@ -683,7 +737,7 @@ function WorldLife.start()
 			local cam = workspace.CurrentCamera
 			local character = Players.LocalPlayer.Character
 			local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-			step(rawDt, if cam then cam.CFrame.Position else Vector3.zero, if root then root.Position else nil)
+			step(rawDt, if cam then cam.CFrame.Position else Vector3.zero, if root then root.Position else nil, not TownCamera.isWalking())
 		end)
 	end)
 end

@@ -177,6 +177,9 @@ make("RemoteFunction", "Race")
 make("RemoteFunction", "Crate")
 make("RemoteFunction", "Arcade")
 make("RemoteFunction", "Meshes")
+make("RemoteFunction", "Social")
+make("RemoteFunction", "WebLink")
+make("RemoteEvent", "Kart")
 remotes.Parent = RS
 local calls = {}
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, op, a, b, c)
@@ -241,6 +244,7 @@ Builder.previewMeshes = true
 local data = emu.require(G.data)
 local lib = Instance.new("Folder")
 lib.Name = "ModelLibrary"
+lib:SetAttribute("Ready", true)
 for _, kind in { "Cars", "Buildings", "Stripes" } do
 	local f = Instance.new("Folder")
 	f.Name = kind

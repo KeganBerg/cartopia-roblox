@@ -78,12 +78,28 @@ export async function render({ web, scene, out, gui, width = 1280, height = 800,
     const file = join(ROOT, 'build/callcards', key.slice(9) + '.png')
     if (existsSync(file)) images[key] = 'data:image/png;base64,' + readFileSync(file).toString('base64')
   }
+  // The HUD's currency icons (tools/icons/build.mjs), as "icons:<file>", with the sheet's size
+  // (read from the PNG header) since it isn't 1024 square.
+  const imageSize = {}
+  const findIcons = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (typeof n.image?.key === 'string' && n.image.key.startsWith('icons:') && !images[n.image.key]) {
+      const file = join(ROOT, 'build/icons', n.image.key.slice(6) + '.png')
+      if (existsSync(file)) {
+        const buf = readFileSync(file)
+        images[n.image.key] = 'data:image/png;base64,' + buf.toString('base64')
+        imageSize[n.image.key] = [buf.readUInt32BE(16), buf.readUInt32BE(20)]
+      }
+    }
+    for (const v of Object.values(n)) if (v && typeof v === 'object') findIcons(v)
+  }
+  findIcons(gui)
   // The sky's faces (tools/sky/build.mjs) for the step the scene asks for.
   const sky = {}
   if (scene.sky) {
     for (const face of ['Lf', 'Bk', 'Rt', 'Ft', 'Up', 'Dn']) sky[face] = 'data:image/png;base64,' + readFileSync(join(ROOT, 'build/sky', `${scene.sky.season}-${scene.sky.step}-${face}.png`)).toString('base64')
   }
-  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, sky, gui: gui ?? null, camera: camera ?? null })}`)
+  writeFileSync(join(dir, 'scene.js'), `window.SCENE = ${JSON.stringify({ ...scene, meshes: used, textures, images, imageSize, sky, gui: gui ?? null, camera: camera ?? null })}`)
   writeFileSync(join(dir, 'scene.html'), PAGE)
   const server = createServer((q, r) => {
     const f = join(dir, decodeURIComponent(new URL(q.url, 'http://x').pathname))
@@ -191,7 +207,10 @@ for (const p of parts) {
     scale = p.size.map((v, i) => (m.size[i] < 1e-4 ? 1 : v / m.size[i]))
   }
   const look = MAT[p.material] || {}
-  const mat = new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
+  // See-through neon glows in Roblox, adding its light to what's behind it.
+  const mat = p.material === 'Neon' && p.transparency > 0
+    ? new T.MeshBasicMaterial({ color: '#' + p.color, transparent: true, opacity: 1 - p.transparency, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false })
+    : new T.MeshStandardMaterial({ color: '#' + p.color, transparent: p.transparency > 0, opacity: 1 - p.transparency, roughness: look.roughness ?? 0.6, metalness: look.metalness ?? 0, emissive: look.emissive ? '#' + p.color : '#000', emissiveIntensity: look.emissive ?? 0, flatShading: !!p.mesh })
   if (p.shape === 'Wedge') mat.side = T.DoubleSide
   let mats = !p.mesh && (p.shape === 'Block' || !p.shape) ? patterned(mat, p.material, p.size) : mat
   if (p.texture && TEX[p.texture.image] && !p.mesh && (p.shape === 'Block' || !p.shape)) {
@@ -328,6 +347,20 @@ for (const l of Array.isArray(S.lights) ? S.lights : []) {
 const cam = new T.PerspectiveCamera(S.camera?.fov ?? 40, W / H, 8, S.camera?.far ?? (S.sky?.Up ? 40000 : 6000))
 const c = S.camera ?? { at: [0, 0, 0], from: [260, 300, 330] }
 cam.position.set(...c.from); cam.lookAt(new T.Vector3(...c.at))
+// Beams: a strip from one end to the other, turned to face the camera, fading along its length.
+for (const b of S.beams || []) {
+  const p0 = new T.Vector3(...b.from), p1 = new T.Vector3(...b.to)
+  const mid = p0.clone().add(p1).multiplyScalar(0.5)
+  const side = p1.clone().sub(p0).cross(cam.position.clone().sub(mid)).normalize()
+  const v = [p0.clone().addScaledVector(side, -b.width[0] / 2), p0.clone().addScaledVector(side, b.width[0] / 2), p1.clone().addScaledVector(side, b.width[1] / 2), p1.clone().addScaledVector(side, -b.width[1] / 2)]
+  const g = new T.BufferGeometry()
+  g.setAttribute('position', new T.Float32BufferAttribute(v.flatMap((q) => [q.x, q.y, q.z]), 3))
+  const col = new T.Color('#' + b.color)
+  const a = [1 - b.fade[0], 1 - b.fade[0], 1 - b.fade[1], 1 - b.fade[1]]
+  g.setAttribute('color', new T.Float32BufferAttribute(a.flatMap((x) => [col.r, col.g, col.b, x]), 4))
+  g.setIndex([0, 1, 2, 0, 2, 3])
+  scene.add(new T.Mesh(g, new T.MeshBasicMaterial({ vertexColors: true, transparent: true, side: T.DoubleSide, depthWrite: false, blending: b.glow > 0.5 ? T.AdditiveBlending : T.NormalBlending, toneMapped: false })))
+}
 // Haze starts past what the camera looks at, as the game's light Atmosphere does.
 const reach = cam.position.distanceTo(new T.Vector3(...c.at))
 scene.fog = S.fog ? new T.Fog('#' + S.fog.color, S.fog.start, S.fog.end) : new T.Fog('#bcd9f2', reach * 1.1, reach + 3000)
@@ -457,10 +490,19 @@ function picture(v, w, h) {
   vr.setPixelRatio(2)
   vr.setSize(w, h)
   const sc = new T.Scene()
-  sc.add(new T.HemisphereLight(0xffffff, '#' + (v.ambient || 'aaafb9'), 1.6))
-  const light = new T.DirectionalLight(0xffffff, 2)
-  light.position.set(1, 2, 1.2)
-  sc.add(light)
+  if (v.scene) {
+    // A scene on its own backdrop (not a shop card's picture), lit as Roblox lights a ViewportFrame:
+    // the Ambient everywhere, plus LightColor from LightDirection.
+    sc.add(new T.AmbientLight('#' + v.ambient, 2.2))
+    const light = new T.DirectionalLight('#' + v.light, 2.2)
+    light.position.set(-v.lightDir[0], -v.lightDir[1], -v.lightDir[2])
+    sc.add(light)
+  } else {
+    sc.add(new T.HemisphereLight(0xffffff, '#' + (v.ambient || 'aaafb9'), 1.6))
+    const light = new T.DirectionalLight(0xffffff, 2)
+    light.position.set(1, 2, 1.2)
+    sc.add(light)
+  }
   addParts(sc, v.parts)
   const [x, y, z, a, b, c, d, e, f, g, hh, i] = v.cam.cf
   const cam = new T.PerspectiveCamera(v.cam.fov, w / h, 0.1, 5000)
@@ -504,7 +546,7 @@ function draw(node, into = ui, ox = 0, oy = 0) {
     Object.assign(wrap.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 1 - node.image.t, isolation: 'isolate' })
     const r = node.image.rect
     // A sheet's piece: the sheet drawn scaled so the piece fills the box.
-    const piece = r && { backgroundImage: 'url(' + src + ')', backgroundSize: (1024 * pw / r[2]) + 'px ' + (1024 * ph / r[3]) + 'px', backgroundPosition: (-r[0] * pw / r[2]) + 'px ' + (-r[1] * ph / r[3]) + 'px', backgroundRepeat: 'no-repeat' }
+    const piece = r && { backgroundImage: 'url(' + src + ')', backgroundSize: ((S.imageSize?.[node.image.key]?.[0] ?? 1024) * pw / r[2]) + 'px ' + ((S.imageSize?.[node.image.key]?.[1] ?? 1024) * ph / r[3]) + 'px', backgroundPosition: (-r[0] * pw / r[2]) + 'px ' + (-r[1] * ph / r[3]) + 'px', backgroundRepeat: 'no-repeat' }
     const img = document.createElement(r ? 'div' : 'img')
     if (!r) img.src = src
     Object.assign(img.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', objectFit: fit }, piece || {})

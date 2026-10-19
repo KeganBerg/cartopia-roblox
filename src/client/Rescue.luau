@@ -19,6 +19,8 @@ local Ui = require(script.Parent.Ui)
 local Thumb = require(script.Parent.Thumb)
 local Confirm = require(script.Parent.Confirm)
 local BuildArt = require(script.Parent.BuildArt)
+local RescueLot = require(script.Parent.RescueLot)
+local TownCamera = require(script.Parent.TownCamera)
 local Sfx = require(script.Parent.Sounds.Sfx)
 
 local Rescue = {}
@@ -707,39 +709,99 @@ local function foundPop(screen: Instance, l: any, z: number): Frame
 	return pop
 end
 
--- Search all: uncovers the next spot every half second until every spot is open, a flat stops
--- the truck, or the player taps Stop. Each run has its own number, so a Stop then Search all
--- doesn't leave two running.
-local autoRun = 0
-local function runAuto()
-	autoRun += 1
-	local me = autoRun
-	task.spawn(function()
-		while auto and autoRun == me do
-			local cur = Remote.search
-			if not cur or cur.flat then
-				break
-			end
-			local nextI: number? = nil
-			for j, r in cur.revealed do
-				if not r then
-					nextI = j
-					break
+-- The search, full screen as the web's SearchScreen: Rusty's tow truck drives a 3D lot
+-- (RescueLot) and the controls float over it, like a race. The HUD steps aside for the lot's own
+-- screen, laid out the same way (the web's 1280x800, scaled to fit), and the lot takes the camera.
+local scene: any = nil
+local searchGui: ScreenGui? = nil
+local hudGui: ScreenGui? = nil
+local busyNow = true
+-- Finds that have flown into the tray (the web's `aboard`), and the redraw the lot's news calls.
+local aboard: { [number]: boolean } = {}
+local redraw: (() -> ())? = nil
+
+-- Back to town: the lot and its screen go, the HUD and the town camera come back.
+local function endSearch()
+	if scene then
+		scene:close()
+		scene = nil
+	end
+	if searchGui then
+		-- Anything else drawn on the lot's screen (the tutorial's hand) goes back to the HUD first.
+		local layer = searchGui:FindFirstChild("SearchScreen")
+		local home = hudGui and hudGui:FindFirstChild("Root")
+		if layer and home then
+			for _, c in layer:GetChildren() do
+				if c.Name ~= "Search" and c.Name ~= "Fly" and not c:IsA("UIScale") then
+					c.Parent = home
 				end
 			end
-			if not nextI then
-				break
-			end
-			Remote.act("revealPin", nextI - 1)
-			task.wait(0.5)
 		end
-		if autoRun == me then
-			auto = false
+		searchGui:Destroy()
+		searchGui = nil
+	end
+	if hudGui then
+		hudGui.Enabled = true
+		hudGui = nil
+		TownCamera.setPaused(false)
+	end
+	redraw = nil
+end
+
+-- A button faded as the web's :disabled (opacity .55).
+local function dim(g: Instance)
+	for _, d in { g, table.unpack(g:GetDescendants()) } do
+		if d:IsA("GuiObject") then
+			d.BackgroundTransparency = 1 - (1 - d.BackgroundTransparency) * 0.55
+			if d:IsA("TextLabel") or d:IsA("TextButton") then
+				d.TextTransparency = 1 - (1 - d.TextTransparency) * 0.55
+			end
+		elseif d:IsA("UIStroke") then
+			d.Transparency = 1 - (1 - d.Transparency) * 0.55
+		end
+	end
+end
+
+-- A find flying from where it came up to the end of the tray (the web's rs-fly), then aboard.
+local function fly(screen: Instance, l: any, from: Vector2, to: Vector2, landed: () -> ())
+	local edge = if l.kind == "car" and l.rarity ~= "common" then RARITY_EDGE[l.rarity] else "#ffca28"
+	local car = l.kind == "car"
+	local bit = Ui.new("Frame", { Name = "Fly", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(from.X, from.Y), Size = UDim2.fromOffset(if car then 56 else 44, 44), BackgroundColor3 = Ui.WHITE, ZIndex = 30, Parent = screen }, {
+		if car then Ui.corner(14) else Ui.round(),
+		Ui.stroke(3, Color3.fromHex(edge)),
+	})
+	if car then
+		carPic(bit, l.model, UDim2.fromScale(1, 1), true, 30)
+	else
+		Ui.text({ Text = (lootLabel(l)), TextSize = 24, Size = UDim2.fromScale(1, 1), ZIndex = 30, Parent = bit })
+	end
+	local mid = UDim2.fromOffset((from.X + to.X) / 2, math.min(from.Y, to.Y) - 60)
+	local up = TweenService:Create(bit, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = UDim2.fromOffset(from.X, from.Y - 30) })
+	up:Play()
+	task.delay(0.15, function()
+		if not bit.Parent then
+			return
+		end
+		TweenService:Create(bit, TweenInfo.new(0.26, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { Position = mid }):Play()
+		task.wait(0.26)
+		if not bit.Parent then
+			return
+		end
+		TweenService:Create(bit, TweenInfo.new(0.34, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { Position = UDim2.fromOffset(to.X, to.Y), Size = UDim2.fromOffset(if car then 31 else 24, 24) }):Play()
+		task.wait(0.34)
+		bit:Destroy()
+		landed()
+	end)
+	-- Gone in any case, should a tween never finish.
+	task.delay(1.5, function()
+		if bit.Parent then
+			bit:Destroy()
+			landed()
 		end
 	end)
 end
 
-local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()): Instance
+local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ())
 	local s = store.useGame.getState()
 	local spot: any = nil
 	for _, sp in data.RESCUE_SPOTS do
@@ -748,132 +810,198 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 		end
 	end
 	local magnet = data.truckOf(s.truck).magnet == true
-	local look = SPOT_LOOK[q.spot] or SPOT_LOOK.suburbs
 	if q.flat then
 		auto = false
 	end
-	local screen = Ui.new("TextButton", { Name = "Search", Text = "", AutoButtonColor = false, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Ui.WHITE, BorderSizePixel = 0, ZIndex = 20, Parent = root }, {
-		Ui.gradient(look[1], "#5d4a36"),
-	})
-	-- The bar along the top, as a race screen's.
-	local top = Ui.new("Frame", { Size = UDim2.new(1, 0, 0, 58), BackgroundColor3 = Ui.BLACK, BackgroundTransparency = 0.6, BorderSizePixel = 0, ZIndex = 21, Parent = screen })
-	Ui.text({ Text = `{spot.icon} {spot.name}`, TextSize = 28, Size = UDim2.fromScale(1, 1), Stroke = 3, Shadow = 3, ZIndex = 21, Parent = top })
-	Ui.closeButton({ Name = "Close", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(42, 42), ZIndex = 21, Parent = top }, ctx.close)
+	redraw = rerender
 
-	local revealed = q.revealed
+	-- The lot's own screen over the scene (as DragStrip's), made once per search.
+	local frame: Frame = ctx.gui
+	if not searchGui then
+		hudGui = frame:FindFirstAncestorOfClass("ScreenGui")
+		local gui = Ui.new("ScreenGui", { Name = "RescueSearch", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 10, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = (hudGui :: ScreenGui).Parent })
+		local hudScale = frame:FindFirstChildOfClass("UIScale")
+		local layer = Ui.new("Frame", { Name = "SearchScreen", Size = frame.Size, BackgroundTransparency = 1, Parent = gui }, {
+			Ui.new("UIScale", { Scale = if hudScale then hudScale.Scale else 1 }),
+		})
+		-- Follow the HUD's fit when the window changes.
+		local fitConn = frame:GetPropertyChangedSignal("Size"):Connect(function()
+			layer.Size = frame.Size
+			local sc = layer:FindFirstChildOfClass("UIScale")
+			if sc and hudScale then
+				sc.Scale = hudScale.Scale
+			end
+		end)
+		gui.Destroying:Connect(function()
+			fitConn:Disconnect()
+		end)
+		searchGui = gui;
+		(hudGui :: ScreenGui).Enabled = false
+		TownCamera.setPaused(true)
+		busyNow = true
+	end
+	local holder = (searchGui :: ScreenGui):FindFirstChild("SearchScreen") :: Frame
+	-- (Only its own drawing: the tutorial's hand may be on this screen too.)
+	local was = holder:FindFirstChild("Search")
+	if was then
+		was:Destroy()
+	end
+
+	-- What was already uncovered when the lot came up is seen and aboard; anything after waits
+	-- for its tarp to come off (onFound), so nothing is spoiled.
+	if not seenPins then
+		seenPins = {}
+		aboard = {}
+		local was = {}
+		for i, r in q.revealed do
+			if r then
+				(seenPins :: any)[i] = true
+				aboard[i] = true
+				table.insert(was, q.pins[i])
+			end
+		end
+		trayWas = sums(was)
+	end
+	local haul = {}
+	for i, l in q.pins do
+		if aboard[i] and l.kind ~= "nothing" then
+			table.insert(haul, l)
+		end
+	end
 	local left, started = 0, false
-	for _, r in revealed do
+	for _, r in q.revealed do
 		if r then
 			started = true
 		else
 			left += 1
 		end
 	end
-	-- What's been uncovered since the last redraw pops up; reopening mid-search pops nothing.
-	if not seenPins then
-		seenPins = {}
-		local was = {}
-		for i, r in revealed do
-			if r then
-				(seenPins :: any)[i] = true
-				table.insert(was, q.pins[i])
+	if left == 0 then
+		auto = false
+	end
+
+	local screen = Ui.new("Frame", { Name = "Search", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 20, Parent = holder })
+	-- The bottom's shade (the web's linear-gradient(transparent, rgba(10,20,40,.5))).
+	Ui.new("Frame", { Name = "Shade", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 150), BackgroundColor3 = Color3.fromHex("#0a1428"), BorderSizePixel = 0, ZIndex = 20, Parent = screen }, {
+		Ui.new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.5) }) }),
+	})
+
+	-- The lot itself.
+	local function onFound(i: number, at: Vector2)
+		(seenPins :: any)[i] = true
+		found = { i = i, at = os.clock() }
+		local l = (Remote.search or q).pins[i]
+		if redraw then
+			redraw()
+		end
+		if l.kind == "nothing" then
+			return
+		end
+		task.delay(0.45, function()
+			local gui = searchGui
+			local box = gui and gui:FindFirstChild("Tray", true) :: GuiObject?
+			if not gui or not box then
+				aboard[i] = true
+				return
 			end
-		end
-		trayWas = sums(was)
+			local layer = gui:FindFirstChild("SearchScreen") :: Frame
+			local scale = (layer:FindFirstChildOfClass("UIScale") :: UIScale).Scale
+			local vp = workspace.CurrentCamera.ViewportSize
+			local from = Vector2.new(at.X * vp.X, at.Y * vp.Y) / scale
+			local trayAt = (box.AbsolutePosition - layer.AbsolutePosition) / scale
+			local to = Vector2.new(trayAt.X + 22, trayAt.Y + box.AbsoluteSize.Y / scale / 2)
+			local last = 0
+			for _, c in box:GetChildren() do
+				if c:IsA("GuiObject") then
+					last = math.max(last, (c.AbsolutePosition.X + c.AbsoluteSize.X - box.AbsolutePosition.X) / scale)
+				end
+			end
+			if last > 0 then
+				to = Vector2.new(trayAt.X + math.min(box.AbsoluteSize.X / scale - 20, last + 18), to.Y)
+			end
+			fly(layer, l, from, to, function()
+				if aboard[i] then
+					return
+				end
+				aboard[i] = true
+				Sfx.rescue.tick(4)
+				if redraw then
+					redraw()
+				end
+			end)
+		end)
 	end
-	for i, r in revealed do
-		if r and not (seenPins :: any)[i] then
-			(seenPins :: any)[i] = true
-			found = { i = i, at = os.clock() }
-			Sfx.rescue.reveal(if q.pins[i].kind == "car" then q.pins[i].rarity elseif q.pins[i].kind == "nothing" then "nothing" else "small")
-		end
+	if not scene then
+		scene = RescueLot.open(q, magnet, {
+			onArrive = function(i: number)
+				Remote.act("revealPin", i - 1)
+			end,
+			onFound = onFound,
+			onLeft = function()
+				local cur = Remote.search or q
+				local items = {}
+				for i, l in cur.pins do
+					if cur.revealed[i] and l.kind ~= "nothing" then
+						table.insert(items, l)
+					end
+				end
+				recap = { items = items, piece = cur.piece }
+				Remote.act("towHome")
+			end,
+			onBusy = function(b: boolean)
+				busyNow = b
+				if redraw then
+					redraw()
+				end
+			end,
+		})
 	end
-	-- One dot per spot: a find's icon once uncovered.
-	local dots = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 68), Size = UDim2.fromOffset(#revealed * 32, 26), BackgroundTransparency = 1, ZIndex = 21, Parent = screen }, {
+	scene:update(q, { auto = auto, leaving = leaving, magnet = magnet })
+
+	-- Along the top: where, and the way out.
+	Ui.text({ Name = "Title", Text = `{spot.icon} {spot.name}`, TextSize = 26, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(14, 8), Size = UDim2.fromOffset(400, 38), Stroke = 3, Shadow = 3, ZIndex = 21, Parent = screen })
+	Ui.closeButton({ Name = "Close", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 10), Size = UDim2.fromOffset(36, 36), ZIndex = 21, Parent = screen }, ctx.close)
+
+	-- One dot per spot: a find's icon once seen, pulsing yellow where the truck has just looked.
+	local dots = Ui.new("Frame", { Name = "Dots", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 54), Size = UDim2.fromOffset(#q.revealed * 32 - 6, 26), BackgroundTransparency = 1, ZIndex = 21, Parent = screen }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
-	for i, r in revealed do
+	for i, r in q.revealed do
 		local l = q.pins[i]
-		Ui.new("Frame", { LayoutOrder = i, Size = UDim2.fromOffset(26, 26), BackgroundColor3 = if r then Ui.WHITE else Color3.fromHex("#1b1f24"), BackgroundTransparency = if r then 0 else 0.55, ZIndex = 21, Parent = dots }, {
+		local open = (seenPins :: any)[i] == true
+		local here = r and not open
+		local dot = Ui.new("Frame", { LayoutOrder = i, Size = UDim2.fromOffset(26, 26), BackgroundColor3 = if open then Ui.WHITE elseif here then Color3.fromHex("#ffd54f") else Color3.fromHex("#1b1f24"), BackgroundTransparency = if open then 0 elseif here then 0.15 else 0.55, ZIndex = 21, Parent = dots }, {
 			Ui.round(),
-			Ui.stroke(2, if r and l.kind == "car" then Color3.fromHex(RARITY_EDGE[l.rarity]) elseif r then Color3.fromHex("#ffca28") else Ui.WHITE, if r then 0 else 0.25),
-			Ui.text({ Text = if r then (lootLabel(l)) else "", TextSize = 14, Size = UDim2.fromScale(1, 1), ZIndex = 21 }),
+			Ui.stroke(2, if open and l.kind == "car" then Color3.fromHex(RARITY_EDGE[l.rarity]) elseif open then Color3.fromHex("#ffca28") else Ui.WHITE, if open then 0 else 0.25),
+			Ui.text({ Text = if open then (lootLabel(l)) else "", TextSize = 14, Size = UDim2.fromScale(1, 1), ZIndex = 21 }),
 		})
+		if not open and not here then
+			-- The gold inner ring (box-shadow: inset 0 0 0 3px rgba(255,213,79,.55)).
+			Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, -6, 1, -6), BackgroundTransparency = 1, ZIndex = 21, Parent = dot }, {
+				Ui.round(),
+				Ui.stroke(3, Color3.fromHex("#ffd54f"), 0.45),
+			})
+		end
 	end
 	local f = found
 	if f and os.clock() - f.at < FOUND_SECONDS then
 		local pop = foundPop(screen, q.pins[f.i], 22)
+		pop.Position = UDim2.new(0.5, 0, 0, 92)
 		task.delay(FOUND_SECONDS - (os.clock() - f.at), function()
 			if pop.Parent then
 				pop:Destroy()
 			end
 		end)
-	elseif not started and not auto then
-		local coach = Ui.new("Frame", { Name = "Coach", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 104), Size = UDim2.fromOffset(0, 34), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#1b1f24"), BackgroundTransparency = 0.4, ZIndex = 21, Parent = screen }, {
+	elseif not started and not busyNow and not auto then
+		local coach = Ui.new("Frame", { Name = "Coach", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 92), Size = UDim2.fromOffset(0, 36), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.fromHex("#1b1f24"), BackgroundTransparency = 0.4, ZIndex = 21, Parent = screen }, {
 			Ui.round(),
 			Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16) }),
 		})
 		Ui.text({ Text = "👆 Tap a glowing spot", TextSize = 18, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 21, Parent = coach })
+		-- It bobs, as the web's coach animation.
+		TweenService:Create(coach, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Position = UDim2.new(0.5, 0, 0, 96) }):Play()
 	end
 
-	-- The lot: a tarp over every spot. Under it, what Rusty found.
-	local cols = if #q.pins > 8 then 6 else 4
-	local field = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 158), Size = UDim2.new(1, -40, 1, -338), BackgroundTransparency = 1, ZIndex = 21, Parent = screen }, {
-		Ui.new("UISizeConstraint", { MaxSize = Vector2.new(cols * 150, 420) }),
-		Ui.new("UIGridLayout", {
-			CellSize = UDim2.new(1 / cols, -12, 1 / math.ceil(#q.pins / cols), -12),
-			CellPadding = UDim2.fromOffset(12, 12),
-			HorizontalAlignment = Enum.HorizontalAlignment.Center,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-		}),
-	})
-	for i, l in q.pins do
-		local r = revealed[i]
-		local flatHere = q.flat and q.truckAt == i - 1
-		local tarp = Ui.new("TextButton", {
-			Name = `Tarp{i}`,
-			LayoutOrder = i,
-			Text = "",
-			AutoButtonColor = false,
-			BackgroundColor3 = if r then Color3.fromHex("#f5efe6") else Color3.fromHex("#5b7a99"),
-			ZIndex = 21,
-			Parent = field,
-		}, {
-			Ui.corner(14),
-			Ui.stroke(3, if r and l.kind == "car" then Color3.fromHex(RARITY_EDGE[l.rarity]) elseif flatHere then Color3.fromHex("#e53935") else LINE),
-		})
-		if not r then
-			-- A blue tarp, its folds catching the light, glowing when Rusty's magnet says a car is under it.
-			Ui.new("UIGradient", { Color = Ui.seq("#7da3c8", "#3e5d7d"), Rotation = 60, Parent = tarp })
-			Ui.text({ Text = if flatHere then "🛞" else "?", TextSize = 34, TextColor3 = Ui.WHITE, TextTransparency = 0.2, Size = UDim2.fromScale(1, 1), Stroke = 2, ZIndex = 21, Parent = tarp })
-			if magnet and l.kind == "car" then
-				Ui.text({ Text = "🧲", TextSize = 18, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(24, 24), ZIndex = 21, Parent = tarp })
-				Ui.stroke(3, Color3.fromHex("#ffca28")).Parent = tarp
-			end
-			tarp.Activated:Connect(function()
-				if not q.flat and not leaving then
-					Sfx.rescue.go()
-					Remote.act("revealPin", i - 1)
-				end
-			end)
-		elseif l.kind == "car" then
-			local box = Ui.new("Frame", { Size = UDim2.new(1, 0, 1, -40), BackgroundTransparency = 1, ZIndex = 21, Parent = tarp })
-			carPic(box, l.model, UDim2.fromScale(1, 1), true, 21)
-			Ui.text({ Text = data.carDef(l.model).name, TextSize = 13, TextColor3 = LINE, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.new(0, 4, 1, -40), Size = UDim2.new(1, -8, 0, 17), ZIndex = 21, Parent = tarp })
-			rarityTag(tarp, l.rarity, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, -21), ZIndex = 21 })
-		else
-			local icon, text = lootLabel(l)
-			Ui.text({ Text = icon, TextSize = 34, Size = UDim2.new(1, 0, 1, -24), ZIndex = 21, Parent = tarp })
-			Ui.text({ Text = text, TextSize = 15, TextColor3 = if l.kind == "nothing" then Color3.fromHex("#90a4ae") else LINE, Position = UDim2.new(0, 4, 1, -28), Size = UDim2.new(1, -8, 0, 22), ZIndex = 21, Parent = tarp })
-		end
-	end
-
-	local haul = {}
-	for i, l in q.pins do
-		if revealed[i] and l.kind ~= "nothing" then
-			table.insert(haul, l)
-		end
-	end
 	-- Leaving throws the haul away, so it asks first (unless the player said not to).
 	local function leave()
 		if leaving then
@@ -903,10 +1031,11 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 
 	-- A flat tire: fix it for gems, or go home with nothing.
 	if q.flat then
-		local pop = Ui.new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -130), Size = UDim2.fromOffset(340, 110), BackgroundColor3 = Ui.WHITE, ZIndex = 23, Parent = screen }, {
+		local pop = Ui.new("Frame", { Name = "Flat", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -134), Size = UDim2.fromOffset(340, 110), BackgroundColor3 = Ui.WHITE, ZIndex = 23, Parent = screen }, {
 			Ui.corner(18),
 			Ui.stroke(3, LINE),
 		})
+		popIn(pop)
 		Ui.text({ Text = "🛞 Flat tire!", TextSize = 22, TextColor3 = LINE, Position = UDim2.fromOffset(0, 10), Size = UDim2.new(1, 0, 0, 30), ZIndex = 23, Parent = pop })
 		local short = data.TOW_FIX_BUCKS - (s.bucks or 0)
 		local _, fix = Ui.buy({ Position = UDim2.fromOffset(14, 54), Size = UDim2.new(0.5, -20, 0, 42), ZIndex = 23, Parent = pop }, `Fix · 💎 {data.TOW_FIX_BUCKS}{if short > 0 then ` (need {short})` else ""}`, "green", function()
@@ -917,54 +1046,72 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 		home.Name = "GoHome"
 	end
 
-	-- The tray and the buttons along the bottom.
-	local bottom = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 116), BackgroundColor3 = Ui.BLACK, BackgroundTransparency = 0.55, BorderSizePixel = 0, ZIndex = 21, Parent = screen })
-	local tray = Ui.new("Frame", { Position = UDim2.fromOffset(14, 10), Size = UDim2.new(1, -28, 0, 34), BackgroundTransparency = 1, ZIndex = 22, Parent = bottom }, {
+	-- Along the bottom: the haul so far over the buttons, centred and no wider than 560 (the web's
+	-- .rs-bottom on a wide screen).
+	local bottom = Ui.new("Frame", { Name = "Bottom", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -12), Size = UDim2.new(1, -24, 0, 92), BackgroundTransparency = 1, ZIndex = 21, Parent = screen }, {
+		Ui.new("UISizeConstraint", { MaxSize = Vector2.new(560, 92) }),
+	})
+	local tray = Ui.new("Frame", { Name = "Tray", Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 22, Parent = bottom }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	if #haul > 0 then
 		haulChips(tray, haul, 22, trayWas)
 	else
-		Ui.text({ Text = "🛻 Haul is empty", TextSize = 15, TextColor3 = Color3.fromHex("#e0e0e0"), Size = UDim2.fromOffset(200, 32), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22, Parent = tray })
+		Ui.text({ Name = "Empty", Text = "🛻 Haul is empty", TextSize = 15, Size = UDim2.fromOffset(200, 32), TextXAlignment = Enum.TextXAlignment.Left, Shadow = 2, ZIndex = 22, Parent = tray })
 	end
-	local acts = Ui.new("Frame", { Position = UDim2.fromOffset(14, 54), Size = UDim2.new(1, -28, 0, 50), BackgroundTransparency = 1, ZIndex = 22, Parent = bottom }, {
+	local acts = Ui.new("Frame", { Name = "Actions", Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 0, 48), BackgroundTransparency = 1, ZIndex = 22, Parent = bottom }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), HorizontalFlex = Enum.UIFlexAlignment.Fill, SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
-	local _, leaveB = Ui.buy({ LayoutOrder = 1, Size = UDim2.new(0, 120, 1, 0), ZIndex = 22, Parent = acts }, "Leave", if leaving then "grey" else "broke", leave, 18)
+	-- Leave: the web's small white .sell button with its red outline.
+	local leaveF, leaveB = Ui.button({ LayoutOrder = 1, Size = UDim2.new(0, 58, 1, 0), ZIndex = 22, Parent = acts }, "white", leave, {
+		radius = 12,
+		stroke = 2.5,
+		drop = 2,
+		dark = 0.2,
+		strokeColor = Color3.fromHex("#d6283b"),
+		text = "Leave",
+		textSize = 15,
+		textColor = Color3.fromHex("#d6283b"),
+	})
 	leaveB.Name = "Leave"
+	Ui.new("UIFlexItem", { FlexMode = Enum.UIFlexMode.None, Parent = leaveF })
+	if leaving then
+		dim(leaveF)
+	end
 	if left > 0 then
 		local off = q.flat or leaving
-		local _, all = Ui.buy({ LayoutOrder = 2, Size = UDim2.new(0, 200, 1, 0), ZIndex = 22, Parent = acts }, if auto then "⏸ Stop" else "⏩ Search all", if off then "grey" else "garage", function()
+		local allF, all = Ui.buy({ LayoutOrder = 2, Size = UDim2.new(0, 200, 1, 0), ZIndex = 22, Parent = acts }, if auto then "⏸ Stop" else "⏩ Search all", "garage", function()
 			if q.flat or leaving then
 				return
 			end
 			auto = not auto
-			if auto then
-				runAuto()
-			end
 			rerender()
 		end, 18)
 		all.Name = "SearchAll"
-		if not auto and not off then
+		if off then
+			dim(allF)
+		elseif not auto then
 			all:SetAttribute("Tut", "rs-auto")
 		end
 	end
 	local canHome = started and not q.flat and not leaving
-	local _, home = Ui.buy({ LayoutOrder = 3, Size = UDim2.new(0, 200, 1, 0), ZIndex = 22, Parent = acts }, "🏠 Tow home", if canHome then "green" else "grey", function()
+	local homeF, home = Ui.buy({ LayoutOrder = 3, Size = UDim2.new(0, 200, 1, 0), ZIndex = 22, Parent = acts }, "🏠 Tow home", "green", function()
 		if not canHome then
 			return
 		end
 		auto = false
 		leaving = true
-		recap = { items = haul, piece = q.piece }
 		Sfx.rescue.home()
-		Remote.act("towHome")
+		rerender()
 	end, 18)
 	home.Name = "TowHome"
-	if canHome and left == 0 then
+	if not canHome then
+		dim(homeF)
+	elseif left == 0 then
+		-- Every spot checked: Tow home bobs (the web's .rs-home.ready).
 		home:SetAttribute("Tut", "rs-home-ready")
+		TweenService:Create(home, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Position = home.Position + UDim2.fromOffset(0, 3) }):Play()
 	end
-	return screen
 end
 
 -- ── Back home: the haul, and a restored car's plate ────────────────────────────────────────────
@@ -1181,7 +1328,8 @@ function Rescue.open(ctx: any): Instance?
 			searchScreen(ctx, q, holder, render)
 			return
 		end
-		-- No search: the next one starts afresh.
+		-- No search: back to town, and the next one starts afresh.
+		endSearch()
 		auto, leaving, seenPins, found = false, false, nil, nil
 		trayWas = {}
 		if naming ~= nil then
@@ -1268,6 +1416,7 @@ function Rescue.open(ctx: any): Instance?
 	holder.Destroying:Connect(function()
 		alive = false
 		conn:Disconnect()
+		endSearch()
 	end)
 	return holder
 end

@@ -1,0 +1,24 @@
+{
+  "note": "Buildings for comparing levels and merges with the web game (webtown.mjs and town.luau TOWN_FILE=). The starter town's roads.",
+  "buildings": [
+    { "uid": "p1", "def": "pizza", "x": 6, "z": 12, "level": 1, "jobEndsAt": null },
+    { "uid": "p4", "def": "pizza", "x": 7, "z": 12, "level": 4, "jobEndsAt": null },
+    { "uid": "p7", "def": "pizza", "x": 8, "z": 12, "level": 7, "jobEndsAt": null },
+    { "uid": "p10", "def": "pizza", "x": 9, "z": 12, "level": 10, "jobEndsAt": null },
+    { "uid": "pa", "def": "pizza", "x": 11, "z": 12, "level": 5, "merge": 21, "jobEndsAt": null },
+    { "uid": "pb", "def": "pizza", "x": 12, "z": 12, "level": 5, "jobEndsAt": null },
+    { "uid": "q1", "def": "pizza", "x": 14, "z": 12, "level": 3, "merge": 2, "jobEndsAt": null },
+    { "uid": "q2", "def": "pizza", "x": 15, "z": 12, "level": 3, "jobEndsAt": null },
+    { "uid": "q3", "def": "pizza", "x": 14, "z": 13, "level": 3, "jobEndsAt": null },
+    { "uid": "q4", "def": "pizza", "x": 15, "z": 13, "level": 3, "jobEndsAt": null },
+    { "uid": "h1", "def": "house", "x": 6, "z": 10, "level": 1, "jobEndsAt": null },
+    { "uid": "h3", "def": "house", "x": 7, "z": 10, "level": 3, "jobEndsAt": null },
+    { "uid": "h5", "def": "house", "x": 8, "z": 10, "level": 5, "jobEndsAt": null },
+    { "uid": "h7", "def": "house", "x": 9, "z": 10, "level": 7, "jobEndsAt": null },
+    { "uid": "h9", "def": "house", "x": 10, "z": 10, "level": 9, "jobEndsAt": null },
+    { "uid": "h10", "def": "house", "x": 11, "z": 10, "level": 10, "jobEndsAt": null },
+    { "uid": "ha", "def": "house", "x": 13, "z": 9, "level": 6, "merge": 12, "jobEndsAt": null },
+    { "uid": "hb", "def": "house", "x": 13, "z": 10, "level": 6, "jobEndsAt": null },
+    { "uid": "g1", "def": "gas", "x": 15, "z": 9, "level": 8, "jobEndsAt": null }
+  ]
+}

@@ -3,7 +3,7 @@
 -- Campaign tile (its next race one tap away) and Quick Race; Quick Race's three rival cards; the
 -- Campaign's chapters, each with its five races and stars; the paint rivals (PaintRivals.tsx),
 -- each racing for their colour; and the rival in town on the front page (Rivals.tsx RivalTile),
--- with double or nothing after a win. Along the bottom, the car you race with (tap to change it).
+-- (no double or nothing after a win: Roblox doesn't allow betting). Along the bottom, the car you race with (tap to change it).
 -- The rivals and prizes come from the server (server/Races), which also starts the race and pays
 -- it.
 
@@ -97,7 +97,7 @@ local starting = false
 local race: (ctx: any, mode: string, which: any, back: string) -> boolean
 
 -- What each kind of race adds to the race screen: the title, the rival's words, and the result
--- card's buttons (Race.tsx: the paint rival's rematch, the town rival's double or nothing).
+-- card's buttons (Race.tsx: the paint rival's rematch, the town rival's rematch).
 local function extrasFor(ctx: any, mode: string, which: any, started: any, back: string): any
 	local rv = started.rival
 	local function again(m: string, w: any): () -> ()
@@ -166,39 +166,25 @@ local function extrasFor(ctx: any, mode: string, which: any, started: any, back:
 				return list
 			end,
 		}
-	elseif mode == "rival" or mode == "bet" then
+	elseif mode == "rival" then
 		local def = townRival(rv)
-		local bet = mode == "bet"
 		return {
-			title = if bet then `🎲 Double or nothing · ${Ui.commas(started.stake or rv.prize)}` else `{rv.name} · Round {(rv.visit or 0) + 1} of {rivals.RIVAL_VISITS}`,
+			title = `{rv.name} · Round {(rv.visit or 0) + 1} of {rivals.RIVAL_VISITS}`,
 			heading = function(res: any): string?
 				if res.won then
 					return if res.bonus then "RIVAL BEATEN!" else nil
 				end
-				return if bet then "BUSTED!" else "BEATEN!"
+				return "BEATEN!"
 			end,
 			quote = function(res: any): string?
 				if not def then
 					return nil
 				end
 				local l = def.lines
-				local said = if bet then (if res.won then l.betLost else l.betWon) elseif res.won then (if res.bonus then l.quit else l.sore) else l.gloat
-				if res.bet then
-					said ..= `  “{l.bet}”`
-				end
-				return said
+				return if res.won then (if res.bonus then l.quit else l.sore) else l.gloat
 			end,
 			buttons = function(res: any): { DragStrip.Button }?
-				if res.bet then
-					local offer: { DragStrip.Button } = {
-						{ text = `Keep ${Ui.commas(res.bet)}`, kind = "garage", go = function()
-							Remote.race("keep", nil, true)
-							ctx.open("race", back)
-						end },
-						{ text = "🎲 Double or nothing", go = again("bet", nil) },
-					}
-					return offer
-				elseif not res.won and not bet then
+				if not res.won then
 					local retry: { DragStrip.Button } = { { text = "Back", kind = "garage" }, { text = `↻ Rematch ⛽{data.RACE_FUEL}`, go = again("rival", nil) } }
 					return retry
 				end
@@ -618,12 +604,18 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		local leg = tour.tourLeg(tour.tourLegOf(won))
 		local tv = venues.venue(leg.venue)
 		local tourOpen = list ~= nil and list[1] ~= nil and list[1].cleared == true
-		local tourFace = hubTile(cell(2, 2, 1, 3, 3), "Tour", soon("The Pro Tour"))
+		local tourFace = hubTile(cell(2, 2, 1, 3, 3), "Tour", function()
+			show("tour")
+		end)
 		scene(tourFace, { banner = "finish", move = "finish", night = leg.night, cars = if car then { { model = car.model, color = car.color }, { model = (if list and list[1] and list[1].races[5] then list[1].races[5].rival.model else car.model), color = "#cfd8dc" } } else {}, carsAt = 0.62, carsH = 0.26, horizon = 0.42 })
 		hubTag(tourFace, "PRO TOUR", "#b48cff")
 		title(tourFace, if leg.night then `{tv.name} at Midnight` else `{tv.name} {leg.name}`, if tourOpen then 52 else 58, 24)
 		if tourOpen then
 			chip(tourFace, `Leg {leg.index + 1}{if leg.night then " · 🌙" else ""} · {distance.DIST[distance.tourDist(won)].label}`, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -14) })
+			-- The next race straight from the tile (RaceHub.tsx's tour button).
+			goButton(tourFace, { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -10, 1, -10), Size = UDim2.fromOffset(96, 44) }, `🏁 {money(fairRace.tourPayNow(won))}\n⛽{data.RACE_FUEL}`, function()
+				start("tour", nil)
+			end)
 		else
 			local lock = chip(tourFace, "🔒 Clear Back Streets to open", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -12) })
 			lock.Size = UDim2.new(1, -24, 0, 40)
@@ -716,8 +708,12 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		local ev = events.eventFor()
 		local evp = events.eventProgress(s.event)
 		local evWon = if evp then evp.won or 0 else 0
-		local evBase = if evp and evp.pi then evp.pi else myPi
-		local evFace = hubTile(cell(3, 4, 2, 2, 3), "Event", soon("Weekly events"))
+		-- The PI the event's rivals sit around: the one entered with, else the best car's (Race.tsx evBase).
+		local evBest = raceCar.bestCar(s.cars or {})
+		local evBase = if evp and evp.pi then evp.pi elseif evBest then raceCar.carPi(evBest) else 0
+		local evFace = hubTile(cell(3, 4, 2, 2, 3), "Event", function()
+			show("event")
+		end)
 		scene(evFace, { night = ev.night, horizon = 0.55, skyTop = "#ffb36b", skyBottom = "#ffe0b2", cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.95 })
 		do
 			local ring = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 12, 0.5, 0), Size = UDim2.fromOffset(60, 60), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = evFace }, { Ui.round(), Ui.stroke(4, Color3.fromHex(ev.color or "#26a69a")) })
@@ -742,7 +738,9 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			chip(mid, `{string.rep("●", evWon)}{string.rep("○", events.EVENT_RACES - evWon)}  ⏳ {trial.shortLeft(data.msToNextWeek())}`, { Position = UDim2.fromOffset(0, 64) })
 			local at = { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(96, 52) }
 			if evWon < events.EVENT_RACES then
-				goButton(evFace, at, `🏁 {money(events.eventPrize(evBase, evWon))}\n⛽{data.RACE_FUEL}`, soon("Weekly events"))
+				goButton(evFace, at, `🏁 {money(events.eventPrize(evBase, evWon))}\n⛽{data.RACE_FUEL}`, function()
+					start("event", nil)
+				end)
 			else
 				chip(evFace, "✔ Cleared", { AnchorPoint = at.AnchorPoint, Position = at.Position })
 			end
@@ -831,7 +829,9 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			{ "🌍", "World Tour", soon("The World Tour") },
 			{ "🎆", "Flair", soon("Flair") },
 			{ "👻", "Ghosts", soon("Ghost races") },
-			{ "🏅", "Top racers", soon("Top racers") },
+			{ "🏅", "Top racers", function()
+				ctx.open("friends", "leaders")
+			end },
 		}
 		-- A mode with its own page opens it.
 		for _, m in MINIS do
@@ -1222,6 +1222,12 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		conn:Disconnect()
 	end)
 	return overlay
+end
+
+-- Starts a race from outside the menu (the Crew ladder's ghost races); `back` is the race menu's
+-- page to come back to. False when the server didn't start it.
+function RaceMenu.start(ctx: any, mode: string, which: any, back: string): boolean
+	return race(ctx, mode, which, back)
 end
 
 return RaceMenu
