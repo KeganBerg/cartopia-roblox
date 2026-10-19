@@ -296,7 +296,7 @@ const visible = (o: Object3D, root: Object3D) => {
 }
 
 // One drawn piece: its geometry (by id), where it is, and how it looks.
-type Piece = { g: number; group?: number; m: number[]; look: Look }
+type Piece = { g: number; group?: number; m: number[]; look: Look; spin?: number }
 
 type Geo = { type: string; params: Record<string, unknown>; pos: number[]; idx: number[]; nrm?: number[]; col?: number[] }
 
@@ -346,6 +346,7 @@ function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[])
     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
     const base = new Matrix4().multiplyMatrices(inv, mesh.matrixWorld)
     const emit = (m: Matrix4, tint?: Color) => {
+      const start = out.length
       const groups = mesh.geometry.groups
       if (Array.isArray(mesh.material) && groups.length) {
         groups.forEach((gr, gi) => {
@@ -356,6 +357,9 @@ function walk(root: Object3D, geos: Map<BufferGeometry, number>, geoList: Geo[])
         const look = lookOf(mats[0], tint)
         if (look) out.push({ g, m: m.elements.map(r4), look })
       }
+      // A turning part (a fly-over's rotor or prop): which of the model's spinners it belongs to.
+      const spin = mesh.userData.rbxSpin as number | undefined
+      if (spin !== undefined) for (let k = start; k < out.length; k++) out[k].spin = spin
     }
     const inst = mesh as InstancedMesh
     if (inst.isInstancedMesh) {
@@ -623,6 +627,8 @@ it('exports every building and car', async () => {
   }
   const modDrops: Record<string, Record<string, number[]>> = {}
   const wheelsOf: Record<string, number[]> = {}
+  // Each fly-over's turning parts (rotors, props): where it turns about, the axis, how fast, and its pieces.
+  const spinsOf: Record<string, { at: number[]; axis: number[]; speed: number; pieces: number[] }[]> = {}
   const rimsOf: Record<string, number[]> = {}
   // Custom panel paint (panelPaint.ts): the hood, the doors and the roof can each have their own
   // colour and pattern. The web's shader picks the panel per pixel from where it is on the body;
@@ -846,30 +852,55 @@ it('exports every building and car', async () => {
     const { Airliner, BannerPlane, Blimp, NewsHeli, LIVERIES, BANNERS, airlinerGeo, rocketGeo, flyMat } = await import('./scene/FlyByModels')
     const { BalloonModel } = await import('./scene/Balloon')
     const { signTexture } = await import('./scene/signTexture')
-    const one = async (id: string, el: React.ReactElement, prep?: (root: Object3D) => void) => {
+    const { heliParts } = await import('./scene/ServiceVehicles')
+    // spin picks out the parts that turn (useFrame in FlyByModels.tsx): the axis they turn about,
+    // in their own frame, and how fast (radians a second).
+    type V3 = [number, number, number]
+    type Spin = (o: Mesh) => [V3, number] | null
+    const one = async (id: string, el: React.ReactElement, prep?: (root: Object3D) => void, spin?: Spin) => {
       const r = await ReactThreeTestRenderer.create(el)
       const root = r.scene.instance as Object3D
       root.traverse((o) => {
         if ((o as Mesh).isMesh && ((o as Mesh).material as { isShaderMaterial?: boolean }).isShaderMaterial) o.visible = false
       })
       prep?.(root)
-      models.push({ id, kind: 'piece', pieces: walk(root, geos, geoList) })
+      root.updateMatrixWorld(true)
+      const inv = new Matrix4().copy(root.matrixWorld).invert()
+      const spins: { at: V3; axis: V3; speed: number }[] = []
+      if (spin) root.traverse((o) => {
+        const s = (o as Mesh).isMesh && spin(o as Mesh)
+        if (!s) return
+        const m = new Matrix4().multiplyMatrices(inv, o.matrixWorld)
+        const p = new Vector3().setFromMatrixPosition(m)
+        const axis = new Vector3(...s[0]).transformDirection(m)
+        o.userData.rbxSpin = spins.length
+        spins.push({ at: [r4(p.x), r4(p.y), r4(p.z)], axis: [r4(axis.x), r4(axis.y), r4(axis.z)], speed: s[1] })
+      })
+      const pieces = walk(root, geos, geoList)
+      models.push({ id, kind: 'piece', pieces })
+      if (spins.length)
+        spinsOf[id] = spins.map((s, k) => ({ ...s, pieces: pieces.flatMap((p, i) => (p.spin === k ? [i] : [])) }))
       await r.unmount()
     }
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-3
+    const heliSpin: Spin = (o) => (o.geometry === heliParts.blades ? [[0, 1, 0], 28] : o.geometry === heliParts.tail ? [[1, 0, 0], 28 * 1.6] : null)
+    // The banner plane's prop sits on its nose; the blimp's two hang either side of its gondola.
+    const bannerSpin: Spin = (o) => (near(o.position.z, 0.6) && near(o.position.x, 0) && near(o.position.y, 0) ? [[0, 0, 1], 45] : null)
+    const blimpSpin: Spin = (o) => (near(Math.abs(o.position.x), 0.32) && near(o.position.y, -0.6) ? [[0, 0, 1], 20] : null)
     for (let i = 0; i < LIVERIES.length; i++)
       await one(`fly:plane:${i + 1}`, <group scale={0.9}><Airliner livery={{ current: i }} /></group>, (root) =>
         root.traverse((o) => {
           if ((o as Mesh).isMesh && (o as Mesh).geometry === airlinerGeo(0)) (o as Mesh).geometry = airlinerGeo(i)
         }))
-    await one('fly:heli', <group scale={1.2}><NewsHeli /></group>)
+    await one('fly:heli', <group scale={1.2}><NewsHeli /></group>, undefined, heliSpin)
     for (let i = 0; i < BANNERS.length; i++) await one(`fly:banner:${i + 1}`, <group scale={1.3}><BannerPlane message={{ current: i }} /></group>, (root) => {
       // The banner's lettering is set on its first frame: set it now.
       root.traverse((o) => {
         const m = (o as Mesh).material as MeshStandardMaterial | undefined
         if (m && !Array.isArray(m) && m.map && m.type === 'MeshStandardMaterial' && m !== flyMat) m.map = signTexture(BANNERS[i], '#ffffff', '#d32f2f', 5.2)
       })
-    })
-    await one('fly:blimp', <group scale={1.4}><Blimp /></group>)
+    }, bannerSpin)
+    await one('fly:blimp', <group scale={1.4}><Blimp /></group>, undefined, blimpSpin)
     const COLOURS = [['#e53935', '#fdd835'], ['#1e88e5', '#ffffff'], ['#43a047', '#ff7043'], ['#8e24aa', '#ffca28']]
     for (let i = 0; i < COLOURS.length; i++) await one(`fly:balloon:${i + 1}`, <group scale={0.27}><BalloonModel c={COLOURS[i]} /></group>)
     await one('fly:rocket', (
@@ -1146,7 +1177,7 @@ it('exports every building and car', async () => {
   const fd = openSync(`${OUT}.geos`, 'w')
   for (const g of geoList) writeSync(fd, JSON.stringify(g) + '\n')
   closeSync(fd)
-  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, stanceOf, panelDrops, trimOf, townSizes, turbines, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
+  writeFileSync(OUT, JSON.stringify({ geosFile: `${basename(OUT)}.geos`, models, hatSpots: hatSpotOf, modDrops, wheelsOf, rimsOf, spinsOf, stanceOf, panelDrops, trimOf, townSizes, turbines, season: SEASON, grass: PAL.grass, ground: PAL.ground, greens, textures }))
 }, 1_800_000)
 
 // Keep these referenced so tree-shaking type checks don't complain.

@@ -2075,6 +2075,31 @@ Catalog.TRIM = {
 	["nightfall"] = { ["tint"] = { 11 }, ["lights"] = { 9 }, ["handles"] = { 10 } },
 }
 
+-- Each fly-over's turning parts (rotors, props, FlyByModels.tsx): the point and axis they turn
+-- about from the model's middle, in studs, radians a second, and the parts (indices into MODELS).
+Catalog.SPINS = {
+	["fly:heli"] = {
+		{ at = { 0, 11.04, 0 }, axis = { 0, 1, 0 }, speed = 28, parts = { 11, 12, 13 } },
+		{ at = { 0.6, 8.64, -14.64 }, axis = { 1, 0, 0 }, speed = 44.8, parts = { 15 } },
+	},
+	["fly:banner:1"] = {
+		{ at = { 0, 0, 7.8 }, axis = { 0, 0, 1 }, speed = 45, parts = { 9, 10, 11 } },
+	},
+	["fly:banner:2"] = {
+		{ at = { 0, 0, 7.8 }, axis = { 0, 0, 1 }, speed = 45, parts = { 9, 10, 11 } },
+	},
+	["fly:banner:3"] = {
+		{ at = { 0, 0, 7.8 }, axis = { 0, 0, 1 }, speed = 45, parts = { 9, 10, 11 } },
+	},
+	["fly:banner:4"] = {
+		{ at = { 0, 0, 7.8 }, axis = { 0, 0, 1 }, speed = 45, parts = { 9, 10, 11 } },
+	},
+	["fly:blimp"] = {
+		{ at = { 4.48, -8.4, -1.4 }, axis = { 0, 0, 1 }, speed = 20, parts = { 10, 11 } },
+		{ at = { -4.48, -8.4, -1.4 }, axis = { 0, 0, 1 }, speed = 20, parts = { 12, 13 } },
+	},
+}
+
 -- How far each stance mod moves a car's body up (or down), in studs.
 Catalog.STANCE = {
 	["pip"] = { lowered = -0.28, lifted = 1.23, slammed = -0.551 },

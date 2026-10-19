@@ -57,6 +57,16 @@ async function bake() {
   FRAG = swap(FRAG, 'uDusk * pow(side, 2.5)', 'uDusk * 0.35')
   // No moon disc (the moon's glow goes with uMoonLit = 0, the sun with uSunCol = 0).
   FRAG = swap(FRAG, 'if (m > 0.998)', 'if (false)')
+  // The deep sky (deep.glsl, this game's own): galaxies, nebulae, planets, a black hole and a
+  // quasar over the stars, faded in with the night and hidden behind the clouds.
+  FRAG = swap(FRAG, 'void main() {', readFileSync(join(HERE, 'deep.glsl'), 'utf8') + 'void main() {')
+  FRAG = swap(FRAG, '  // Puffy clouds drifting overhead', `  if (uNight > 0.02) {
+    vec3 deepCol = col;
+    vec3 deepAdd = deepSky(d, deepCol);
+    float fade = uNight * clear * smoothstep(0.0, 0.12, y);
+    col = mix(col, deepCol, fade) + deepAdd * fade;
+  }
+  // Puffy clouds drifting overhead`)
   const skyText = src.match(/const SKY = (\{[\s\S]*?\n\})\n/)?.[1]
   if (!skyText) throw new Error('Horizon.tsx has no SKY colours')
   const SKY = new Function('SEASON', `return ${skyText}`)(season)
@@ -81,8 +91,11 @@ async function bake() {
   // Close together through dusk and dawn, where the sky changes fast (Roblox shows one skybox at
   // a time, so each change is a step: small steps keep it gliding). Plain day and full night hold
   // for minutes and get the sharpest pictures; the passing steps are smaller to keep loading light.
-  const STEPS = [0.5, 0.44, 0.39]
-  for (let d = 0.35; d > 0.06; d -= 0.02) STEPS.push(Math.round(d * 100) / 100)
+  // Through the golden hour itself (d 0.34 to 0.1) a step every 0.01, about every six seconds of
+  // real time, so each change is a small one.
+  const STEPS = [0.5, 0.44, 0.39, 0.36]
+  for (let k = 34; k >= 10; k--) STEPS.push(k / 100)
+  STEPS.push(0.07)
   // The sun's direction (web look.ts lightDir) only shades the clouds' bright sides here.
   const NOON = [25, 40, 15].map((v) => v / Math.hypot(25, 40, 15))
   function sunDir(d) {
@@ -95,7 +108,7 @@ async function bake() {
     const l = Math.hypot(...v)
     return v.map((c) => c / l)
   }
-  const steps = STEPS.map((d) => ({ d, night: night(d), dusk: dusk(d), sun: sunDir(d), size: d >= 0.44 || d <= 0.07 ? SIZE : 640 }))
+  const steps = STEPS.map((d) => ({ d, night: night(d), dusk: dusk(d), sun: sunDir(d), size: d >= 0.44 || d <= 0.07 ? SIZE : 512 }))
 
   // Each face: where the camera looks and which way is up in the picture (see the layout above;
   // Left looks along +x, so Back is +z, Right -x and Front -z).

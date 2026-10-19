@@ -399,7 +399,7 @@ export function convert(data) {
       convertPiece(piece, i)
       partsOf[i] = Array.from({ length: parts.length - from }, (_, k) => from + k + 1)
     })
-    if (model.kind === 'car') piecesToParts[model.id] = partsOf
+    if (model.kind === 'car' || data.spinsOf?.[model.id]) piecesToParts[model.id] = partsOf
     function convertPiece(piece, i) {
       const geo = geos[piece.g]
       // The web game stacks the strip's flat layers (ground, asphalt, paint) a hundredth of a unit
@@ -673,10 +673,14 @@ export function convert(data) {
   const trim = {}
   for (const [car, byKind] of Object.entries(data.trimOf ?? {}))
     for (const [kind, list] of Object.entries(byKind)) (trim[car] ??= {})[kind] = toParts(car, list)
+  // A fly-over's turning parts: the point and axis they turn about (studs) and how fast.
+  const spins = {}
+  for (const [id, list] of Object.entries(data.spinsOf ?? {}))
+    spins[id] = list.map((s) => ({ at: s.at.map((x) => x * SCALE), axis: s.axis, speed: s.speed, parts: toParts(id, s.pieces) }))
   const stance = {}
   for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
     for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, townSizes: data.townSizes ?? {}, turbines: (data.turbines ?? []).map(([x, y, z, yaw, tint]) => [x * SCALE, y * SCALE, z * SCALE, yaw, tint]), textures: [...(data.textures ?? []), ...skinTextures()] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, spins, townSizes: data.townSizes ?? {}, turbines: (data.turbines ?? []).map(([x, y, z, yaw, tint]) => [x * SCALE, y * SCALE, z * SCALE, yaw, tint]), textures: [...(data.textures ?? []), ...skinTextures()] }
 }
 
 // The car skins baked by skins.mjs (kept in tools/models/skins/), as textures to upload: each
@@ -817,6 +821,9 @@ Catalog.LOOKS = {
   for (const [car, list] of Object.entries(result.panelDrops ?? {})) cat += `\t[${str(car)}] = { ${list.map(num).join(', ')} },\n`
   cat += '}\n\n-- Each car\'s trim parts (game/trim.ts): its glass (tint), headlights and door handles.\nCatalog.TRIM = {\n'
   for (const [car, byKind] of Object.entries(result.trim ?? {})) cat += `\t[${str(car)}] = { ${lists(byKind)} },\n`
+  cat += '}\n\n-- Each fly-over\'s turning parts (rotors, props, FlyByModels.tsx): the point and axis they turn\n-- about from the model\'s middle, in studs, radians a second, and the parts (indices into MODELS).\nCatalog.SPINS = {\n'
+  for (const [id, list] of Object.entries(result.spins ?? {}))
+    cat += `\t[${str(id)}] = {\n${list.map((s) => `\t\t{ at = { ${s.at.map(num).join(', ')} }, axis = { ${s.axis.map(num).join(', ')} }, speed = ${num(s.speed)}, parts = { ${s.parts.map(num).join(', ')} } },\n`).join('')}\t},\n`
   cat += '}\n\n-- How far each stance mod moves a car\'s body up (or down), in studs.\nCatalog.STANCE = {\n'
   for (const [car, byMod] of Object.entries(result.stance ?? {})) cat += `\t[${str(car)}] = { ${Object.entries(byMod).map(([k, v]) => `${k} = ${num(v)}`).join(', ')} },\n`
   cat += '}\n\n-- Each car in town traffic (townCarSize.ts): { length, width } in web units, and the scale it\'s\n-- drawn at.\nCatalog.TOWN_SIZE = {\n'
