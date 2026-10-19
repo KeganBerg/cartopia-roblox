@@ -447,8 +447,15 @@ end
 -- ── Running it ─────────────────────────────────────────────────────────────────────────────────
 
 -- The layer the hand draws in: the race screen while a race is on, else the HUD's frame.
+-- Rusty's 3D search has its own screen over the lot (the HUD is off while it's up).
+local function rescueScreen(): Frame?
+	local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
+	local g = pg and pg:FindFirstChild("RescueSearch")
+	return g and g:FindFirstChild("SearchScreen") :: Frame?
+end
+
 local function layerNow(): GuiObject?
-	return raceScreen() or (if ctxRef then ctxRef.gui else nil)
+	return raceScreen() or rescueScreen() or (if ctxRef then ctxRef.gui else nil)
 end
 
 local card: Frame? = nil
