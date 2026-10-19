@@ -12,6 +12,7 @@ local data = require(Game.data) :: any
 local store = require(Game.store) :: any
 local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
+local RaceMenu = require(script.Parent.Parent.RaceMenu)
 
 local Crew = {}
 
@@ -462,6 +463,47 @@ function Crew.draw(list: Instance, kit: any, state: any)
 				Ui.text({ Text = if mine then `{m.name} (you)` else m.name, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(46, 8), Size = UDim2.new(1, -54 - right, 0, 20), Parent = row })
 				Ui.text({ Text = `Lvl {m.level or 1} · ⚡ {Ui.commas(m.power or 0)} · 🏁 {Ui.commas(m.wins or 0)} · 🏆 {Ui.commas(m.trophies or 0)} · 🧰 {Ui.commas(goalPts[m.id] or 0)}`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(46, 29), Size = UDim2.new(1, -54 - right, 0, 17), Parent = row })
 			end
+
+			-- The crew ladder (web CrewLadder): every crewmate's ghost by best run; Race runs it.
+			kit.heading(list, nextOrder(), "🏁 Crew ladder")
+			local ladder = Ui.new("Frame", { Name = "Ladder", LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, Parent = list }, {
+				Ui.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+			})
+			local ladderNote = Ui.text({ Text = "Loading the ladder…", Body = true, TextSize = 14, TextColor3 = Ui.MUTED, Size = UDim2.new(1, 0, 0, 40), Parent = ladder })
+			task.spawn(function()
+				local okL, lad = Remote.social("crewLadder", nil, true)
+				if not ladder.Parent then
+					return
+				end
+				if not okL then
+					Ui.setText(ladderNote, "Couldn't load the ladder right now.")
+					return
+				end
+				ladderNote:Destroy()
+				local MEDAL = { "🥇", "🥈", "🥉" }
+				local place = 0
+				for i, r in lad.rows do
+					-- Equal real times share a place (web ladderPlaces).
+					local prev = lad.rows[i - 1]
+					if not (prev and r.t and not r.par and prev.t == r.t and not prev.par) then
+						place = i
+					end
+					local row = box(ladder, i, 52, `Rung{r.id}`)
+					local real = r.t ~= nil and not r.par
+					Ui.text({ Text = if real and MEDAL[place] then MEDAL[place] else `{place}`, Body = true, Weight = "heavy", TextSize = if real and MEDAL[place] then 22 else 16, TextColor3 = Ui.MUTED, Position = UDim2.fromOffset(6, 0), Size = UDim2.fromOffset(34, 52), Parent = row })
+					Ui.text({ Text = if r.id == me then "You" else r.name, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(44, 6), Size = UDim2.new(1, -250, 0, 20), Parent = row })
+					Ui.text({ Text = if r.car then `{r.car} · PI {r.pi or 0}` else "No car yet", Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(44, 27), Size = UDim2.new(1, -250, 0, 17), Parent = row })
+					Ui.text({ Name = "Time", Text = if r.t == nil then "—" elseif r.par then "No time" else `{string.format("%.3f", r.t)}s`, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = if real then Ui.INK else Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -126, 0, 0), Size = UDim2.fromOffset(90, 52), Parent = row })
+					if r.id ~= me then
+						Ui.buy({ Name = "Race", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(110, 36), Parent = row }, `🏁 Race ⛽{lad.fuel}`, if r.t then "green" else "broke", function()
+							if r.t then
+								RaceMenu.start(kit.ctx, "ghost", { vs = r.id }, "ghost")
+							end
+						end, 15)
+					end
+				end
+				ladder.Size = UDim2.new(1, 0, 0, #lad.rows * 58)
+			end)
 
 			-- Settings, for the Leader and Co-Leaders.
 			if officer then

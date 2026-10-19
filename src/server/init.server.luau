@@ -1620,6 +1620,35 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 				return mine, nil
 			end
 			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1, goal = crewGoals:goal(player.UserId, nil, 0) }, nil
+		elseif op == "crewLadder" then
+			-- The crew ladder (web CrewLadder): every crewmate's ghost, fastest real run first,
+			-- then pars, then no car yet. Racing one is a ghost race (Modes/Ghost).
+			local id = crews:mineId(player.UserId)
+			local c = id and crews:crew(id)
+			if not c then
+				return nil, "no crew"
+			end
+			pcall(ghostCard, player.UserId)
+			local race = require(Game.race) :: any
+			local rows = {}
+			for uid, m in c.members do
+				local userId = tonumber(uid) or 0
+				local ok, g = pcall(ghosts.of, ghosts, userId, function(pi: number): number
+					return race.raceFloor(pi)
+				end)
+				g = if ok then g else nil
+				table.insert(rows, { id = userId, name = m.name, level = m.level, t = g and g.t, par = g == nil or g.par, car = g and g.car, model = g and g.model, color = g and g.color, pi = g and g.pi })
+			end
+			table.sort(rows, function(a, b)
+				local function key(r: any): number
+					return if r.t == nil then 2 elseif r.par then 1 else 0
+				end
+				if key(a) ~= key(b) then
+					return key(a) < key(b)
+				end
+				return (a.t or 0) < (b.t or 0)
+			end)
+			return { rows = rows, fuel = (require(Game.data) :: any).RACE_FUEL }, nil
 		elseif op == "crewPartsAsk" then
 			local id = crews:mineId(player.UserId)
 			if not id then
