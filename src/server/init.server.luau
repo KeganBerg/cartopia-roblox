@@ -352,6 +352,9 @@ task.spawn(function()
 	end)
 	meshesReady = true
 	workspace:SetAttribute("ShapesReady", true)
+	-- The race venues' meshes at full detail (Builder.sharpenRaces), again for any that came late.
+	Builder.sharpenRaces()
+	task.delay(120, Builder.sharpenRaces)
 	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
 	Builder.loadLate()
 	-- A copy of every car and building for the client's shop pictures and placement ghost.
