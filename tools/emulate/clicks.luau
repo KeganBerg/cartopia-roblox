@@ -60,7 +60,7 @@ local function signalFor(inst, name)
 	signals[key] = s
 	return s
 end
-for _, pair in { { "GuiButton", "Activated" }, { "RunService", "RenderStepped" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputChanged" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
+for _, pair in { { "GuiButton", "Activated" }, { "RunService", "RenderStepped" }, { "RunService", "Stepped" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "Instance", "Destroying" }, { "Instance", "ChildAdded" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "TextBox", "FocusLost" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputChanged" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" } } do
 	roblox.implementProperty(pair[1], pair[2], function(inst)
 		return signalFor(inst, pair[2])
 	end)
@@ -608,8 +608,14 @@ do
 	bankDesk:setProducts(list)
 	bankDesk:load(1, {})
 end
+-- The admin panel's remote (server/Admin), answered further down.
+local adminCall = function(...)
+	return false, "not set up"
+end
 roblox.implementMethod("RemoteFunction", "InvokeServer", function(remote, name, ...)
-	if remote.Name == "Social" then
+	if remote.Name == "AdminRemote" then
+		return adminCall(name, ...)
+	elseif remote.Name == "Social" then
 		return socialDesk(name, ...)
 	elseif remote.Name == "Visitor" then
 		return visitorCall(name, ...)
@@ -671,6 +677,132 @@ local client = game:GetService("StarterPlayer").StarterPlayerScripts.Client
 local Remote = emu.require(client.Remote)
 signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 local hud = emu.require(client.Hud).start()
+
+-- The admin panel (server/Admin): the server puts it in the owner's PlayerGui only. Here player 1
+-- stands in for the owner (ADMIN_ONLY=1 checks just this); every page is opened and every button pressed, and SHOTS=1 pictures
+-- each page (build/shot-admin-<page>-gui.json).
+local function adminCheck()
+	local fs = require("@lune/fs")
+	local serde = require("@lune/serde")
+	local Gui = require("./gui")
+	local Admin = emu.require(SSS.Server.Admin)
+	Admin.IDS[1] = true
+	local desk = Admin.new({
+		towns = towns,
+		store = store,
+		data = emu.require(RS.Shared.Game.data),
+		visitors = { _record = function()
+			return { lastAt = 0, n = 0 }
+		end, cur = {} },
+		player = function(id)
+			return if id == 1 then player else nil
+		end,
+		players = function()
+			return { player }
+		end,
+		push = function()
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		end,
+		save = function() end,
+		hub = function()
+			return roblox.CFrame.new(0, 5, 160)
+		end,
+		plot = function()
+			return roblox.CFrame.new(0, 5, 0)
+		end,
+		plots = 12,
+		rave = function()
+			return true, nil
+		end,
+		stats = function()
+			return { memoryMb = 900, physicsFps = 60, heartbeatMs = 2, uptime = 600, players = 1, instances = 40000, version = 1, job = "emu" }
+		end,
+		now = function()
+			return NOW
+		end,
+		uid = function()
+			return "emu"
+		end,
+	})
+	-- Every button is pressed in the same instant here, which the panel's rate limit would refuse.
+	desk._allow = function()
+		return true
+	end
+	local adminCalls = {}
+	adminCall = function(op, ...)
+		local ran, ok, result = pcall(desk.run, desk, player, op, ...)
+		if not ran then
+			table.insert(adminCalls, `SERVER ERROR admin {op}: {ok}`)
+			return false, "error"
+		end
+		if not ok and result ~= "not here" and result ~= "no character" and result ~= "bad amount" and result ~= "not confirmed" then
+			table.insert(adminCalls, `admin {op} refused: {result}`)
+		end
+		return ok, result
+	end
+	local holder = Instance.new("ScreenGui")
+	holder.Name = "CartopiaAdmin"
+	local remote = Instance.new("RemoteFunction")
+	remote.Name = "AdminRemote"
+	remote.Parent = holder
+	SSS.Server.Admin.Panel:Clone().Parent = holder
+	holder.Parent = player.PlayerGui
+	handlerErrors = {}
+	emu.require(holder.Panel)
+	Emu.resumeWaits()
+	local function find(root, name)
+		for _, d in root:GetDescendants() do
+			if d.Name == name then
+				return d
+			end
+		end
+		return nil
+	end
+	local function press(shadow)
+		local face = shadow and (if shadow:IsA("GuiButton") then shadow else shadow:FindFirstChildWhichIsA("GuiButton", true))
+		if face then
+			signalFor(face, "Activated"):Fire()
+			Emu.resumeWaits()
+		end
+	end
+	press(find(holder, "AdminButton"))
+	assert(find(holder, "Panel"), "the admin panel didn't open")
+	local pages = { "Money", "Cars", "World", "Move", "Players" }
+	for _, name in pages do
+		-- The page's tab: a button whose label says its name.
+		local tabs = find(holder, "Pages")
+		for _, l in tabs:GetDescendants() do
+			if l:IsA("TextLabel") and l.Name == "Label" and l.Text == name then
+				press(l.Parent)
+				break
+			end
+		end
+		if SHOTS or process.env.ADMIN_SHOTS then
+			fs.writeFile(`build/shot-admin-{string.lower(name)}-gui.json`, serde.encode("json", { nodes = Gui.dump(holder, 1280, 800), bubbles = {} }))
+		end
+		-- Every button on the page once (the careful ones only arm; nothing here can't be undone).
+		local page = find(holder, "Page")
+		local n = 0
+		if page then
+			for _, b in page:GetDescendants() do
+				if b:IsA("GuiButton") and n < 40 then
+					n += 1
+					pcall(function()
+						signalFor(b, "Activated"):Fire()
+					end)
+				end
+			end
+			Emu.resumeWaits()
+		end
+		print(`admin {name}: pressed {n} buttons`)
+	end
+	print(`admin calls: {#adminCalls} problems {table.concat(adminCalls, "; ")}; handler errors: {table.concat(handlerErrors, "; ")}`)
+	assert(#adminCalls == 0 and #handlerErrors == 0, "the admin panel had problems")
+end
+if process.env.ADMIN_ONLY then
+	adminCheck()
+	process.exit(0)
+end
 
 local function buttons(root)
 	local out = {}
@@ -4257,3 +4389,6 @@ do
 	townsFolder:Destroy()
 	print(`visitors: {problems} problems`)
 end
+
+
+adminCheck()

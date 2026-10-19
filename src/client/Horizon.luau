@@ -24,6 +24,7 @@ local SkyImages = require(Models:WaitForChild("SkyImages")) :: any
 local Game = Shared:WaitForChild("Game")
 local clock = require(Game:WaitForChild("clock")) :: any
 local weather = require(Game:WaitForChild("weather")) :: any
+local ClockShift = require(script.Parent.ClockShift)
 
 local Horizon = {}
 
@@ -337,7 +338,7 @@ function Horizon.movers(origin: Vector3, parent: Instance, reach: number?): (dt:
 			place(rotors[i], CFrame.new(origin + Vector3.new(tb[1], tb[2], tb[3])) * CFrame.fromEulerAnglesYXZ(0, tb[4], spins[i]))
 		end
 		-- The balloons only fly in fair weather, by day.
-		local night = clock.nightAmount(clock.dayPhase(DateTime.now().UnixTimestampMillis))
+		local night = clock.nightAmount(clock.dayPhase(ClockShift.now()))
 		local fly = night < 0.5 and w.rain < 0.2 and w.snow < 0.2 and w.wind < 0.6
 		if fly ~= flying then
 			flying = fly

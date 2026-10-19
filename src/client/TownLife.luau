@@ -26,6 +26,7 @@ local layout = require(Game:WaitForChild("scene_traffic_layout")) :: any
 local grid = require(Game:WaitForChild("scene_grid")) :: any
 local walk = require(Game:WaitForChild("walkGraph")) :: any
 local Thought = require(script.Parent:WaitForChild("Thought"))
+local ClockShift = require(script.Parent.ClockShift)
 
 local TownLife = {}
 
@@ -1569,7 +1570,7 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		end
 		-- The townspeople.
 		if graph and places then
-			local night = clock.nightAmount(clock.dayPhase()) > 0.5
+			local night = clock.nightAmount(clock.dayPhase(ClockShift.now())) > 0.5
 			local wag = os.clock()
 			local cam = workspace.CurrentCamera
 			local eye = if cam then cam.CFrame.Position else nil

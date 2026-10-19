@@ -30,6 +30,7 @@ local clock = require(Game:WaitForChild("clock")) :: any
 local season = require(Game:WaitForChild("scene_season")) :: any
 local DayNight = require(script.Parent.DayNight)
 local TownCamera = require(script.Parent.TownCamera)
+local ClockShift = require(script.Parent.ClockShift)
 
 local TownWeather = {}
 
@@ -837,7 +838,7 @@ function TownWeather.start()
 	local t0 = os.clock()
 	-- After DayNight's own step, so the nudges land on this frame's light.
 	RunService:BindToRenderStep("TownWeather", Enum.RenderPriority.Camera.Value + 2, function()
-		TownWeather.step(DateTime.now().UnixTimestampMillis, os.clock() - t0)
+		TownWeather.step(ClockShift.now(), os.clock() - t0)
 	end)
 end
 
