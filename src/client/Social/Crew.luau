@@ -130,6 +130,66 @@ function Crew.goal(parent: Instance, nextOrder: () -> number, goal: any, open: (
 	end)
 end
 
+-- A crew battle's chests from last week (victory, MVP), while they wait. claim(kind) opens one.
+function Crew.battleChests(parent: Instance, nextOrder: () -> number, battle: any, claim: (string) -> ())
+	local last = battle and battle.last
+	for _, kind in (last and last.claimable) or {} do
+		local title = if kind == "mvp" then "⭐ Battle MVP chest" else "⚔️ Battle victory chest"
+		chestRow(parent, nextOrder(), if kind == "mvp" then "MvpChest" else "BattleChest", title, chestPay(), "Open", "green", function()
+			claim(kind)
+		end)
+	end
+end
+
+-- This week's crew battle (web CrewBattle): both crews and their scores, the tug bar, how points
+-- are made, the player's points towards a victory chest, and each side's top drivers.
+function Crew.battle(parent: Instance, nextOrder: () -> number, battle: any, me: number, heading: (Instance, number, string) -> ())
+	local x = battle and battle.current
+	if not x then
+		return
+	end
+	local rules = battle.rules or {}
+	heading(parent, nextOrder(), "⚔️ Crew battle")
+	local card = box(parent, nextOrder(), 176, "Battle")
+	local us, them = x.us, x.them
+	-- The two crews, face to face.
+	Crew.crest(card, us, 44, UDim2.fromOffset(12, 12))
+	Ui.text({ Name = "UsName", Text = us.tag, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(62, 12), Size = UDim2.new(0.5, -90, 0, 18), Parent = card })
+	Ui.text({ Name = "UsScore", Text = Ui.commas(us.score), Body = true, Weight = "heavy", TextSize = 22, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(62, 30), Size = UDim2.new(0.5, -90, 0, 26), Parent = card })
+	Ui.text({ Text = "VS", TextSize = 18, Stroke = 1.5, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 22), Size = UDim2.fromOffset(40, 24), Parent = card })
+	Crew.crest(card, them, 44, UDim2.new(1, -56, 0, 12))
+	Ui.text({ Name = "ThemName", Text = if them.bot then `{them.tag} · street crew` else them.tag, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -62, 0, 12), Size = UDim2.new(0.5, -90, 0, 18), Parent = card })
+	Ui.text({ Name = "ThemScore", Text = Ui.commas(them.score), Body = true, Weight = "heavy", TextSize = 22, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -62, 0, 30), Size = UDim2.new(0.5, -90, 0, 26), Parent = card })
+	-- The tug bar: our share of the points in our colour, theirs in theirs.
+	local bar = Ui.new("Frame", { Name = "Tug", Position = UDim2.fromOffset(12, 66), Size = UDim2.new(1, -24, 0, 14), BackgroundColor3 = hex(them.color or "#546e7a"), ClipsDescendants = true, Parent = card }, { Ui.corner(7) })
+	local total = us.score + them.score
+	local share = if total > 0 then us.score / total else 0.5
+	Ui.new("Frame", { Name = "Fill", Size = UDim2.fromScale(share, 1), Visible = share > 0, BackgroundColor3 = hex(us.color or "#ff7043"), Parent = bar }, { Ui.corner(7) })
+	local gap = us.score - them.score
+	local status = if gap > 0 then `Winning by {Ui.commas(gap)}` elseif gap < 0 then `Behind by {Ui.commas(-gap)}` else "Neck and neck"
+	Ui.text({ Name = "Status", Text = status, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = if gap > 0 then Color3.fromHex("#2e7d32") elseif gap < 0 then Color3.fromHex("#c62828") else Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 86), Size = UDim2.new(0.5, -12, 0, 18), Parent = card })
+	Ui.text({ Name = "Left", Text = `⏱ {left(battle.left or 0)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 86), Size = UDim2.new(0.5, -12, 0, 18), Parent = card })
+	local min = rules.minPoints or 20
+	local mine = if x.mine >= min then `Your points: {Ui.commas(x.mine)} ✔ chest if you win` else `Your points: {Ui.commas(x.mine)} · score {min - x.mine} more for a chest`
+	Ui.text({ Name = "Mine", Text = mine, Body = true, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(12, 110), Size = UDim2.new(1, -24, 0, 17), Parent = card })
+	Ui.text({ Text = `🏁 +{rules.race or 1} a race, +{rules.win or 3} a win · ⚔️ live win +{rules.live or 10}, +{rules.h2h or 25} vs {them.tag}`, Body = true, TextSize = 12, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(12, 130), Size = UDim2.new(1, -24, 0, 34), Parent = card })
+	-- The top drivers on each side.
+	local shown = math.max(math.min(#us.members, 5), math.min(#them.members, 5))
+	if shown == 0 then
+		return
+	end
+	local roster = box(parent, nextOrder(), 16 + shown * 22, "Rosters")
+	for side, list in { us.members, them.members } do
+		for i = 1, math.min(#list, 5) do
+			local m = list[i]
+			local xPos = if side == 1 then UDim2.new(0, 12, 0, 8 + (i - 1) * 22) else UDim2.new(0.5, 6, 0, 8 + (i - 1) * 22)
+			local name = if side == 1 and m.id == me then "You" else m.name
+			Ui.text({ Name = `Driver{side}_{i}`, Text = `{if i == 1 then "⭐" else `{i}.`} {name}`, Body = true, Weight = if side == 1 and m.id == me then "heavy" else nil, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = xPos, Size = UDim2.new(0.5, -62, 0, 20), Parent = roster })
+			Ui.text({ Text = Ui.commas(m.points), Body = true, Weight = "heavy", TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, Position = xPos + UDim2.new(0.5, -62, 0, 0), Size = UDim2.fromOffset(44, 20), Parent = roster })
+		end
+	end
+end
+
 local function label(parent: Instance, text: string, y: number)
 	Ui.text({ Text = text, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 18), Parent = parent })
 end
@@ -320,6 +380,9 @@ function Crew.draw(list: Instance, kit: any, state: any)
 		local function openChest(week: string)
 			call("crewChest", week)
 		end
+		local function claimBattle(kind: string)
+			call("crewBattleChest", kind)
+		end
 
 		-- ── In a crew ─────────────────────────────────────────────────────────────────────────
 		if res.crew then
@@ -336,6 +399,8 @@ function Crew.draw(list: Instance, kit: any, state: any)
 				Ui.text({ Text = c.motto, Body = true, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Stroke = 1.5, Position = UDim2.fromOffset(90, 64), Size = UDim2.new(1, -100, 0, 18), Parent = hero })
 			end
 			Crew.goal(list, nextOrder, res.goal, openChest)
+			Crew.battleChests(list, nextOrder, res.battle, claimBattle)
+			Crew.battle(list, nextOrder, res.battle, me, kit.heading)
 
 			-- Crew chat: the crew's tab in Roblox's chat (server/CrewChat), for players Roblox lets chat.
 			local lp = Players.LocalPlayer
@@ -563,6 +628,7 @@ function Crew.draw(list: Instance, kit: any, state: any)
 		-- ── Not in a crew ─────────────────────────────────────────────────────────────────────
 		-- (Last week's chest still opens after leaving the crew that earned it.)
 		Crew.goal(list, nextOrder, res.goal, openChest)
+		Crew.battleChests(list, nextOrder, res.battle, claimBattle)
 		if not res.house then
 			local lock = box(list, nextOrder(), 120, "Locked")
 			Ui.text({ Text = "🔒 Crews open with a Crew House", TextSize = 19, TextColor3 = Ui.INK, Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 26), Parent = lock })

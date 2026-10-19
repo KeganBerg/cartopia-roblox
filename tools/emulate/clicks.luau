@@ -642,6 +642,15 @@ local crewN = 0
 -- Crew weekly goals, on the real clock (the week is today's).
 local goalDesk = emu.require(SSS.Server.CrewGoals).new({ clock = os.time })
 local partsDesk = emu.require(SSS.Server.CrewParts).new({ clock = os.time })
+-- Crew battles: their clock (moved on a week to end one), the desk and my opened chests.
+local battles: any = { now = os.time() }
+function battles.opened()
+	local out = {}
+	for k in (goalDesk:_get("k:1") or {}).opened or {} do
+		out[k] = true
+	end
+	return out
+end
 local crewDesk = emu.require(SSS.Server.Crews).new({
 	clock = function()
 		return raceClock
@@ -649,6 +658,19 @@ local crewDesk = emu.require(SSS.Server.Crews).new({
 	newId = function()
 		crewN += 1
 		return `crew{crewN}`
+	end,
+	emblems = emu.require(G.data).CLAN_EMBLEMS,
+	colors = emu.require(G.data).CLAN_COLORS,
+})
+battles.desk = emu.require(SSS.Server.CrewBattles).new({
+	clock = function()
+		return battles.now
+	end,
+	crews = function()
+		return crewDesk:browse()
+	end,
+	crew = function(id)
+		return crewDesk:crew(id)
 	end,
 	emblems = emu.require(G.data).CLAN_EMBLEMS,
 	colors = emu.require(G.data).CLAN_COLORS,
@@ -721,9 +743,10 @@ local function socialDesk(op, arg)
 					signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 				end
 				mine.parts = partsDesk:list(mine.crew.id, 1)
+				mine.battle = battles.desk:battle(1, mine.crew.id, battles.opened())
 				return mine, nil
 			end
-			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1, goal = goalDesk:goal(1, nil, 0) }, nil
+			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1, goal = goalDesk:goal(1, nil, 0), battle = battles.desk:battle(1, nil, battles.opened()) }, nil
 		elseif op == "crewLadder" then
 			-- Rosa has a run, Mina a par, and I have no time yet.
 			local c = crewDesk:crew(crewDesk:mineId(1) or "")
@@ -753,6 +776,19 @@ local function socialDesk(op, arg)
 			end)
 			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
 			return true, nil
+		elseif op == "crewBattleChest" then
+			local last = battles.desk:battle(1, crewDesk:mineId(1), battles.opened()).last
+			if not last or not table.find(last.claimable, arg) then
+				return nil, "battle locked"
+			end
+			local total = goalDesk:addChest(1, `{arg}:{last.week}`, last.us.id)
+			towns:_with(1, function(st)
+				for _ = (st.crewChests or 0) + 1, total do
+					store.useGame.getState().openCrewChest()
+				end
+			end)
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+			return { chests = total }, nil
 		elseif op == "crewChest" then
 			local total, no = goalDesk:open(1, arg)
 			if not total then
@@ -2103,6 +2139,48 @@ if SHOTS then
 				sf.CanvasPosition = roblox.Vector2.new(0, 600)
 			end
 			shot("crew-ladder", nil)
+			-- This week's crew battle: Rosa and I race; then the week ends and the chests open.
+			battles.desk:races(1, niteId, "You", 60, 20)
+			battles.desk:races(2, niteId, "Rosa", 12, 3)
+			battles.desk:live(1, niteId, "You", 7, "crew2")
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			local card = hud.gui:FindFirstChild("Battle", true)
+			if not card or not card:FindFirstChild("UsScore", true) or (card:FindFirstChild("UsScore", true) :: any).Text ~= tostring(battles.desk:score(niteId, (battles.desk.weeks(battles.now)))) then
+				table.insert(problems, "the crew battle card doesn't show our score")
+			end
+			local sf2 = card and card:FindFirstAncestorWhichIsA("ScrollingFrame")
+			if sf2 then
+				sf2.CanvasPosition = roblox.Vector2.new(0, 170)
+			end
+			shot("crew-battle", nil)
+			local root = hud.gui:FindFirstChild("Root")
+			root.Size = roblox.UDim2.fromOffset(1535, 709)
+			shot("crew-battle-phone", nil, 1535, 709)
+			root.Size = roblox.UDim2.fromOffset(1280, 800)
+			battles.now += 7 * 86400
+			local chestsBefore = towns:save(1).crewChests or 0
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			local won = battles.desk:battle(1, niteId, battles.opened()).last
+			shot("crew-battle-won", nil)
+			if won.result == "win" then
+				press("BattleChest")
+				press("MvpChest")
+				if (towns:save(1).crewChests or 0) ~= chestsBefore + 2 then
+					table.insert(problems, `the battle chests didn't pay: {chestsBefore} -> {towns:save(1).crewChests}`)
+				end
+				if hud.gui:FindFirstChild("BattleChest", true) then
+					table.insert(problems, "the victory chest is still there after opening")
+				end
+			else
+				table.insert(problems, `the crew battle wasn't won: {won.us.score} to {won.them.score}`)
+			end
+			if not hud.gui:FindFirstChild("Battle", true) then
+				table.insert(problems, "no crew battle card in the new week")
+			end
 		end
 		crewDesk:leave(1)
 		hud.ctx.close()

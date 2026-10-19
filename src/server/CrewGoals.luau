@@ -257,9 +257,10 @@ function CrewGoals.open(self: CrewGoals, userId: number, week: any): (number?, s
 		end
 		-- Only this week's and last week's are kept.
 		local opened = {}
-		for wk, id in r.opened do
+		for key, id in r.opened do
+			local wk = key:match("(%d+%-%d+%-%d+)$")
 			if wk == this or wk == last then
-				opened[wk] = id
+				opened[key] = id
 			end
 		end
 		opened[week] = best
@@ -275,6 +276,35 @@ function CrewGoals.open(self: CrewGoals, userId: number, week: any): (number?, s
 		return nil, "chest opened"
 	end
 	return chests, nil
+end
+
+-- Records another crew chest for a player (a crew battle's victory or MVP chest), once per key
+-- ("battle:<week>", "mvp:<week>"). Returns the chests they've opened in all (the server pays up to
+-- that), or nil when this one was already counted or the store failed.
+function CrewGoals.addChest(self: CrewGoals, userId: number, key: string, crewId: string): number?
+	local chests: number? = nil
+	local ok = self:_update(`k:{userId}`, function(r: any): any
+		chests = nil
+		r.opened = r.opened or {}
+		if r.opened[key] then
+			return nil
+		end
+		-- (Only this week's and last week's are kept.)
+		local this, last = CrewGoals.weeks(self.mods.clock())
+		local opened = {}
+		for k, id in r.opened do
+			local wk = k:match("(%d+%-%d+%-%d+)$")
+			if wk == this or wk == last then
+				opened[k] = id
+			end
+		end
+		opened[key] = crewId
+		r.opened = opened
+		r.chests = (r.chests or 0) + 1
+		chests = r.chests
+		return r
+	end)
+	return if ok then chests else nil
 end
 
 -- The chests a player has opened in all (what their town should have been paid for).
