@@ -395,7 +395,22 @@ function Horizon.sky(phase: number): Color3?
 			(s :: any)[`Skybox{face}`] = want
 		end
 	end
-	return Color3.fromHex(best.haze)
+	-- The haze between the two baked steps either side of now, so the far land's colour glides
+	-- while the pictures change step by step.
+	local above, below = nil, nil
+	for _, step in SkyImages.steps do
+		if step.d >= d and (not above or step.d < above.d) then
+			above = step
+		end
+		if step.d <= d and (not below or step.d > below.d) then
+			below = step
+		end
+	end
+	if above and below and above ~= below then
+		local t = (d - below.d) / (above.d - below.d)
+		return Color3.fromHex(below.haze):Lerp(Color3.fromHex(above.haze), t)
+	end
+	return Color3.fromHex((above or below or best).haze)
 end
 
 return Horizon
