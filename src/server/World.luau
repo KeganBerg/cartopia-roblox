@@ -142,6 +142,17 @@ function World.build(parent: Instance, meadow: Color3, texture: ((BasePart) -> (
 			part(ground, "Base", Vector3.new(size, 4, size), CFrame.new(-reach + (ix + 0.5) * size, BASE_TOP - 2, -reach + (iz + 0.5) * size), meadow)
 		end
 	end
+	-- Invisible walls round the ground's edge, so no one drives off the end of the world.
+	for side = 0, 3 do
+		for k = 0, n - 1 do
+			local along = -reach + (k + 0.5) * size
+			local out = if side < 2 then reach else -reach
+			local wall = part(ground, "Edge", if side % 2 == 0 then Vector3.new(10, 200, size) else Vector3.new(size, 200, 10), if side % 2 == 0 then CFrame.new(out, 90, along) else CFrame.new(along, 90, out), meadow)
+			wall.Transparency = 1
+			wall.CanQuery = false
+			wall.CanTouch = false
+		end
+	end
 	-- A textured piece over x0..x1, z0..z1 (in pieces of at most TILE), top at the towns' meadow.
 	local function fill(into: Instance, x0: number, x1: number, z0: number, z1: number)
 		if x1 - x0 < 1 or z1 - z0 < 1 then

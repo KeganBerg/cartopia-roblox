@@ -57,6 +57,8 @@ type Car = {
 }
 
 local cars: { Car } = {}
+-- The road grid (set by attach).
+local theGrid: Grid? = nil
 local byUid: { [string]: Car } = {}
 
 local function phone(): boolean
@@ -510,10 +512,33 @@ function WorldLife.give(uid: string)
 	c.v = 0
 end
 
+-- A parking spot on the verge of the road nearest world point p, just off the asphalt on p's side,
+-- facing along the road with the verge on its right (car models face +Z).
+function WorldLife.roadsideNear(p: Vector3): CFrame?
+	local g = theGrid
+	if not g then
+		return nil
+	end
+	local lx, lz = nearestLine(g, p.X), nearestLine(g, p.Z)
+	local off = g.width / 2 + 9
+	if math.abs(p.X - lx) <= math.abs(p.Z - lz) then
+		-- A road running along z at x = lx.
+		local side = if p.X >= lx then 1 else -1
+		local z = math.clamp(p.Z, -g.reach, g.reach)
+		-- Right of a car facing (0, fz) is (-fz, 0): the verge on the right means fz = -side.
+		return CFrame.new(lx + side * off, g.top, z) * CFrame.Angles(0, math.atan2(0, -side), 0)
+	end
+	local side = if p.Z >= lz then 1 else -1
+	local x = math.clamp(p.X, -g.reach, g.reach)
+	-- Right of a car facing (fx, 0) is (0, fx): fx = side.
+	return CFrame.new(x, g.top, lz + side * off) * CFrame.Angles(0, math.atan2(side, 0), 0)
+end
+
 -- Brings the world's roads to life: returns a function that moves everything on by dt seconds,
 -- for a camera at `eye` and the player at `me`.
 function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Vector3?) -> ()
 	local g = gridOf(world)
+	theGrid = g
 	local folder = Instance.new("Folder")
 	folder.Name = "RoadTraffic"
 	folder.Parent = workspace
