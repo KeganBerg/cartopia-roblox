@@ -206,6 +206,22 @@ function TownCamera.isWalking(): boolean
 	return walking
 end
 
+function TownCamera.isPaused(): boolean
+	return paused
+end
+
+-- Roblox's camera on the avatar again (client/CarDrive hands it back after a drive).
+function TownCamera.follow()
+	if walking and not paused then
+		follow()
+	end
+end
+
+-- The avatar's controls (PlayerModule's ControlModule), or nil until it has loaded.
+function TownCamera.controls(): any
+	return controls
+end
+
 function TownCamera.onWalking(fn: (boolean) -> ())
 	table.insert(walkListeners, fn)
 end
