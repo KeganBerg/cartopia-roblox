@@ -712,7 +712,7 @@ local function needSources(ctx: any, need: any): (string, { Source })
 			{ icon = "⛽", title = `Fill up with gems · 💎 {refill}`, detail = if s.fuel >= cap then "Your tank is full." else `Fill your tank to {cap} right now. You have {Ui.commas(s.bucks)} gems.`, action = { label = `Fill up · 💎 {refill}`, disabled = s.fuel >= cap, run = function()
 				Remote.act("refillFuel")
 			end } },
-			{ icon = "⏱", title = `Wait for a refill · {data.fuelPerMin(s.level)}⛽/min`, detail = if nextIn == nil then "Your tank is full." else `Next one in {nextIn}s.` },
+			{ icon = "⏱️", title = `Wait for a refill · {data.fuelPerMin(s.level)}⛽/min`, detail = if nextIn == nil then "Your tank is full." else `Next one in {nextIn}s.` },
 			{ icon = "⛽", title = "Build a Gas Station", detail = `Each one adds +10 to your max fuel. You have {owned("gas")}.`, action = build("gas") },
 		}
 		if owned("house") > 0 then
@@ -787,8 +787,11 @@ function Menu.need(ctx: any, need: any?): Instance?
 		end
 		Ui.text({ Text = summary, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, Position = UDim2.fromOffset(56, 0), Size = UDim2.new(1, -56, 1, 0), Parent = head })
 		for i, src in sources do
-			-- Two lines of detail fit at this width; long ones get a third.
-			local lines = math.ceil((#src.detail * 6.4) / (W - 28 - 32 - 30 - (if src.action then 100 else 0)))
+			-- The button sized to its words, and the words beside it wrapped to what's left.
+			local bw = if src.action then math.clamp(math.ceil(Ui.textWidth(src.action.label, 14)) + 26, 64, 140) else 0
+			local textW = if src.action then -(52 + bw + 20) else -62
+			local room = W - 28 + textW
+			local lines = math.ceil(Ui.textWidth(src.detail, 12) / (room - 8))
 			local rh = 26 + math.max(1, lines) * 16 + 10
 			h += rh + 6
 			local r = Ui.new("Frame", { Name = "Source", LayoutOrder = i, Size = UDim2.new(1, 0, 0, rh), BackgroundColor3 = Ui.WHITE, Parent = list }, {
@@ -796,12 +799,11 @@ function Menu.need(ctx: any, need: any?): Instance?
 				Ui.stroke(2, Ui.EDGE),
 			})
 			Ui.text({ Text = src.icon, TextSize = 24, Position = UDim2.new(0, 10, 0.5, -16), Size = UDim2.fromOffset(32, 32), Parent = r })
-			local textW = if src.action then -52 - 110 else -62
 			Ui.text({ Text = src.title, Body = true, Weight = "heavy", TextSize = 15, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(52, 7), Size = UDim2.new(1, textW, 0, 20), Parent = r })
 			Ui.text({ Text = src.detail, Body = true, TextSize = 12, TextColor3 = Color3.fromHex("#546e7a"), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true, Position = UDim2.fromOffset(52, 28), Size = UDim2.new(1, textW, 1, -32), Parent = r })
 			local a = src.action
 			if a then
-				Ui.buy({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 1), Size = UDim2.fromOffset(math.clamp(#a.label * 8 + 22, 64, 110), 30), Parent = r }, a.label, if a.disabled then "grey" else "green", if a.disabled then nil else a.run, 14)
+				Ui.buy({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 1), Size = UDim2.fromOffset(bw, 30), Parent = r }, a.label, if a.disabled then "grey" else "green", if a.disabled then nil else a.run, 14)
 			end
 		end
 		(list:FindFirstChildOfClass("UIListLayout") :: UIListLayout).Padding = UDim.new(0, 6)
