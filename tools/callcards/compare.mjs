@@ -107,7 +107,7 @@ const server = createServer((q, r) => {
 await new Promise((res) => server.listen(0, '127.0.0.1', res))
 const { chromium } = createRequire(join(web, 'package.json'))('playwright')
 const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {})
-const pg = await browser.newPage({ viewport: { width: 1360, height: 400 } })
+const pg = await browser.newPage({ viewport: { width: 1360, height: 400 }, deviceScaleFactor: Number(process.env.DPR ?? 1) })
 await pg.goto(`http://127.0.0.1:${server.address().port}/`)
 await pg.waitForFunction('window.READY === true')
 await pg.waitForTimeout(500)
