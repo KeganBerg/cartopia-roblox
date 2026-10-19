@@ -8,6 +8,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
+local UserInputService = game:GetService("UserInputService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -26,6 +27,7 @@ local ModShop = require(script.Parent.ModShop)
 local CustomShop = require(script.Parent.CustomShop)
 local TrimShop = require(script.Parent.TrimShop)
 local SkinShop = require(script.Parent.SkinShop)
+local Dyno = require(script.Parent.Dyno)
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
 
 local Cars = {}
@@ -252,6 +254,8 @@ function Cars.open(ctx: any, tab: any): Instance
 
 	local content = Ui.new("Frame", { Name = "Content", Position = UDim2.fromOffset(0, 113), Size = UDim2.new(1, 0, 1, -113), BackgroundTransparency = 1, ZIndex = 2, Parent = page })
 	local spin: RBXScriptConnection? = nil
+	-- The dyno run on the stage now (set up with the stage below).
+	local dynoOn: { car: string, before: number, overlay: Instance }? = nil
 	-- The turntable car and how far round it has turned (kept while the same car is shown).
 	local turnModel: string? = nil
 	local turnAngle = 0.7
@@ -293,7 +297,7 @@ function Cars.open(ctx: any, tab: any): Instance
 				place()
 			end)
 		end
-		local badge = Ui.new("Frame", { Position = UDim2.fromOffset(286, 14), Size = UDim2.fromOffset(48, 42), BackgroundColor3 = Ui.WHITE, ZIndex = 3, Parent = content }, {
+		local badge = Ui.new("Frame", { Name = "PI", Position = UDim2.fromOffset(286, 14), Size = UDim2.fromOffset(48, 42), BackgroundColor3 = Ui.WHITE, Visible = dynoOn == nil, ZIndex = 3, Parent = content }, {
 			Ui.corner(9),
 			Ui.stroke(2.5, Ui.WHITE),
 			Ui.gradient("#3d8bff", "#1e5fd0"),
@@ -314,6 +318,56 @@ function Cars.open(ctx: any, tab: any): Instance
 		})
 		Ui.text({ Text = "It turns on its own", Body = true, TextSize = 13, TextColor3 = Color3.fromHex("#37474f"), Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 3, Parent = hint })
 	end
+
+	-- After an upgrade or a part goes on, the car does a dyno pull over the stage showing its old and
+	-- new time and PI (Dyno, the web's DynoOverlay); the PI badge steps aside while it runs. Only a
+	-- gain right after a tap on this page counts, not a save arriving from elsewhere.
+	local lastPi: { car: string, pi: number }? = nil
+	local tapped = -math.huge
+	local dynoLayer = Ui.new("Frame", { Name = "DynoStage", Position = UDim2.fromOffset(280, 123), Size = UDim2.new(1, -700, 1, -153), BackgroundTransparency = 1, ZIndex = 3, Parent = page })
+	local function stopDyno()
+		if dynoOn then
+			local o = dynoOn.overlay
+			dynoOn = nil
+			o:Destroy()
+		end
+		local pi = content:FindFirstChild("PI")
+		if pi then
+			(pi :: Frame).Visible = true
+		end
+	end
+	local function checkDyno(c: any, pi: number)
+		local was = lastPi
+		lastPi = { car = c.uid, pi = pi }
+		if not was or was.car ~= c.uid then
+			stopDyno()
+			return
+		end
+		if pi <= was.pi or os.clock() - tapped > 1.5 then
+			return
+		end
+		local before = if dynoOn and dynoOn.car == c.uid then dynoOn.before else was.pi
+		stopDyno()
+		local run = { before = before, after = pi, model = c.model }
+		local overlay
+		overlay = Dyno.show(dynoLayer, run, function()
+			if dynoOn and dynoOn.overlay == overlay then
+				stopDyno()
+			end
+		end)
+		dynoOn = { car = c.uid, before = before, overlay = overlay }
+		local badge = content:FindFirstChild("PI")
+		if badge then
+			(badge :: Frame).Visible = false
+		end
+	end
+	-- Any tap or click while the page is up (on its buttons too) counts as one.
+	local tapConn = UserInputService.InputBegan:Connect(function(input: InputObject)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+			tapped = os.clock()
+		end
+	end)
 
 	local render: () -> ()
 	-- Switches the tab strip's highlight (set once the tabs are made below).
@@ -425,6 +479,7 @@ function Cars.open(ctx: any, tab: any): Instance
 			modSkin = table.clone(modSkin or {})
 			modSkin[tryModSkin.slot] = tryModSkin.skin or nil
 		end
+		checkDyno(car.c, car.pi)
 		stage(car.c.model, tryJob or Paint.jobOf(car.c), car.pi, nil, if tryHat == nil then car.c.hat elseif tryHat == false then nil else tryHat, mods, panels, trim, skin, modSkin)
 		-- The car's mod and custom paint meshes, the first time it shows them or opens the Mods or
 		-- Custom tab: drawn again once in.
@@ -816,6 +871,10 @@ function Cars.open(ctx: any, tab: any): Instance
 		clear()
 		-- The crate depot is a real 3D room behind the menu: the page goes see-through for it.
 		showroom.Visible = current ~= "crates"
+		if current ~= "garage" then
+			lastPi = nil
+			stopDyno()
+		end
 		page.BackgroundTransparency = if current == "crates" then 1 else 0
 		local s = store.useGame.getState()
 		Ui.setText(powerText, `⚡{Ui.compact(data.garagePower(s.cars))}`)
@@ -894,6 +953,7 @@ function Cars.open(ctx: any, tab: any): Instance
 	end)
 	overlay.Destroying:Connect(function()
 		conn:Disconnect()
+		tapConn:Disconnect()
 		if spin then
 			spin:Disconnect()
 		end

@@ -606,6 +606,42 @@ function Ui.scroller(props: { [string]: any }): ScrollingFrame
 	return s
 end
 
+-- Keeps a list's scroll across a redraw: a menu drawn again at once (a try-on tapped in it) opens
+-- where the one it replaces was scrolled to, as the web's page stays put. `key` names the list
+-- (and what's in it); a list drawn later, or for another key, starts at the top.
+local scrolls: { [string]: { y: number, gone: number } } = {}
+function Ui.keepScroll(s: ScrollingFrame, key: string)
+	local was = scrolls[key]
+	local mem = { y = 0, gone = math.huge }
+	scrolls[key] = mem
+	s:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+		mem.y = s.CanvasPosition.Y
+	end)
+	s.Destroying:Connect(function()
+		mem.gone = os.clock()
+	end)
+	if was and os.clock() - was.gone < 0.5 and was.y > 0 then
+		local y = was.y
+		mem.y = y
+		-- Once the list has laid out and sized its canvas.
+		task.defer(function()
+			task.wait()
+			if s.Parent then
+				s.CanvasPosition = Vector2.new(0, y)
+			end
+		end)
+	end
+end
+
+-- Pins a try-on bar to the top of its list (the web's .try-bar.on, position: sticky): it sits over
+-- the list's frame rather than in it, with a gap of its size kept at its place in the list, so it
+-- stays in sight while the list is scrolled down to a picker.
+function Ui.sticky(bar: GuiObject, list: ScrollingFrame)
+	Ui.new("Frame", { Name = bar.Name .. "Space", LayoutOrder = bar.LayoutOrder, Size = bar.Size, BackgroundTransparency = 1, Parent = list })
+	bar.Position = list.Position
+	bar.Parent = list.Parent
+end
+
 -- Counters as the web game's format.ts: 2,500 / 52.6K / 1.2M.
 local UNITS = { "", "K", "M", "B", "T", "Q" }
 function Ui.commas(v: number): string

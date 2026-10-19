@@ -21,6 +21,7 @@ local Trim = require(ReplicatedStorage.Shared.Models.Trim)
 local Skins = require(ReplicatedStorage.Shared.Models.Skins)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
+local Snapshot = require(script.Parent.Snapshot)
 local Mastery = require(script.Parent.Mastery)
 local TownCamera = require(script.Parent.TownCamera)
 local DayNight = require(script.Parent.DayNight)
@@ -595,6 +596,10 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		local overlay = Ui.new("Frame", { Name = "Result", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0a1630"), BackgroundTransparency = 0.45, ZIndex = 45, Parent = screen })
 		local shadow, card = Ui.shadowed({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(420, 470), Parent = overlay }, { radius = 24, stroke = 4, drop = 8, color = Ui.SHEET })
 		local _ = shadow
+		-- A won race's postcard (the web's SnapshotButton).
+		if won then
+			Snapshot.button(card, overlay, screen, `🏆 Beat {rival.name}`)
+		end
 		local function line(text: string, y: number, size: number, color: Color3?, props: { [string]: any }?)
 			local p: { [string]: any } = { Text = text, TextSize = size, Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 0, size + 6), TextColor3 = color or Ui.INK, Parent = card }
 			for k, v in (props or {}) :: { [string]: any } do

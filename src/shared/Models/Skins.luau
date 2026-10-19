@@ -29,7 +29,88 @@ function Skins.key(skin: string?, modSkin: any): string
 			table.insert(bits, `{slot}={id}`)
 		end
 	end
+	if modSkin and modSkin.tracks then
+		table.insert(bits, `tracks={modSkin.tracks}`)
+	end
 	return table.concat(bits, ",")
+end
+
+-- Track skins (the web's TankTracks in CarModel.tsx): the colours of a tracked body's links, kept in
+-- the car's modSkin.tracks. The model build keeps each link's colour roles as their own parts, in
+-- the stock colours of TRACK_STEEL (as the build wrote them: linear, so darker than they read on
+-- the web) and the gear's steel; a skin recolours each role, lights its glowing role, alternates
+-- its two tints link pair by link pair (Hazard) and turns the gear's steel and hubs its way, as
+-- the web's gearLook. The rubber stays.
+local GEAR_STEEL = "#4f545b"
+local LINK_ROLES = { "plate", "grouser", "horn", "pin", "stud" }
+
+local function linear(hex: string): Color3
+	local c = Color3.fromHex(hex)
+	local function f(v: number): number
+		return if v <= 0.04045 then v / 12.92 else ((v + 0.055) / 1.055) ^ 2.4
+	end
+	return Color3.new(f(c.R), f(c.G), f(c.B))
+end
+
+local function near(a: Color3, b: Color3): boolean
+	return math.abs(a.R - b.R) < 2.5 / 255 and math.abs(a.G - b.G) < 2.5 / 255 and math.abs(a.B - b.B) < 2.5 / 255
+end
+
+function Skins.tracks(model: Model, id: string?)
+	local sk = id and data.trackSkinDef(id)
+	local def = data.carDef(model.Name)
+	if not sk or not def or def.body ~= "tank" then
+		return
+	end
+	local stock: { { role: string, color: Color3 } } = {}
+	for _, role in LINK_ROLES do
+		table.insert(stock, { role = role, color = linear(data.TRACK_STEEL.look[role]) })
+	end
+	local steel = linear(GEAR_STEEL)
+	local plate = Color3.fromHex(sk.look.plate)
+	local metal = if sk.metal >= 0.6 then Enum.Material.Metal else Enum.Material.SmoothPlastic
+	local link, inLink = -1, false
+	for _, p in model:GetDescendants() do
+		if not p:IsA("BasePart") or p.Transparency >= 1 then
+			continue
+		end
+		local folder = p.Parent
+		if folder and folder.Parent == model and folder.Name:match("^Mod ") then
+			continue
+		end
+		local role = nil
+		for _, s in stock do
+			if near(p.Color, s.color) then
+				role = s.role
+				break
+			end
+		end
+		if role == "plate" then
+			link += 1
+			inLink = true
+		elseif not role then
+			inLink = false
+			if near(p.Color, steel) then
+				-- The road wheels, idlers and arms: steel half way to the skin's plates.
+				p.Color = Color3.fromHex(GEAR_STEEL):Lerp(plate, 0.5)
+				p.Material = metal
+			end
+			continue
+		end
+		local color = Color3.fromHex(sk.look[role])
+		if sk.alt and inLink then
+			local tint = Color3.fromHex(sk.alt[(link // 2) % 2 + 1])
+			color = Color3.new(color.R * tint.R, color.G * tint.G, color.B * tint.B)
+		end
+		p.Color = color
+		if sk.glow and sk.glow.role == role then
+			p.Color = Color3.fromHex(sk.glow.color)
+			p.Material = Enum.Material.Neon
+		else
+			p.Material = metal
+		end
+		p.Reflectance = if sk.metal >= 0.95 then 0.25 else 0
+	end
 end
 
 -- The base tile of skin number `n` and its glow at each moment, or nil when the build has none.
@@ -105,6 +186,7 @@ end
 -- Trim.apply, Mods.fit), since the base takes the paint's final colour. skin: the car's skin id;
 -- modSkin: its mod skins by slot.
 function Skins.apply(model: Model, skin: string?, modSkin: any)
+	Skins.tracks(model, modSkin and modSkin.tracks)
 	local body = data.skinNumber(skin)
 	local bySlot: { [string]: number } = {}
 	for _, slot in data.SKINNED_SLOTS do
