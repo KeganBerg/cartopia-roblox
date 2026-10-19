@@ -264,6 +264,10 @@ end
 
 local function node(g, r)
 	local n = { abs = { r.x, r.y, r.w, r.h }, visible = g.Visible, children = {}, z = g.ZIndex, rot = g.Rotation }
+	-- A harness can ask where each object ends up (the tutorial's pointing hand, in clicks.luau).
+	if Gui.onNode then
+		Gui.onNode(g, n)
+	end
 	n.bg = hex(g.BackgroundColor3)
 	n.bgT = g.BackgroundTransparency
 	local corner = child(g, "UICorner")

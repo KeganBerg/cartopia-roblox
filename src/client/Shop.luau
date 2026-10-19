@@ -208,6 +208,8 @@ function Shop.open(ctx: any, focus: string?): Instance
 				pic.ImageTransparency = 0.45
 			end
 			if highlight then
+				-- The tutorial's pointing hand goes here (client/Popups/Tutorial).
+				face:SetAttribute("Tut", "start-here")
 				ribbon(face, "START HERE", { "#ffb02e", "#ff9f1a" })
 				local s2 = face:FindFirstChildOfClass("UIStroke")
 				if s2 then

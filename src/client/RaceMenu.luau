@@ -255,7 +255,8 @@ local function raceButton(parent: Instance, props: { [string]: any }, prize: num
 end
 
 function RaceMenu.open(ctx: any, startTab: string?): Instance
-	local tab = startTab or lastTab
+	-- A new player's first race is on the front page, where the tutorial points.
+	local tab = startTab or (if (store.useGame.getState().tutorial or 99) < 99 then "hub" else lastTab)
 	local overlay, _sheet, body, headExtras = Ui.panel(ctx.gui, TITLES[tab] or (PAGES[tab] and PAGES[tab].title) or "Race", { wide = true, height = 640, onClose = ctx.close, bodyTop = 6 })
 	local title = (overlay:FindFirstChild("Title", true) :: TextLabel?)
 	local content = Ui.new("Frame", { Name = "Content", Size = UDim2.new(1, 0, 1, -86), BackgroundTransparency = 1, Parent = body })
@@ -599,9 +600,14 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 				local rv = ch.races[nextRace].rival
 				local cta = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.new(1, -20, 0, 40), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.04, ZIndex = 4, Parent = camp }, { Ui.corner(12), Ui.stroke(2, Ui.LINE) })
 				Ui.text({ Text = `{rv.name}{if rv.boss then " 👑" else ""}`, Body = true, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(9, 0), Size = UDim2.new(1, -110, 1, 0), ZIndex = 4, Parent = cta })
-				goButton(cta, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -3, 0.5, 0), Size = UDim2.fromOffset(96, 32) }, `{money2(rv.prize)} ⛽{data.RACE_FUEL}`, function()
+				local go = goButton(cta, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -3, 0.5, 0), Size = UDim2.fromOffset(96, 32) }, `{money2(rv.prize)} ⛽{data.RACE_FUEL}`, function()
 					start("campaign", { chapter = ci - 1, race = nextRace :: number - 1 })
 				end)
+				-- The tutorial's first race (client/Popups/Tutorial points here, the web's .rm-camp .rm-cta .buy).
+				local goFace = go:FindFirstChildWhichIsA("TextButton", true)
+				if goFace then
+					goFace:SetAttribute("Tut", "camp-go")
+				end
 			end
 		else
 			title(camp, "Loading...", 12, 22)

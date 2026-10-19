@@ -34,6 +34,7 @@ local TownCamera = require(script.Parent.TownCamera)
 local Jobs = require(script.Parent.Jobs)
 local RaceMenu = require(script.Parent.RaceMenu)
 local Bank = require(script.Parent.Bank)
+local Tutorial = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
 
 local Hud = {}
 
@@ -122,7 +123,9 @@ function Hud.start()
 	-- One menu at a time. Closing drops the menu away (Motion.panelOut); opening another in its
 	-- place swaps them at once.
 	local open: Instance? = nil
+	local current: string? = nil -- its name (the web's s.panel), for the tutorial
 	local function close(instant: boolean?)
+		current = nil
 		if open then
 			local o = open
 			open = nil
@@ -144,6 +147,10 @@ function Hud.start()
 		end,
 		-- The HUD counter a collected reward flies into (set once the counters are made).
 		flyTarget = (nil :: any) :: (string) -> GuiObject?,
+		-- The menu open now, by the web's panel name (nil over the plain town).
+		panel = function(): string?
+			return if open and open.Parent then current else nil
+		end,
 	}
 
 	-- ── Top left: the speedometer (Menu button) and the counters ──────────────────────────────
@@ -329,23 +336,25 @@ function Hud.start()
 	local bar = Ui.new("Frame", { Name = "BottomBar", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.fromOffset(5 * 66 + 4 * 8, 80), BackgroundTransparency = 1, Parent = root }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
-	local function iconButton(order: number, colors: string, icon: string, label: string, onClick: () -> ())
+	local function iconButton(order: number, colors: string, icon: string, label: string, onClick: () -> ()): Frame
 		local holder = Ui.new("Frame", { Name = label, Size = UDim2.fromOffset(66, 80), BackgroundTransparency = 1, LayoutOrder = order, Parent = bar })
 		local c = Ui.colors(colors)
 		local _, face = Ui.button({ Position = UDim2.fromOffset(9, 15), Size = UDim2.fromOffset(48, 48), Parent = holder }, colors, onClick, { radius = 16, stroke = 3, drop = 4, dark = 0.35, gloss = 0.6, shade = 0.82 })
 		local mid = Color3.fromHex(c[1]):Lerp(Color3.fromHex(c[2]), 0.5)
 		Icons.draw(icon, face, 31, Ui.WHITE, mid, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		Ui.text({ Text = label, TextSize = 14, Position = UDim2.fromOffset(-10, 64), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = holder })
+		-- Where the tutorial's hand points (client/Popups/Tutorial): "shop", "cars", "edit".
+		face:SetAttribute("Tut", string.lower(label))
 		return holder
 	end
-	iconButton(1, "shop", "shop", "SHOP", function()
+	local shopButton = iconButton(1, "shop", "shop", "SHOP", function()
 		openPanel("shop")
 	end)
-	iconButton(2, "showroom", "car", "CARS", function()
+	local carsButton = iconButton(2, "showroom", "car", "CARS", function()
 		openPanel("cars")
 	end)
 	-- Friends, visiting towns and joining friends (Panels/Friends).
-	iconButton(3, "friends", "friends", "SOCIAL", function()
+	local socialButton = iconButton(3, "friends", "friends", "SOCIAL", function()
 		openPanel("friends")
 	end)
 	-- Roblox's own chat (TextChatService), only for players Roblox lets chat.
@@ -355,15 +364,18 @@ function Hud.start()
 			StarterGui:SetCore("ChatActive", not StarterGui:GetCore("ChatActive"))
 		end)
 	end)
-	iconButton(5, "edit", "cone", "EDIT", function()
+	local editButton = iconButton(5, "edit", "cone", "EDIT", function()
 		close()
 		TownCamera.setWalking(false)
-		Placement.edit(root, ctx)
+		-- During the tutorial edit mode opens on Move (roads and the rest come after), as the web.
+		local s = store.useGame.getState()
+		Placement.edit(root, ctx, if (s.tutorial or 99) >= 99 then nil else "move")
 	end)
 	local race = Ui.new("Frame", { Name = "Race", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -10, 1, -10), Size = UDim2.fromOffset(84, 66 + 5), BackgroundTransparency = 1, Parent = root })
 	local _, raceFace = Ui.button({ Position = UDim2.fromOffset(3, 8), Size = UDim2.fromOffset(84, 61), Parent = race }, "green", function()
 		openPanel("race")
 	end, { radius = 18, stroke = 3, drop = 5, dark = 0.35, gloss = 0.55, shade = 0.82 })
+	raceFace:SetAttribute("Tut", "race")
 	Icons.draw("flag", raceFace, 30, Ui.WHITE, Color3.fromHex("#5cce47"), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
 	Ui.text({ Text = "RACE", TextSize = 20, Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 22), Shadow = 2, Stroke = 0.6, Parent = raceFace })
 
@@ -469,6 +481,7 @@ function Hud.start()
 		end
 		Motion.swapping = open ~= nil
 		close(true)
+		current = panel
 		if panel == "edit" then
 			Placement.edit(root, ctx, arg)
 		elseif panel == "inventory" then
@@ -526,10 +539,23 @@ function Hud.start()
 		Ui.setText(carsText, `MY CARS: {#s.cars}`)
 		local g = Goals.tracked(s)
 		tracked = g
-		-- Hidden while visiting, editing, or while the tutorial runs (only once the port has one:
-		-- until then every town still reads as mid-tutorial).
-		local inTutorial = (s.tutorial or 99) < 99 and script.Parent:FindFirstChild("Tutorial") ~= nil
+		-- Hidden while visiting, editing, or while the tutorial runs (web Goals.tsx GoalTracker).
+		local inTutorial = (s.tutorial or 99) < 99
 		goalShadow.Visible = g ~= nil and not Placement.active() and not s.visiting and not inTutorial
+		-- New players get the buttons and counters one at a time (shared/Tutorial UNLOCKS, the
+		-- web's game/unlocks.ts): coins and the level first, the rest as each is needed.
+		local function on(id: string): boolean
+			return Tutorial.unlocked(s, id)
+		end
+		;(gems.Parent :: any).Parent.Visible = on("gems")
+		;(parts.Parent :: any).Parent.Visible = on("parts")
+		fuelButton.Visible = on("fuel")
+		fuelSub.Visible = on("fuel")
+		carsShadow.Visible = not visiting and on("cars")
+		trophyShadow.Visible = on("trophies")
+		shopButton.Visible = on("shop")
+		carsButton.Visible = on("cars")
+		editButton.Visible = on("edit")
 		if g then
 			local have = math.min(g.target, g.have)
 			local done = have >= g.target
@@ -594,10 +620,11 @@ function Hud.start()
 		-- Before they've picked a plot (Popups/Claim) there's no town to play yet.
 		local picking = Players.LocalPlayer:GetAttribute("NeedsPlot") == true
 		bar.Visible = not editing and not visiting and not picking
-		race.Visible = not editing and not visiting and not picking
-		dock.Visible = not editing and not visiting and not picking
-		walk.Visible = not editing and not picking
-		chatButton.Visible = Players.LocalPlayer:GetAttribute("CanChat") == true
+		race.Visible = not editing and not visiting and not picking and on("race")
+		dock.Visible = not editing and not visiting and not picking and on("gems")
+		walk.Visible = not editing and not picking and on("social")
+		socialButton.Visible = on("social")
+		chatButton.Visible = on("social") and Players.LocalPlayer:GetAttribute("CanChat") == true
 	end
 
 	Remote.changed:Connect(function(snap)
