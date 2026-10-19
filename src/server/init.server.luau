@@ -793,6 +793,20 @@ local function syncCrewChat(player: Player)
 	end
 end
 
+-- Each player's crew badge for their leaderboard rows, kept a few minutes (crews change elsewhere too).
+local crewBadges: { [number]: { at: number, badge: any? } } = {}
+local function crewBadge(userId: number): any?
+	local c = crewBadges[userId]
+	if c and os.clock() - c.at < 300 then
+		return c.badge
+	end
+	local ok, badge = pcall(crews.badge, crews, userId)
+	if ok then
+		crewBadges[userId] = { at = os.clock(), badge = badge }
+	end
+	return if ok then badge else nil
+end
+
 -- The crew chests a player has opened (CrewGoals' keys: "<week>", "battle:<week>", "mvp:<week>").
 local function crewOpened(userId: number): { [string]: boolean }
 	local k = crewGoals:_get(`k:{userId}`) or {}
@@ -832,7 +846,9 @@ local function saveId(userId: number, release: boolean?): boolean
 		local player = Players:GetPlayerByUserId(userId)
 		if wrote and player then
 			local town = towns:save(userId).townName
-			task.spawn(pcall, leaders.record, leaders, userId, player.DisplayName, if type(town) == "string" then town else "My Town", leaderStats(userId), release)
+			task.spawn(pcall, function()
+				leaders:record(userId, player.DisplayName, if type(town) == "string" then town else "My Town", leaderStats(userId), release, crewBadge(userId))
+			end)
 			task.spawn(pcall, meet.publish, meet, userId, player.DisplayName, if type(town) == "string" then town else "My Town", towns:save(userId).level or 1, showcase(userId))
 			task.spawn(pcall, function()
 				meet:saveCard(userId, player.DisplayName, cardOf(userId))
@@ -1033,6 +1049,7 @@ Players.PlayerRemoving:Connect(function(player)
 	-- (After the last save, which counted their last crew points.)
 	task.defer(function()
 		crewSeen[player.UserId] = nil
+		crewBadges[player.UserId] = nil
 	end)
 	crewChat:forget(player.UserId)
 	karts:close(player.UserId)
@@ -1605,14 +1622,17 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			-- A leaderboard (Social's Leaderboards tab), with who on it is in this server.
 			local stats = leaderStats(player.UserId)
 			local town = towns:save(player.UserId).townName
-			pcall(leaders.record, leaders, player.UserId, player.DisplayName, if type(town) == "string" then town else "My Town", stats)
+			pcall(function()
+				leaders:record(player.UserId, player.DisplayName, if type(town) == "string" then town else "My Town", stats, nil, crewBadge(player.UserId))
+			end)
 			local rows, mine = leaders:board(arg.metric, arg.period, player.UserId, stats)
+			local myCrew = crewBadge(player.UserId)
 			local out = {}
 			for _, r in rows do
 				local here = Players:GetPlayerByUserId(r.id)
-				table.insert(out, { id = r.id, name = r.name, town = r.town, level = r.level, value = r.value, here = here ~= nil and here ~= player and views[here] ~= nil })
+				table.insert(out, { id = r.id, name = r.name, town = r.town, level = r.level, value = r.value, crew = r.crew, here = here ~= nil and here ~= player and views[here] ~= nil })
 			end
-			return { rows = out, mine = mine }, nil
+			return { rows = out, mine = mine, crew = myCrew }, nil
 		elseif op == "meet" then
 			-- The Car Meet (Social's Meet tab): drivers in this server first, then recent displays.
 			local out, seen = {}, {}
@@ -1914,9 +1934,11 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 	-- A crew joined, left or renamed: the crew chat channels follow (the other player's too).
 	if op == "crewCreate" or op == "crewAsk" or op == "crewLeave" or op == "crewSettings" or op == "crewRespond" or op == "crewKick" then
 		task.spawn(pcall, syncCrewChat, player)
+		crewBadges[player.UserId] = nil
 		local other = Players:GetPlayerByUserId(if type(arg) == "number" then arg elseif type(arg) == "table" and type(arg.id) == "number" then arg.id else 0)
 		if other then
 			task.spawn(pcall, syncCrewChat, other)
+			crewBadges[other.UserId] = nil
 		end
 	end
 	return true, result

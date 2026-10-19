@@ -607,8 +607,8 @@ end, function()
 	return "2026-W42"
 end)
 for i, d in { { 2, "Rosa", "Rosaville", 640, 31, 52, 14 }, { 7, "Kai", "Kai Harbour", 910, 77, 120, 23 }, { 8, "Mina", "Mina Falls", 455, 12, 30, 9 } } do
-	leaders:record(d[1], d[2], d[3], { power = d[4], race_wins = d[5], trophies = d[6], level = d[7] })
-	local _ = i
+	-- (Kai's crew tag shows on his rows.)
+	leaders:record(d[1], d[2], d[3], { power = d[4], race_wins = d[5], trophies = d[6], level = d[7] }, nil, if i == 2 then { tag = "HK", emblem = "👑", color = "#1e88e5" } else nil)
 end
 -- The Car Meet (server/Meet, in memory): two displays, one already liked.
 local Meet = emu.require(SSS.Server.Meet)
@@ -1941,6 +1941,8 @@ if SHOTS then
 		end
 	end
 	assert(boardRows > 0, "the leaderboard shows no rows")
+	local kaiRow = hud.gui:FindFirstChild("Kai", true)
+	assert(kaiRow and kaiRow:FindFirstChild("CrewTag"), "Kai's leaderboard row has no crew tag")
 	shot("panel-leaders", nil)
 	hud.ctx.close()
 	-- The Car Meet tab: your display, then Rosa's and Kai's; like Rosa's.

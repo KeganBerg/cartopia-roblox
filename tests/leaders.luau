@@ -25,6 +25,13 @@ return function(test)
 		expectEq(rows[1].town, "Bo Town", "town")
 		expectEq(rows[2].value, 300, "Ann's power")
 		expectEq(l:board("race_wins", "all")[1].name, "Ann", "first on wins")
+		expectEq(rows[1].crew, nil, "no crew yet")
+		-- Bo joins a crew: the tag goes on his rows at once (a new badge isn't held back).
+		l:record(2, "Bo", "Bo Town", { power = 500, race_wins = 2, trophies = 3, level = 7 }, nil, { tag = "NITE", emblem = "🐺", color = "#8e24aa", name = "x" })
+		l:refresh()
+		local tagged = l:board("power", "all")[1].crew
+		expectEq(tagged and tagged.tag, "NITE", "crew tag on the row")
+		expectEq(tagged and tagged.name, nil, "only the badge is kept")
 		-- Nobody gained anything yet this week.
 		expectEq(#l:board("trophies", "week"), 0, "week before gains")
 		-- Ann wins two races: the week board shows the gain, after the once-a-minute limit.
