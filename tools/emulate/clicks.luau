@@ -3740,7 +3740,7 @@ do
 		if kind == "storm" then
 			assert(#fx.beams >= 16, "no lightning in the storm")
 		elseif kind == "clearing" then
-			assert(#fx.beams == 12, "no rainbow after the shower")
+			assert(#fx.beams == 12 * 16, "no rainbow after the shower")
 			for _, b in fx.beams do
 				-- About as wide as the screen is tall, standing over the town.
 				assert(b.width[1] > 0 and b.width[1] < 20, `a rainbow band {b.width[1]} studs wide`)
