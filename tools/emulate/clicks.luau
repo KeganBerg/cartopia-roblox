@@ -327,6 +327,7 @@ end)
 remotes.Parent = RS
 local lib = Instance.new("Folder")
 lib.Name = "ModelLibrary"
+lib:SetAttribute("Ready", true)
 for _, kind in { "Cars", "Buildings", "Stripes" } do
 	local f = Instance.new("Folder")
 	f.Name = kind

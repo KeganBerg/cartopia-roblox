@@ -424,9 +424,9 @@ task.spawn(function()
 		Builder.sharpenRaces()
 		task.delay(120, Builder.sharpenRaces)
 	end)
-	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
-	Builder.loadLate()
-	-- A copy of every car and building for the client's shop pictures and placement ghost.
+	-- A copy of every car and building for the client's shop pictures and placement ghost. It's
+	-- built before the far land, and handed on as it goes (buildings first, the level-up's and
+	-- shop's pictures), so a new player's first level-ups have pictures.
 	local library = Instance.new("Folder")
 	library.Name = "ModelLibrary"
 	for _, kind in { "Cars", "Buildings", "Stripes" } do
@@ -434,7 +434,16 @@ task.spawn(function()
 		f.Name = kind
 		f.Parent = library
 	end
+	library.Parent = ReplicatedStorage
 	local data = require(Game.data) :: any
+	for _, def in data.BUILDINGS do
+		local name = Builder.buildingName(def.id, 1)
+		local m = if name then Builder.build(name) else nil
+		if m then
+			m.Name = def.id
+			m.Parent = library.Buildings
+		end
+	end
 	for _, car in data.CARS do
 		local m = Builder.build(car.id, Color3.fromHex(car.colors[1]))
 		if m then
@@ -447,14 +456,6 @@ task.spawn(function()
 			stripes.Parent = library.Stripes
 		end
 	end
-	for _, def in data.BUILDINGS do
-		local name = Builder.buildingName(def.id, 1)
-		local m = if name then Builder.build(name) else nil
-		if m then
-			m.Name = def.id
-			m.Parent = library.Buildings
-		end
-	end
 	-- The landmarks merged level 10 houses become, for the Upgrade sheet's picture.
 	for _, name in { "landmark:vanguard", "landmark:globe" } do
 		local m = Builder.build(name)
@@ -463,7 +464,9 @@ task.spawn(function()
 			m.Parent = library.Buildings
 		end
 	end
-	library.Parent = ReplicatedStorage
+	library:SetAttribute("Ready", true)
+	-- The far land past the countryside (client/Horizon) comes in behind, while players are already in.
+	Builder.loadLate()
 end)
 
 local townsFolder = Instance.new("Folder")

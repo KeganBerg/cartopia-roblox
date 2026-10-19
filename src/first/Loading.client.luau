@@ -130,8 +130,10 @@ end)
 -- 3. The player's town.
 screen:set(LABEL, 0.45)
 waitFor(function()
-	-- And the server's model library, which the shop's pictures are drawn from.
-	return player:GetAttribute("NeedsPlot") == true or (player:GetAttribute("TownReady") == true and ReplicatedStorage:FindFirstChild("ModelLibrary") ~= nil)
+	-- And the server's model library, which the shop's pictures are drawn from (it's handed on as
+	-- it's built, and marked Ready once it's whole).
+	local lib = ReplicatedStorage:FindFirstChild("ModelLibrary")
+	return player:GetAttribute("NeedsPlot") == true or (player:GetAttribute("TownReady") == true and lib ~= nil and lib:GetAttribute("Ready") == true)
 end)
 local picking = player:GetAttribute("TownReady") ~= true
 

@@ -296,6 +296,7 @@ local Builder = emu.require(RS.Shared.Models.Builder)
 local data = emu.require(RS.Shared.Game.data)
 local lib = Instance.new("Folder")
 lib.Name = "ModelLibrary"
+lib:SetAttribute("Ready", true)
 for _, kind in { "Cars", "Buildings" } do
 	make("Folder", kind, lib)
 end

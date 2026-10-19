@@ -165,8 +165,14 @@ roblox.implementMethod("Model", "GetBoundingBox", function(model)
 	end
 	return CFrame.new((lo + hi) / 2), hi - lo
 end)
-roblox.implementMethod("Instance", "WaitForChild", function(inst, name)
-	return inst:FindFirstChild(name) or error(`emulator: {inst:GetFullName()} has no {name}`)
+-- Nothing arrives later here: with a timeout it gives up at once (nil, as Roblox does once the
+-- time is up); without one it's an error, since it would wait forever.
+roblox.implementMethod("Instance", "WaitForChild", function(inst, name, timeout)
+	local c = inst:FindFirstChild(name)
+	if c or timeout then
+		return c
+	end
+	error(`emulator: {inst:GetFullName()} has no {name}`)
 end)
 
 roblox.implementMethod("TweenService", "Create", function(_, inst, _info, goal)
