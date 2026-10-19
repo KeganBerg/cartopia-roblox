@@ -560,6 +560,17 @@ do
 	meetDesk:like(7, 2)
 	meetDesk:like(1, 7)
 end
+-- Friends' mail (server/Mail, in memory): Rosa helped and sent fuel; Kai sent a postcard.
+local Mail = emu.require(SSS.Server.Mail)
+local mailDesk = Mail.new(nil, function()
+	return 0
+end, function()
+	return "2026-10-19"
+end)
+mailDesk:help(2, "Rosa", "Rosaville", 1)
+mailDesk:gift(2, "Rosa", "Rosaville", 1, "fuel")
+mailDesk:gift(7, "Kai", "Kai Harbour", 1, "parts")
+mailDesk:postcard(7, "Kai", "Kai Harbour", 1, "sunset", 2)
 local function socialDesk(op, arg)
 	local ran, result, why = pcall(function()
 		if op == "players" then
@@ -584,6 +595,25 @@ local function socialDesk(op, arg)
 				table.insert(out, d)
 			end
 			return { displays = out, likes = meetDesk:likesFor(1, { 1, 2, 7 }) }, nil
+		elseif op == "mail" then
+			local box = mailDesk:inbox(1)
+			box.sent = mailDesk:sentToday(1)
+			mailDesk:see(1)
+			return box, nil
+		elseif op == "sent" then
+			return mailDesk:sentToday(1), nil
+		elseif op == "claimMail" then
+			local got = mailDesk:claim(1)
+			towns:_with(1, function(s)
+				s.receiveGifts(got.fuel, got.parts)
+			end)
+			return got, nil
+		elseif op == "gift" then
+			local r = mailDesk:gift(1, "You", "Home", arg.to, arg.item)
+			return if r == "sent" then { sent = true } else nil, r
+		elseif op == "postcard" then
+			local r = mailDesk:postcard(1, "You", "Home", arg.to, arg.card, arg.msg)
+			return if r == "sent" then { sent = true } else nil, r
 		elseif op == "card" then
 			local d = emu.require(G.data)
 			local c = Meet.cardOf(towns:save(arg), emu.require(G.meet).showcaseOf(towns:save(arg).cars, nil), function(car)
@@ -1274,6 +1304,19 @@ do
 	end
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Custom, "walking didn't hand the camera to the avatar")
+	-- The label under the button reads MY TOWN, in its letters and its shadow alike.
+	local function walkWords(): { string }
+		local out = {}
+		for _, d in walkShadow.Parent:GetDescendants() do
+			if d:IsA("TextLabel") and (d.Text == "DRIVE" or d.Text == "MY TOWN") then
+				table.insert(out, d.Text)
+			end
+		end
+		return out
+	end
+	for _, w in walkWords() do
+		assert(w == "MY TOWN", `the Drive button shows "{w}" while driving`)
+	end
 	-- Their town on a plot out in the shared world (a stand-in folder, as TownView marks it).
 	local made = game.Workspace:FindFirstChild("Towns") == nil
 	local towns = game.Workspace:FindFirstChild("Towns") or Instance.new("Folder")
@@ -1704,6 +1747,35 @@ if SHOTS then
 	assert(cardGui:FindFirstChild("Visit", true), "no Visit on Rosa's card")
 	shot("panel-card", nil)
 	print("meet: player card")
+	hud.ctx.close()
+	-- Friends' mail: the gift bell's panel, then Collect pays 15 fuel and 5 parts plus the help's 10.
+	hud.openPanel("gifts")
+	assert(hud.gui:FindFirstChild("Postcard", true), "Kai's postcard isn't in the mail")
+	shot("panel-gifts", nil)
+	local fuelBefore = store.useGame.getState().fuel
+	local collectShadow = hud.gui:FindFirstChild("Collect", true)
+	local collectButton = if collectShadow:IsA("GuiButton") then collectShadow else collectShadow:FindFirstChildWhichIsA("GuiButton", true)
+	signalFor(collectButton, "Activated"):Fire()
+	assert(store.useGame.getState().fuel == fuelBefore + 25, `collecting the mail gave {store.useGame.getState().fuel - fuelBefore} fuel, not 25`)
+	assert(#mailDesk:inbox(1).notes == 0, "the notes are still waiting after Collect")
+	print("mail: collect")
+	hud.ctx.close()
+	-- Send Rosa a postcard from the Friends tab.
+	hud.openPanel("friends")
+	local cardButton
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "💌" and d:FindFirstAncestor("Rosa") then
+			cardButton = d:FindFirstAncestorWhichIsA("GuiButton")
+		end
+	end
+	assert(cardButton, "no postcard button on Rosa's row")
+	signalFor(cardButton, "Activated"):Fire()
+	assert(hud.gui:FindFirstChild("PostcardPicker", true), "the postcard picker didn't open")
+	shot("panel-postcard", nil)
+	local send = hud.gui:FindFirstChild("PostcardPicker", true):FindFirstChild("Send", true)
+	signalFor(if send:IsA("GuiButton") then send else send:FindFirstChildWhichIsA("GuiButton", true), "Activated"):Fire()
+	assert(#mailDesk:inbox(2).cards == 1, "Rosa didn't get the postcard")
+	print("mail: postcard sent")
 	hud.ctx.close()
 	local info = select(2, socialDesk("visit", 2))
 	hud.ctx.setVisit(info)

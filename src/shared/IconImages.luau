@@ -4,7 +4,7 @@
 -- Each icon is size pixels square, at the given offset in the sheet.
 
 return {
-	sheet = 99446832340026,
+	sheet = 113272786979482,
 	size = 128,
 	at = {
 		coin = Vector2.new(2, 2),
