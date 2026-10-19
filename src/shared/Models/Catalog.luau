@@ -1442,7 +1442,7 @@ Catalog.LOOKS = {
 	{ color = "#ffbb55", transparency = 0, material = "Neon" },
 	{ color = "#f44336", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#4caf50", transparency = 0, material = "SmoothPlastic" },
-	{ color = "#d4d4d4", transparency = 0, material = "Neon" },
+	{ color = "#d7d7d7", transparency = 0, material = "Neon" },
 	{ color = "#384654", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#fcb654", transparency = 0, material = "Neon" },
 	{ color = "#1c8ce0", transparency = 0, material = "SmoothPlastic" },
@@ -1653,7 +1653,8 @@ Catalog.LOOKS = {
 	{ color = "#b68c62", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#c4a87e", transparency = 0, material = "SmoothPlastic" },
 	{ color = "#a88c62", transparency = 0, material = "SmoothPlastic" },
-	{ color = "#d1d1d1", transparency = 0, material = "Neon" },
+	{ color = "#d6d6d6", transparency = 0, material = "Neon" },
+	{ color = "#d4d4d4", transparency = 0, material = "Neon" },
 }
 
 -- Where each car wears a hat ("hat:<id>" models): { x, y, z, qx, qy, qz, qw, scale } from the car's
