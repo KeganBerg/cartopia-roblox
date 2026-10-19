@@ -727,6 +727,16 @@ local function endSearch()
 		scene = nil
 	end
 	if searchGui then
+		-- Anything else drawn on the lot's screen (the tutorial's hand) goes back to the HUD first.
+		local layer = searchGui:FindFirstChild("SearchScreen")
+		local home = hudGui and hudGui:FindFirstChild("Root")
+		if layer and home then
+			for _, c in layer:GetChildren() do
+				if c.Name ~= "Search" and c.Name ~= "Fly" and not c:IsA("UIScale") then
+					c.Parent = home
+				end
+			end
+		end
 		searchGui:Destroy()
 		searchGui = nil
 	end
@@ -831,10 +841,10 @@ local function searchScreen(ctx: any, q: any, root: Instance, rerender: () -> ()
 		busyNow = true
 	end
 	local holder = (searchGui :: ScreenGui):FindFirstChild("SearchScreen") :: Frame
-	for _, c in holder:GetChildren() do
-		if not c:IsA("UIScale") and c.Name ~= "Fly" then
-			c:Destroy()
-		end
+	-- (Only its own drawing: the tutorial's hand may be on this screen too.)
+	local was = holder:FindFirstChild("Search")
+	if was then
+		was:Destroy()
 	end
 
 	-- What was already uncovered when the lot came up is seen and aboard; anything after waits

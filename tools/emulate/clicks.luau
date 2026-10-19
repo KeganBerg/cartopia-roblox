@@ -3252,6 +3252,10 @@ do
 		if race then
 			Gui.dump(race, cam.ViewportSize.X, cam.ViewportSize.Y)
 		end
+		local rescue = player.PlayerGui:FindFirstChild("RescueSearch")
+		if rescue then
+			Gui.dump(rescue, cam.ViewportSize.X, cam.ViewportSize.Y)
+		end
 	end
 	local rectOf = Tut.rectOf
 	Tut.rectOf = function(g, layer)
