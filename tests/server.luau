@@ -274,7 +274,76 @@ return function(test)
 		towns:open(7, mid)
 		expectEq(towns:save(7).tutorial, 5, "a town part way through carries on")
 	end)
+	test("towns: a new season leaves the last one's recap until its card is closed", function()
+		local day = 86400000
+		local was = now
+		-- Ten days into the first season.
+		local start = require("../src/shared/Game/data").SEASON_START + 10 * day
+		now = start
+		towns:open(8, nil)
+		local first = towns:save(8)
+		expectEq(first.seasonBase ~= nil, true, "a fresh town takes a snapshot")
+		expectEq(first.recap, nil, "and has nothing to look back on")
+		local n = first.seasonBase.n
+		-- Play a little this season: two races, one won.
+		towns:_with(8, function(s)
+			local stats = table.clone(s.stats)
+			stats.races = (stats.races or 0) + 2
+			stats.racesWon = (stats.racesWon or 0) + 1
+			store.useGame.setState({ stats = stats })
+		end)
+		towns:tick(8)
+		expectEq(towns:save(8).recap, nil, "no recap while the season runs")
+		-- The next season starts.
+		now = start + 43 * day
+		towns:tick(8)
+		local after = towns:save(8)
+		expectEq(after.seasonBase.n, n + 1, "the snapshot moves to the new season")
+		expectEq(after.recap ~= nil, true, "the recap waits on the town")
+		expectEq(after.recap.n, n, "of the season that ended")
+		expectEq(after.recap.races, 2, "its races")
+		expectEq(after.recap.wins, 1, "its wins")
+		-- Survives a reload, then the card's button clears it.
+		local saved = copy(after)
+		towns:close(8)
+		towns:open(8, saved)
+		expectEq(towns:save(8).recap ~= nil, true, "kept through a reload")
+		expectEq(Towns.check("closeRecap", {}, 0), true, "closeRecap is allowed")
+		towns:run(8, "closeRecap")
+		expectEq(towns:save(8).recap, nil, "closed")
+		-- A season with nothing played leaves no recap.
+		now = start + 85 * day
+		towns:tick(8)
+		expectEq(towns:save(8).recap, nil, "nothing played, nothing to show")
+		expectEq(towns:save(8).seasonBase.n, n + 2, "but the snapshot still moves on")
+		now = was
+	end)
 
+	test("prefs: settings are cleaned, and sound and settings changes keep each other", function()
+		local Prefs = require("../src/server/Prefs")
+		local p = Prefs.clean(nil)
+		expectEq(p.ui.graphics, "auto", "graphics default")
+		expectEq(p.ui.askSell, true, "asks by default")
+		expectEq(p.ui.reduceMotion, nil, "follows the device")
+		local bad = Prefs.cleanUi({ graphics = "ultra", fps = "yes", askLeave = false, calmFlash = true, tips = { "gems", "gems", 5, string.rep("x", 40) } })
+		expectEq(bad.graphics, "auto", "unknown graphics")
+		expectEq(bad.fps, false, "fps must be true")
+		expectEq(bad.askLeave, false, "turned off")
+		expectEq(bad.calmFlash, true, "calm flashing")
+		expectEq(#bad.tips, 1, "tips deduped and checked")
+		local many = {}
+		for i = 1, 50 do
+			many[i] = `t{i}`
+		end
+		expectEq(#Prefs.cleanUi({ tips = many }).tips, Prefs.MAX_TIPS, "tips capped")
+		local a = Prefs.merge(p, { ui = { graphics = "saver", tips = { "gems" } } })
+		expectEq(a.ui.graphics, "saver", "settings change")
+		expectEq(a.music.volume, 0.5, "sound kept")
+		local b = Prefs.merge(a, { music = { on = false, volume = 0.2 }, town = { on = true, volume = 1 }, effects = 0.3 })
+		expectEq(b.music.on, false, "sound change")
+		expectEq(b.ui.graphics, "saver", "settings kept through a sound change")
+		expectEq(b.ui.tips[1], "gems", "tips kept")
+	end)
 	test("towns: track skins go on a tank by level, and only on a tank", function()
 		expectEq(Towns.check("skinTracks", { "c1", "magma" }, 2), true, "skinTracks")
 		expectEq(Towns.check("skinTracks", { "c1", nil }, 2), true, "skinTracks off")

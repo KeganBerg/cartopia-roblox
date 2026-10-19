@@ -8,6 +8,8 @@ Js.setClock(function()
 	return DateTime.now().UnixTimestampMillis
 end)
 
+-- The player's settings first (graphics, reduce motion and flashing), so everything after starts with them.
+require(script.Prefs)
 require(script.DayNight).start()
 require(script.TownCamera).start()
 require(script.Remote)
@@ -25,6 +27,9 @@ require(script.LakeLife).start()
 require(script.StoreDoorLife).start()
 require(script.CentreLife).start()
 require(script.SkinMotion).start()
+-- Tap-to-explain bubbles and Settings' FPS counter, over every screen.
+require(script.TapTip).start()
+require(script.Fps).start()
 require(script.Hud).start()
 -- The town's weather and Rave Mode, over what DayNight and the HUD draw.
 require(script.TownWeather).start()

@@ -418,6 +418,11 @@ end
 TownWeather.NEAR = 6 * U
 
 local function small(cam: Camera): boolean
+	-- Settings > Graphics (client/Prefs): Saver always draws the lighter weather, High the full.
+	local g = Players.LocalPlayer and Players.LocalPlayer:GetAttribute("Graphics")
+	if g == "saver" or g == "high" then
+		return g == "saver"
+	end
 	local v = cam.ViewportSize
 	return math.min(v.X, v.Y) < 700
 end

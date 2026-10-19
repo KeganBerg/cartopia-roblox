@@ -15,6 +15,7 @@ local data = require(Game.data) :: any
 local merge = require(Game.merge) :: any
 local placementRules = require(Game.placement) :: any
 local lualib = require(Game.lualib_bundle) :: any
+local traffic = require(Game.traffic) :: any
 local Remote = require(script.Parent.Remote)
 local Town = require(script.Parent.Town)
 local TownCamera = require(script.Parent.TownCamera)
@@ -23,6 +24,7 @@ local Icons = require(script.Parent.Icons)
 local Thumb = require(script.Parent.Thumb)
 local Tutorial = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
 local Sfx = require(script.Parent.Sounds.Sfx)
+local TapTip = require(script.Parent.TapTip)
 
 local Placement = {}
 
@@ -42,9 +44,12 @@ local root: GuiObject? = nil
 local bar: Frame? = nil
 local hint: TextLabel? = nil
 local measure: TextLabel? = nil
+local hintPill: Frame? = nil
 local dockShadow: Frame? = nil
 local tools: Frame? = nil
 local toolsKey = ""
+type Meter = { shadow: Frame, face: Frame, icon: TextLabel, name: TextLabel, fill: Frame, track: Frame, small: TextLabel }
+local meter: Meter? = nil
 local ghost: Model? = nil
 local plate: Part? = nil
 local marks: Folder? = nil -- For Sale plots and Merge badges
@@ -548,20 +553,75 @@ local function makeBar(gui: GuiObject)
 	end
 	local b = Ui.new("Frame", { Name = "EditBar", ZIndex = 10, AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -10), Size = UDim2.fromOffset(700, 120), BackgroundTransparency = 1, Parent = gui })
 	bar = b
+	-- The hint and the traffic meter share one row over the tools (Menus.tsx .edit-info).
+	local info = Ui.new("Frame", { Name = "Info", Position = UDim2.fromOffset(0, 3), Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Parent = b }, {
+		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
 	-- The hint: a navy pill over the tools (theme.css .edit-hint).
-	local pillShadow, pillFace = Ui.pill({ Name = "Hint", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 3), Size = UDim2.fromOffset(0, 31), AutomaticSize = Enum.AutomaticSize.X, Parent = b }, 16)
-	pillFace.AutomaticSize = Enum.AutomaticSize.X
-	Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14), Parent = pillShadow })
-	Ui.new("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14), Parent = pillFace })
-	hint = Ui.text({ Text = "", TextSize = 14, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, Shadow = 1.5, ShadowColor = Ui.BLACK, ShadowTransparency = 0.6, Parent = pillFace })
-	-- Content that sizes the pill: an invisible copy beside the face.
-	measure = Ui.text({ Name = "Measure", Text = "", TextSize = 14, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, TextTransparency = 1, ZIndex = 0, Parent = pillShadow })
+	-- (Sized to its words in refresh: no automatic sizes in the row.)
+	local pillShadow, pillFace = Ui.pill({ Name = "Hint", LayoutOrder = 1, Size = UDim2.fromOffset(28, 31), Parent = info }, 16)
+	hint = Ui.text({ Text = "", TextSize = 14, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -28, 1, 0), Shadow = 1.5, ShadowColor = Ui.BLACK, ShadowTransparency = 0.6, Parent = pillFace })
+	measure = nil
+	hintPill = pillShadow
+	-- The traffic meter (Menus.tsx TrafficMeter, game/traffic.ts): how much of the land is road.
+	local meterShadow = Ui.new("Frame", { Name = "Traffic", LayoutOrder = 2, Size = UDim2.fromOffset(200, 31), BackgroundColor3 = Ui.BLACK, BackgroundTransparency = 0.65, Parent = info }, {
+		Ui.round(),
+	})
+	local m = Ui.new("Frame", { Name = "Face", Position = UDim2.fromOffset(0, -3), Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromHex("#0f141d"), BackgroundTransparency = 0.22, Parent = meterShadow }, {
+		Ui.round(),
+		Ui.stroke(2.5, Ui.LINE),
+	})
+	local mIcon = Ui.text({ Name = "Icon", Text = "", TextSize = 14, Position = UDim2.fromOffset(12, 0), Size = UDim2.fromOffset(18, 31), Parent = m })
+	local mName = Ui.text({ Name = "Level", Text = "", Body = true, Weight = "heavy", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(36, 0), Size = UDim2.fromOffset(60, 31), Parent = m })
+	local track = Ui.new("Frame", { Name = "Bar", Position = UDim2.new(0, 100, 0.5, -3.5), Size = UDim2.fromOffset(70, 7), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.8, BorderSizePixel = 0, ClipsDescendants = true, Parent = m }, { Ui.corner(4) })
+	local fill = Ui.new("Frame", { Name = "Fill", Size = UDim2.fromScale(0, 1), BorderSizePixel = 0, Parent = track }, { Ui.corner(4) })
+	Ui.new("Frame", { Name = "Min", Position = UDim2.fromScale(0.5, 0), Size = UDim2.new(0, 2, 1, 0), BackgroundColor3 = Ui.WHITE, BorderSizePixel = 0, ZIndex = 2, Parent = track })
+	local mSmall = Ui.text({ Name = "Share", Text = "", Body = true, Weight = "heavy", TextSize = 12, TextTransparency = 0.1, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(176, 0), Size = UDim2.fromOffset(60, 31), Parent = m })
+	TapTip.mark(m, "")
+	meter = { shadow = meterShadow, face = m, icon = mIcon, name = mName, fill = fill, track = track, small = mSmall }
 	local shadow, dock = Ui.shadowed({ Name = "Tools", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, 0), Size = UDim2.fromOffset(600, 70), Parent = b }, { radius = 20, stroke = 3, drop = 5, dark = 0.3, color = Ui.SHEET })
 	dockShadow = shadow
 	tools = Ui.new("Frame", { Name = "Row", Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 1, -16), BackgroundTransparency = 1, Parent = dock }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center }),
 	})
 	toolsKey = ""
+end
+
+-- The traffic meter's words and bar for the town now: shown once the tutorial's done, and not
+-- while buying land or merging (they don't change traffic, so the town stays clear).
+local function drawMeter()
+	local mt = meter
+	if not mt then
+		return
+	end
+	local s = state()
+	local show = (s.tutorial or 99) >= 99 and mode ~= "land" and mode ~= "merge" and s.roads ~= nil and s.land ~= nil
+	mt.shadow.Visible = show
+	if not show then
+		return
+	end
+	local share = traffic.roadShare(s.roads, s.land)
+	local short = traffic.roadsShort(s.roads, s.land)
+	local t = traffic.TRAFFIC[traffic.trafficLevel(share)]
+	local pct = math.round(share * 100)
+	local c = Color3.fromHex(t.c)
+	Ui.setText(mt.icon, t.icon)
+	Ui.setText(mt.name, t.name)
+	mt.name.TextColor3 = c
+	mt.fill.BackgroundColor3 = c
+	mt.fill.Size = UDim2.fromScale(math.min(1, share / (traffic.TRAFFIC_MIN * 2)), 1)
+	local small = if short > 0 then `+{short} 🛣️` else `{pct}%`
+	Ui.setText(mt.small, small)
+	-- Sized to its words (no automatic sizes in the row).
+	local nameW = math.ceil(Ui.textWidth(t.name, 13))
+	mt.name.Size = UDim2.fromOffset(nameW + 2, 31)
+	mt.track.Position = UDim2.new(0, 36 + nameW + 8, 0.5, -3.5)
+	local smallX = 36 + nameW + 8 + 70 + 6
+	mt.small.Position = UDim2.fromOffset(smallX, 0)
+	local smallW = math.ceil(Ui.textWidth(small, 12)) + 4
+	mt.small.Size = UDim2.fromOffset(smallW, 31)
+	mt.shadow.Size = UDim2.fromOffset(smallX + smallW + 12, 31)
+	mt.face:SetAttribute("Tip", `Roads {pct}% of your land, aim for {math.round(traffic.TRAFFIC_MIN * 100)}%+`)
 end
 
 -- Redraws the hint, tools and marks for the current mode (after a mode change or a new town).
@@ -572,15 +632,17 @@ function Placement.refresh()
 	if hint and bar then
 		local text = hintText()
 		Ui.setText(hint, text)
-		if measure then
-			measure.Text = text
+		if hintPill then
+			hintPill.Size = UDim2.fromOffset(math.ceil(Ui.textWidth(text, 14)) + 28, 31)
 		end
 		-- The tutorial's card says what to do instead, so one instruction shows at a time.
-		local pill = bar:FindFirstChild("Hint")
+		local info = bar:FindFirstChild("Info")
+		local pill = info and info:FindFirstChild("Hint")
 		if pill and pill:IsA("GuiObject") then
 			pill.Visible = Tutorial.step(state()) == nil
 		end
 	end
+	drawMeter()
 	drawTools()
 	drawMarks()
 	if onChange then
@@ -864,7 +926,7 @@ function Placement.cancel()
 	clearMarks()
 	if bar then
 		bar:Destroy()
-		bar, hint, tools, measure, dockShadow = nil, nil, nil, nil, nil
+		bar, hint, tools, measure, dockShadow, meter, hintPill = nil, nil, nil, nil, nil, nil, nil
 	end
 	TownCamera.setPanEnabled(true)
 	if onChange then

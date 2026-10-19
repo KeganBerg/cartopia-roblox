@@ -20,6 +20,16 @@ local Tutorial = if roblox
 	then require(roblox:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
 	else (require :: any)("../shared/Tutorial")
 
+-- The season recap (web game/recap.ts) and the season clock, the same two ways.
+local function shared(name: string): any
+	if roblox then
+		return require(roblox:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Game"):WaitForChild(name)) :: any
+	end
+	return (require :: any)(`../shared/Game/{name}`)
+end
+local recapRules: any = nil
+local seasonData: any = nil
+
 -- Argument shapes per client-callable action: "string", "number", "boolean", "string?" (string or
 -- nil), "table", "table?", or a list of allowed strings.
 local S, N, B = "string", "number", "boolean"
@@ -92,6 +102,8 @@ local ALLOWED: { [string]: { any } } = {
 	-- Tutorial
 	setTutorial = { N },
 	skipTutorial = { N },
+	-- The season recap card's button (Popups/Recap)
+	closeRecap = {},
 }
 Towns.ALLOWED = ALLOWED
 
@@ -207,6 +219,29 @@ function Towns.open(self: Towns, userId: number, save: any?)
 		end
 		self.store.useGame.getState().tick(self.now())
 	end)
+	self:recapCheck(userId)
+end
+
+-- The web's startRecapWatch, run by the server: keeps the snapshot from the start of the season
+-- (seasonBase) current, and when a new season has begun, leaves the recap of the one that ended
+-- on the town (recap) until the player closes its card. A town that never had a snapshot just
+-- takes one: there's nothing to look back on yet.
+function Towns.recapCheck(self: Towns, userId: number)
+	recapRules = recapRules or shared("recap")
+	seasonData = seasonData or shared("data")
+	self:_with(userId, function(s)
+		local n = seasonData.seasonNumber(self.now())
+		local base = s.seasonBase
+		if base and base.n >= n then
+			return
+		end
+		local recap = if base then recapRules.buildRecap(base, s) else nil
+		local patch: any = { seasonBase = recapRules.seasonSnapshot(s, n) }
+		if recap then
+			patch.recap = recap
+		end
+		self.store.useGame.setState(patch)
+	end)
 end
 
 function Towns.close(self: Towns, userId: number)
@@ -223,6 +258,8 @@ function Towns.tick(self: Towns, userId: number)
 	self:_with(userId, function(s)
 		s.tick(self.now())
 	end)
+	-- Seasons roll over at a set time, so a long session checks as it goes.
+	self:recapCheck(userId)
 end
 
 -- Runs an action for a player (already checked with Towns.check). Brings the clock up to date

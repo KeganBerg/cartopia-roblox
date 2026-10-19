@@ -4,7 +4,7 @@
 -- below, a "Don't ask again" tick box and Cancel / the step's own button.
 --
 -- On the web the "Don't ask again" choices are device settings (lib/prefs.ts askLeave, askSell),
--- never part of the save; here they last for the session.
+-- never part of the save; here they're kept with the account (client/Prefs, server/Prefs).
 
 local Ui = require(script.Parent.Ui)
 
@@ -13,8 +13,10 @@ local Confirm = {}
 local LINE = Ui.LINE
 local W = 360
 
--- Which questions are still asked (the web's prefs askLeave and askSell).
+-- Which questions are still asked (the web's prefs askLeave and askSell). client/Prefs keeps them
+-- with the account: it fills these in, and hears "Don't ask again" through onStop.
 Confirm.prefs = { askLeave = true, askSell = true } :: { [string]: boolean }
+Confirm.onStop = nil :: ((string) -> ())?
 
 export type Opts = {
 	pref: string,
@@ -115,6 +117,9 @@ function Confirm.ask(parent: Instance, o: Opts): Instance?
 	local yesShadow, yes = Ui.button({ LayoutOrder = 2, Size = UDim2.new(0.5, -5, 1, 0), ZIndex = z, Parent = acts }, "white", function()
 		if stop then
 			Confirm.prefs[o.pref] = false
+			if Confirm.onStop then
+				Confirm.onStop(o.pref)
+			end
 		end
 		modal:Destroy()
 		o.onOk()
