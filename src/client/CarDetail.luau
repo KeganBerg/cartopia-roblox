@@ -8,9 +8,14 @@
 -- (lights, mirrors, badges, hubcaps, handles) would be only a couple of pixels on screen, they're
 -- hidden and the car stops casting shadows. Close up, everything shows. It goes by size on screen,
 -- not distance, so the town's camera (standing well back, zoomed in) still sees the whole car.
+--
+-- The wheels roll with the car's speed and the front ones steer (shared/Models/Wheels), but only
+-- on cars near enough to show their detail.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Builder = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Builder")) :: any
+local Models = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models")
+local Builder = require(Models:WaitForChild("Builder")) :: any
+local Wheels = require(Models:WaitForChild("Wheels"))
 
 local CarDetail = {}
 
@@ -26,6 +31,7 @@ export type Detail = {
 	shadows: { BasePart },
 	far: boolean,
 	boxed: boolean,
+	wheels: Wheels.Rig? | false, -- made the first time they turn (false: the car has none)
 }
 
 -- Sorts a freshly built car's pieces for CarDetail.lod. Call it before the car is scaled.
@@ -42,7 +48,7 @@ function CarDetail.track(model: Model): Detail
 			end
 		end
 	end
-	return { model = model, small = small, shadows = shadows, far = false, boxed = Builder.boxed(model) }
+	return { model = model, small = small, shadows = shadows, far = false, boxed = Builder.boxed(model), wheels = nil }
 end
 
 local function setFar(d: Detail, far: boolean)
@@ -68,6 +74,28 @@ function CarDetail.lod(d: Detail, distance: number)
 		setFar(d, false)
 	elseif not d.far and px < DROP then
 		setFar(d, true)
+	end
+end
+
+-- Rolls and steers a car's wheels for where it is now (call after moving it each frame). Cars too far
+-- off to show their detail are left be; a car the player has taken isn't moving, so isn't called.
+function CarDetail.wheels(d: Detail, pivot: CFrame, dt: number)
+	if d.far or d.boxed then
+		if d.wheels then
+			d.wheels.last = nil
+		end
+		return
+	end
+	if d.wheels and math.abs(d.model:GetScale() - d.wheels.scale) > 1e-3 then
+		-- Grown or shrunk (fading in or out): rigged again at its new size.
+		d.wheels = nil
+	end
+	if d.wheels == nil then
+		local id = d.model:GetAttribute("Model")
+		d.wheels = (type(id) == "string" and Wheels.rig(d.model, id)) or false
+	end
+	if d.wheels then
+		Wheels.follow(d.wheels, d.model, pivot, dt)
 	end
 end
 

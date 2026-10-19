@@ -26,11 +26,16 @@ local function signal()
 	function s:Wait() end
 	return s
 end
-for _, pair in { { "ClickDetector", "MouseClick" }, { "GuiButton", "Activated" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "RemoteEvent", "OnServerEvent" }, { "RunService", "RenderStepped" }, { "RunService", "Heartbeat" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "GuiObject", "MouseEnter" }, { "GuiObject", "MouseLeave" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputEnded" }, { "TextBox", "FocusLost" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" }, { "Player", "CharacterAdded" }, { "Instance", "ChildAdded" }, { "Instance", "DescendantAdded" } } do
+for _, pair in { { "ClickDetector", "MouseClick" }, { "GuiButton", "Activated" }, { "Instance", "Destroying" }, { "BindableEvent", "Event" }, { "RemoteEvent", "OnClientEvent" }, { "RemoteEvent", "OnServerEvent" }, { "RunService", "RenderStepped" }, { "RunService", "Heartbeat" }, { "GuiButton", "MouseButton1Down" }, { "GuiButton", "MouseButton1Up" }, { "GuiObject", "MouseEnter" }, { "GuiObject", "MouseLeave" }, { "GuiObject", "InputBegan" }, { "GuiObject", "InputEnded" }, { "TextBox", "FocusLost" }, { "UserInputService", "InputBegan" }, { "UserInputService", "InputChanged" }, { "UserInputService", "InputEnded" }, { "Player", "CharacterAdded" }, { "Players", "PlayerAdded" }, { "Players", "PlayerRemoving" }, { "Instance", "ChildAdded" }, { "Instance", "DescendantAdded" } } do
 	pcall(roblox.implementProperty, pair[1], pair[2], function()
 		return signal()
 	end)
 end
+
+-- No other players here.
+pcall(roblox.implementMethod, "Players", "GetPlayers", function()
+	return {}
+end)
 
 -- The emulator stands in for a desktop with a mouse (TouchEnabled and MouseEnabled are set on
 -- the service when the place loads: they exist but have no default to read).
@@ -343,7 +348,7 @@ function Emu.load(placeFile: string)
 		e.Instance = setmetatable({
 			new = function(class, parent)
 				local inst = roblox.Instance.new(class)
-				if inst:IsA("GuiObject") then
+				if inst:IsA("GuiBase2d") then
 					inst.AbsoluteSize = roblox.Vector2.new(0, 0)
 					inst.AbsolutePosition = roblox.Vector2.new(0, 0)
 				end

@@ -14,8 +14,10 @@ Towns.__index = Towns
 
 -- The tutorial's rules, shared with the client (src/shared/Tutorial.luau): from ReplicatedStorage
 -- in Roblox and the emulator, by path in the tests.
-local Tutorial = if game
-	then require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
+-- (Roblox's `game`, looked up so plain Luau's checker, which has no such global, passes it.)
+local roblox: any = (getfenv(1) :: any).game
+local Tutorial = if roblox
+	then require(roblox:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Tutorial")) :: any
 	else (require :: any)("../shared/Tutorial")
 
 -- Argument shapes per client-callable action: "string", "number", "boolean", "string?" (string or

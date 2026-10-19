@@ -34,7 +34,11 @@ local S = KartWorld.S
 KartWorld.ORIGIN = Vector3.new(-60000, 0, 0) -- far from every town and the drag strip
 local ORIGIN = KartWorld.ORIGIN
 
-local Y_ROAD, Y_KERB, Y_PAINT = 0.02, 0.035, 0.04
+-- Flat layers' tops, in web units. Roblox's depth buffer can't tell surfaces apart much closer than
+-- a quarter stud seen from across the track, so each layer sits 0.025 (a quarter stud) or more
+-- over the one below: ground, verge and quay, road, lines, kerbs, and the kerb stripes and the
+-- chequered line.
+local Y_GROUND, Y_VERGE, Y_ROAD, Y_PAINT, Y_KERB, Y_MARK = -0.035, -0.005, 0.02, 0.045, 0.07, 0.095
 
 -- Each theme's ground, verge, kerbs, barrier and its cap (KartScene THEMES).
 local THEMES = {
@@ -337,7 +341,7 @@ local function kerb(into: Instance, t: any, a: number, b: number, cols: { string
 			chunk, sum = {}, Vector3.zero
 		end
 	end
-	boxes(t, stripes, m, w, Y_KERB + 0.006, 0.3, false, function(cf, size)
+	boxes(t, stripes, m, w, Y_MARK, 0.3, false, function(cf, size)
 		table.insert(chunk, part({ Name = "KerbStripe", Size = size, CFrame = cf, Color = hex(cols[1]) }, into))
 		sum += cf.Position
 		if #chunk == 8 then
@@ -454,8 +458,8 @@ local function surface(into: Instance, t: any, th: any)
 	-- The verge, where it isn't the ground's own colour already (the town's grass, the quay).
 	if th.verge ~= th.ground and t.def.theme ~= "docks" then
 		local verge = hex(th.verge)
-		ribbon(into, t, t.half + kw, t.wall + 0.3, 0.012, 0.3, verge, "Verge", nil, 0.1, 0.1)
-		ribbon(into, t, -t.wall - 0.3, -t.half - kw, 0.012, 0.3, verge, "Verge", nil, 0.1, 0.1)
+		ribbon(into, t, t.half + kw, t.wall + 0.3, Y_VERGE, 0.3, verge, "Verge", nil, 0.1, 0.1)
+		ribbon(into, t, -t.wall - 0.3, -t.half - kw, Y_VERGE, 0.3, verge, "Verge", nil, 0.1, 0.1)
 	end
 	local white = hex("#f5f5f5")
 	ribbon(into, t, t.half - 0.32, t.half - 0.2, Y_PAINT, 0.3, white, "Line")
@@ -475,7 +479,7 @@ local function startLine(into: Instance, t: any): { BasePart }
 	local cw = t.half * 2 / cells
 	for row = 0, 1 do
 		for c = 0, cells - 1 do
-			part({ Name = "Checker", Size = Vector3.new(cw * S, 0.3, 0.5 * S), CFrame = base * CFrame.new((-t.half + (c + 0.5) * cw) * S, Y_PAINT * S + 0.05 - 0.15, (row - 0.5) * 0.5 * S), Color = if (row + c) % 2 == 0 then hex("#ffffff") else hex("#111111") }, into)
+			part({ Name = "Checker", Size = Vector3.new(cw * S, 0.3, 0.5 * S), CFrame = base * CFrame.new((-t.half + (c + 0.5) * cw) * S, Y_MARK * S - 0.15, (row - 0.5) * 0.5 * S), Color = if (row + c) % 2 == 0 then hex("#ffffff") else hex("#111111") }, into)
 		end
 	end
 	for k = 0, 5 do
@@ -721,7 +725,7 @@ end
 local function docksScenery(into: Instance, t: any, sp: any)
 	plates(into, 500, -0.33, 0.2, "#8fd0f5", "Water", Enum.Material.Glass)
 	-- The quay: concrete out past the barriers all the way round.
-	ribbon(into, t, -t.wall - 3.5, t.wall + 3.5, 0.0, 0.44, hex("#b0b6ba"), "Quay", nil, 0.25)
+	ribbon(into, t, -t.wall - 3.5, t.wall + 3.5, Y_VERGE, 0.44, hex("#b0b6ba"), "Quay", nil, 0.25)
 	local colors = { "#c62828", "#1565c0", "#2e7d32", "#ef6c00", "#00838f", "#6d4c41" }
 	for _, side in { 1, -1 } do
 		for _, p in sp.along(4.2, 2.6, side, 2.2, 31 + side, 0.8) do
@@ -733,7 +737,7 @@ local function docksScenery(into: Instance, t: any, sp: any)
 			-- A stack is all one colour, so one box as tall as n of them.
 			boxAt(into, p.x, p.z, p.ry + math.pi / 2, 0, n * 0.6, 0, 1.15, n * 1.2, 2.8, c, { Name = "Container" })
 			-- The ground under the stack is quay too.
-			boxAt(into, p.x, p.z, p.ry, 0, -0.22, 0, 3.2, 0.44, 3.2, "#b0b6ba", { Name = "Quay" })
+			boxAt(into, p.x, p.z, p.ry, 0, Y_VERGE - 0.22, 0, 3.2, 0.44, 3.2, "#b0b6ba", { Name = "Quay" })
 		end
 	end
 	local cranes = sp.along(70, 7, 1, 6, 37)
@@ -741,7 +745,7 @@ local function docksScenery(into: Instance, t: any, sp: any)
 		table.insert(cranes, c)
 	end
 	for _, c in cranes do
-		boxAt(into, c.x, c.z, c.ry, 0, -0.22, 0.6, 4.6, 0.44, 6.4, "#b0b6ba", { Name = "Pier" })
+		boxAt(into, c.x, c.z, c.ry, 0, Y_VERGE - 0.22, 0.6, 4.6, 0.44, 6.4, "#b0b6ba", { Name = "Pier" })
 		for _, dx in { -1.6, 1.6 } do
 			for _, dz in { -1.6, 1.6 } do
 				boxAt(into, c.x, c.z, c.ry, dx, 4.5, dz, 0.35, 9, 0.35, "#fbc02d", { Name = "Crane" })
@@ -893,7 +897,7 @@ function KartWorld.circuit(t: any, pool: { string }?): (Model, { BasePart })
 	m.Name = "KartCircuit"
 	local sp = spots(t)
 	if t.def.theme ~= "docks" then
-		plates(m, 460, -0.01, 0.2, th.ground, "Ground", if t.def.theme == "town" then Enum.Material.Grass elseif t.def.theme == "desert" then Enum.Material.Sand else nil)
+		plates(m, 460, Y_GROUND, 0.2, th.ground, "Ground", if t.def.theme == "town" then Enum.Material.Grass elseif t.def.theme == "desert" then Enum.Material.Sand else nil)
 	end
 	surface(m, t, th)
 	local lamps = startLine(m, t)
