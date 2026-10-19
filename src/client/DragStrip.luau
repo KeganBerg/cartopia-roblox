@@ -303,6 +303,17 @@ export type Extras = {
 	heading: ((res: any) -> string?)?,
 	quote: ((res: any) -> string?)?,
 	buttons: ((res: any) -> { Button }?)?,
+	live: Live?,
+}
+
+-- A live race against another player (client/Popups/Duel): their car is drawn from where their
+-- game says it is, not raced here, and the result waits for their finish.
+-- send: passes where my car is on to them; them: where theirs was last heard of ({ dist, speed,
+-- burning, done, at = os.clock() when heard }), kept up to date by the caller; leave: the X.
+export type Live = {
+	send: (payload: any) -> (),
+	them: { dist: number, speed: number, burning: boolean, done: boolean, at: number },
+	leave: () -> (),
 }
 
 -- Opens the race. started: what Remote.race("start") answered ({ spec, rival, mode, venue });
@@ -310,7 +321,12 @@ export type Extras = {
 function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extras: Extras?)
 	local spec, rival, venue = started.spec, started.rival, started.venue or {}
 	local ex: Extras = extras or {}
+	local live = ex.live
 	local r = DragRace.new(spec)
+	-- The race is over for this screen: both across the line, or in a live race, me.
+	local function over(): boolean
+		return r.done or (live ~= nil and r.me.finished ~= nil)
+	end
 	local len = spec.track * STUDS_PER_M
 	local look = venues.venue(venue.id or "main")
 	local world, far = buildStrip(look.id, venue.dist)
@@ -387,8 +403,11 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local title = ex.title or `Drag Race vs {rival.name}`
 	Ui.text({ Text = title, TextSize = 26, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), Size = UDim2.new(1, -200, 0, 34), Stroke = 2.5, Shadow = 3, Parent = screen })
 	local quit = Ui.closeButton({ Name = "Leave", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14), Size = UDim2.fromOffset(44, 44), Parent = screen }, function()
-		if r.done then
+		if over() then
 			return
+		end
+		if live then
+			live.leave()
 		end
 		close()
 	end)
@@ -438,7 +457,7 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	-- Each car's skill, flashed while it is working (Race.tsx skill-flash); the rival's takes the
 	-- place of its boost note.
 	local mySkill = spec.mySkill and data.SKILLS[spec.mySkill]
-	local theirSkill = rival.skill and data.SKILLS[rival.skill]
+	local theirSkill = if live then nil else rival.skill and data.SKILLS[rival.skill]
 	local skillNote = Ui.text({ Text = if mySkill then `{mySkill.icon} {mySkill.name}!` else "", TextSize = 24, AnchorPoint = Vector2.new(0, 0), Position = UDim2.new(0, 20, 0, 70), Size = UDim2.fromOffset(320, 30), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromHex("#ffe082"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
 	local theirNote = Ui.text({ Text = `{rival.name}: 🔥 Boost!`, TextSize = 20, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 102), Size = UDim2.fromOffset(320, 28), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromHex("#ffab91"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
 
@@ -689,8 +708,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		end
 		return ro.z
 	end
-	local function coast(dt: number)
-		for i, racer in { r.me, r.them } do
+	local function coast(dt: number, th: any)
+		for i, racer in { r.me, th } do
 			local ro = runOut[i]
 			if racer.finished ~= nil and ro.z < len + RUN_OUT then
 				local left = math.max(1, len + RUN_OUT * 0.92 - ro.z)
@@ -699,6 +718,17 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			end
 		end
 	end
+
+	-- A live rival where their game last said, carried on at their speed for a moment.
+	local function liveThem(): any
+		local l = (live :: Live).them
+		local ahead = if l.done then 0 else math.min(0.3, os.clock() - l.at) * l.speed
+		local dist = math.min(spec.track, l.dist + ahead)
+		return { dist = dist, speed = l.speed, burning = l.burning, launched = dist > 0, finished = if l.done then 0 else nil }
+	end
+	local sendAcc = 0
+	local sentDone = false
+	local finishNote = "" -- under the race while the server checks it
 
 	local function frame(dt: number)
 		if wait > 0 then
@@ -711,8 +741,17 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 				acc -= DragRace.DT
 			end
 		end
-		coast(dt)
-		local me, th = r.me, r.them
+		local me, th = r.me, if live then liveThem() else r.them
+		coast(dt, th)
+		-- Where my car is, for the other racer's screen, ten times a second.
+		if live and counting and not sentDone then
+			sendAcc += dt
+			if sendAcc >= 0.1 or me.finished ~= nil then
+				sendAcc = 0
+				sentDone = me.finished ~= nil
+				live.send({ t = DragRace.time(r), dist = me.dist, speed = me.speed, burning = me.burning == true, done = sentDone })
+			end
+		end
 		local mz, tz = carZ(1, me), carZ(2, th)
 		meModel:PivotTo(CFrame.new(ORIGIN + Vector3.new(LANE, 0, mz)))
 		themModel:PivotTo(CFrame.new(ORIGIN + Vector3.new(-LANE, 0, tz)))
@@ -810,7 +849,10 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		if me.finished == nil and not (not onLine and me.gear >= race.TOP_GEAR) then
 			light = if rpm >= b.lo and rpm <= b.hi then "now" elseif rpm > b.hi then "late" elseif rpm >= b.lo - 0.12 then "soon" else ""
 		end
-		Ui.setText(hint, if onLine and counting and n > 0 then (if r.held then (if light == "now" then "Hold it there!" elseif light == "late" then "Too many revs!" else "Revving...") else "Hold the pedal: revs in the green") else "")
+		if live and sentFinish and finishNote ~= "" then
+			finishNote = if th.finished == nil then `Waiting for {rival.name} to finish...` else "Checking the result..."
+		end
+		Ui.setText(hint, if sentFinish then finishNote elseif onLine and counting and n > 0 then (if r.held then (if light == "now" then "Hold it there!" elseif light == "late" then "Too many revs!" else "Revving...") else "Hold the pedal: revs in the green") else "")
 		if r.call and r.callTick ~= lastCall then
 			lastCall = r.callTick
 			Ui.setText(callLabel, r.call)
@@ -821,8 +863,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		spinNote.Visible = r.spin and callLabel.Text == ""
 		local theirsOn = theirSkill ~= nil and r.theirSkillOn
 		Ui.setText(theirNote, if theirsOn then `{rival.name}: {theirSkill.icon} {theirSkill.name}!` else `{rival.name}: 🔥 Boost!`)
-		theirNote.Visible = not r.done and (theirsOn or th.burning)
-		skillNote.Visible = mySkill ~= nil and r.mySkillOn and not r.done
+		theirNote.Visible = not over() and (theirsOn or th.burning)
+		skillNote.Visible = mySkill ~= nil and r.mySkillOn and not over()
 		Ui.setText(speed, `{race.kmh(me.speed)} km/h`)
 		Ui.setText(gearText, `GEAR {me.gear + 1}`)
 		needle.Rotation = -210 + math.min(1.05, rpm) * 240
@@ -853,17 +895,19 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		boostBtn.BackgroundTransparency = if spent then 0.5 else 0.15
 
 		-- Both across the line: the server races it again from the presses and pays it.
-		if r.done and not sentFinish then
+		if over() and not sentFinish then
 			sentFinish = true
 			bottom.Visible = false
 			quit.Visible = false
-			Ui.setText(hint, "Checking the result...")
+			finishNote = "Checking the result..."
+			Ui.setText(hint, finishNote)
 			task.spawn(function()
 				task.wait(1.2)
 				local ok, res = Remote.race("finish", r.events, true)
 				if closed then
 					return
 				end
+				finishNote = ""
 				Ui.setText(hint, "")
 				if ok then
 					showResult(res)
