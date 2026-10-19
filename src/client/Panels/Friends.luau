@@ -3,7 +3,7 @@
 -- own friends in place of the web's friend requests: Invite friends, your friends (in this server:
 -- Visit; playing Cartopia elsewhere: Join; online in another game or offline: greyed), then the
 -- other drivers in this server to visit and help. Leaderboards: client/Social/Leaders; the Car Meet:
--- client/Social/Meet. The Crew tab isn't on Roblox yet.
+-- client/Social/Meet; Crews: client/Social/Crew.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,6 +18,7 @@ local Ui = require(script.Parent.Parent.Ui)
 local Remote = require(script.Parent.Parent.Remote)
 local Leaders = require(script.Parent.Parent.Social.Leaders)
 local MeetTab = require(script.Parent.Parent.Social.Meet)
+local CrewTab = require(script.Parent.Parent.Social.Crew)
 local Card = require(script.Parent.Parent.Social.Card)
 local Postcards = require(script.Parent.Parent.Social.Postcards)
 
@@ -140,8 +141,8 @@ end
 
 function Friends.open(ctx: any, arg: any?): Instance
 	local overlay, _sheet, body = Ui.panel(ctx.gui, "Social", { wide = true, onClose = ctx.close, bodyTop = 0 })
-	local soon = { clan = "Crews are" }
-	local first = if arg == "leaders" or arg == "meet" then arg else "friends"
+	local soon: { [string]: string } = {}
+	local first = if arg == "leaders" or arg == "meet" or arg == "clan" then arg else "friends"
 	local pick: (string) -> ()
 	local show: (string) -> ()
 	_, pick = Ui.tabs(body, {
@@ -191,7 +192,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 		end
 	end
 
-	local leaderState, meetState = {}, {}
+	local leaderState, meetState, crewState = {}, {}, {}
 	local shown = ""
 	local function clear()
 		for _, c in list:GetChildren() do
@@ -351,6 +352,8 @@ function Friends.open(ctx: any, arg: any?): Instance
 			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit, card = card }, leaderState)
 		elseif id == "meet" then
 			MeetTab.draw(list, { note = note, visit = visit, card = card, toast = ctx.toast }, meetState)
+		elseif id == "clan" then
+			CrewTab.draw(list, { heading = heading, note = note, card = card, toast = ctx.toast, ctx = ctx }, crewState)
 		else
 			drawFriends()
 		end
