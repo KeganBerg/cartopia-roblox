@@ -46,6 +46,39 @@ local FALLBACK = { "pizza", "donut", "burger", "diner", "house", "motel", "carwa
 
 local LIT = { "#ff1744", "#ff1744", "#ffab00" } -- the countdown's lamps, lit
 
+-- The views the 🎥 button (or C) steps through during a race (scene/raceCam.ts DRAG_VIEWS), the
+-- pick kept for the next race. The chase is the race's own camera.
+local VIEWS = { "chase", "far", "bumper", "tv" }
+local VIEW_NAME = { chase = "Chase", far = "Wide", bumper = "Bumper", tv = "TV" }
+local VIEW_GLIDE = 0.45 -- seconds to ease from one view to the next
+local dragView = "chase"
+
+-- Where a picked view other than the chase puts the camera (raceCam.ts dragViewCam), in studs from
+-- the strip's origin: me at (x, z), the rival at (rx, rz), `nose` from my car's centre to its
+-- bumper. Returns the camera, where it looks, and the extra field of view.
+local function viewCam(v: string, x: number, z: number, rx: number, rz: number, nose: number, tall: boolean): (Vector3, Vector3, number)
+	if v == "far" then
+		-- High and well back over the middle of the road: both cars, both lanes and the street ahead.
+		-- A rival falling far behind drops out of the frame rather than dragging the camera back.
+		local lo = math.max(math.min(z, rz), z - 2.5 * S)
+		local hi = math.min(math.max(z, rz), z + 5 * S)
+		return Vector3.new(0, (if tall then 4.4 else 3.2) * S, lo - (if tall then 8.6 else 6.5) * S), Vector3.new(0, 0.2 * S, hi + (if tall then 4 else 1.2) * S), if tall then 0 else -2
+	elseif v == "bumper" then
+		-- Just off the front bumper at headlight height, looking down the lane.
+		return Vector3.new(x, 0.3 * S, z + nose + 0.06 * S), Vector3.new(x * 0.85, 0.26 * S, z + nose + 12 * S), 6
+	end
+	-- TV: a broadcast camera up over the kerb on my side, panning with the pair a little ahead of them.
+	local mid = (z + rz) / 2
+	local spread = math.min(6 * S, math.abs(z - rz))
+	return Vector3.new(ROAD + (if tall then 0.85 else 1.2) * S, (if tall then 3.1 else 2.4) * S, mid + (if tall then 4.4 else 4) * S + spread * 0.3),
+		Vector3.new((x + rx) / 2, 0.25 * S, mid - 0.4 * S),
+		if tall then -6 else -12
+end
+
+local function ease(t: number): number
+	return if t <= 0 then 0 elseif t >= 1 then 1 else t * t * (3 - 2 * t)
+end
+
 local strip: Model? = nil
 local horizon: Model? = nil
 local stripKey = ""
@@ -328,6 +361,25 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		close()
 	end)
 
+	-- The camera button (CamButton.tsx): a tap (or C) steps to the next view, and its name flashes up.
+	local camBtn = Ui.new("TextButton", { Name = "Camera", Text = "🎥", TextSize = 20, AutoButtonColor = false, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -70, 0, 16), Size = UDim2.fromOffset(40, 40), BackgroundColor3 = Color3.fromHex("#102038"), BackgroundTransparency = 0.28, TextColor3 = Ui.WHITE, Parent = screen }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
+	local camFlash = Ui.new("Frame", { Name = "CameraName", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 64), Size = UDim2.fromOffset(130, 30), BackgroundColor3 = Color3.fromHex("#102038"), BackgroundTransparency = 0.18, Visible = false, Parent = screen }, { Ui.corner(15) })
+	local camFlashText = Ui.text({ Text = "", TextSize = 16, Size = UDim2.fromScale(1, 1), Parent = camFlash })
+	local flashToken = 0
+	local function stepView()
+		dragView = VIEWS[(table.find(VIEWS, dragView) or 1) % #VIEWS + 1]
+		Ui.setText(camFlashText, `🎥 {VIEW_NAME[dragView]}`)
+		camFlash.Visible = true
+		flashToken += 1
+		local mine = flashToken
+		task.delay(1.2, function()
+			if flashToken == mine then
+				camFlash.Visible = false
+			end
+		end)
+	end
+	camBtn.Activated:Connect(stepView)
+
 	-- ── The lanes: how far along each car is ───────────────────────────────────────────────────
 	local lanes = Ui.new("Frame", { Name = "Lanes", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 58), Size = UDim2.fromOffset(520, 64), BackgroundTransparency = 1, Visible = false, Parent = screen }, {
 		Ui.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
@@ -356,7 +408,7 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local mySkill = spec.mySkill and data.SKILLS[spec.mySkill]
 	local theirSkill = rival.skill and data.SKILLS[rival.skill]
 	local skillNote = Ui.text({ Text = if mySkill then `{mySkill.icon} {mySkill.name}!` else "", TextSize = 24, AnchorPoint = Vector2.new(0, 0), Position = UDim2.new(0, 20, 0, 70), Size = UDim2.fromOffset(320, 30), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromHex("#ffe082"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
-	local theirNote = Ui.text({ Text = `{rival.name}: 🔥 Boost!`, TextSize = 20, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 70), Size = UDim2.fromOffset(320, 28), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromHex("#ffab91"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
+	local theirNote = Ui.text({ Text = `{rival.name}: 🔥 Boost!`, TextSize = 20, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -20, 0, 102), Size = UDim2.fromOffset(320, 28), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromHex("#ffab91"), Stroke = 2.5, Shadow = 2, Visible = false, Parent = screen })
 
 	-- ── Bottom: BOOST under the left thumb, the tach in the middle, SHIFT under the right ─────
 	local bottom = Ui.new("Frame", { Name = "Controls", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(1, -40, 0, 190), BackgroundTransparency = 1, Parent = screen })
@@ -456,6 +508,8 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 			pressDown()
 		elseif input.KeyCode == Enum.KeyCode.B or input.KeyCode == Enum.KeyCode.Up or input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 			fireBoost()
+		elseif input.KeyCode == Enum.KeyCode.C then
+			stepView()
 		end
 	end))
 
@@ -584,6 +638,12 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 	local sentFinish = false
 	local runOut = { { z = 0, v = 0 }, { z = 0, v = 0 } } -- each car past the line, coasting to a stop
 	local camPos: Vector3? = nil
+	local chasePos: Vector3? = nil
+	local lastAt: Vector3? = nil
+	local shownView = dragView
+	local glide: { pos: Vector3, at: Vector3, fov: number, t: number }? = nil
+	-- From my car's centre to its front bumper, as the views frame it.
+	local nose = meModel:GetExtentsSize().Z / 2
 	local band = { lo = 0, hi = 0 }
 	local bandKey = ""
 	local lastCall: number = -1
@@ -637,10 +697,40 @@ function DragStrip.run(ctx: any, started: any, car: any, onExit: () -> (), extra
 		-- The chase camera, off my rear bumper (RaceScene's chase view).
 		local pace = math.min(1, me.speed / 80)
 		local lead = math.max(mz, tz)
+		-- It is tracked every frame, even under a picked view, so the view can hand back to it.
 		local want = ORIGIN + Vector3.new(LANE * 0.5, 22, mz - 42 - pace * 8)
+		chasePos = if chasePos then chasePos:Lerp(want, math.min(1, dt * 8)) else want
+		local pos = chasePos :: Vector3
 		local look = ORIGIN + Vector3.new(LANE * 0.3, 3, math.min(mz + 30 + (lead - mz) * 0.3, len + RUN_OUT + 40))
-		camPos = if camPos then camPos:Lerp(want, math.min(1, dt * 8)) else want
-		cam.CFrame = CFrame.lookAt(camPos :: Vector3, look)
+		local fov = 55
+		-- The view picked by the 🎥 button (raceCam.ts dragViewCam).
+		if dragView ~= "chase" then
+			local vp = cam.ViewportSize
+			local p, a, extra = viewCam(dragView, LANE, mz, -LANE, tz, nose, vp.Y > vp.X)
+			pos, look, fov = ORIGIN + p, ORIGIN + a, 55 + extra
+		end
+		-- A change of view glides over from where the camera was, carried along with the car.
+		local carAt = Vector3.new(0, 0, mz)
+		if dragView ~= shownView then
+			shownView = dragView
+			if camPos and lastAt then
+				glide = { pos = camPos - carAt, at = lastAt - carAt, fov = cam.FieldOfView, t = 0 }
+			end
+		end
+		local g = glide
+		if g then
+			g.t += dt
+			local w = ease(g.t / VIEW_GLIDE)
+			pos = (g.pos + carAt):Lerp(pos, w)
+			look = (g.at + carAt):Lerp(look, w)
+			fov = g.fov + (fov - g.fov) * w
+			if w >= 1 then
+				glide = nil
+			end
+		end
+		camPos, lastAt = pos, look
+		cam.FieldOfView = fov
+		cam.CFrame = CFrame.lookAt(pos, look)
 
 		-- The far hills and skyline ride along with the camera (RaceVenues Horizon).
 		if far then

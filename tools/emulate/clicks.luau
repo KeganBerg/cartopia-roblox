@@ -1952,7 +1952,8 @@ end
 -- (tag names them). Returns the frames it ran, the shifts made and the result card, if it came up.
 -- start: starts the race (default: the first Quick Race card's button); nil to drive a race
 -- already on screen.
-local function runRace(tag, shotAt, start)
+-- onFrame(frames, screen): called each frame, after the step (presses a race screen button).
+local function runRace(tag, shotAt, start, onFrame)
 	if start ~= false then
 		renderSteps = {}
 	end
@@ -2002,6 +2003,9 @@ local function runRace(tag, shotAt, start)
 			if shifts == 3 then
 				signalFor(boost, "InputBegan"):Fire(touch)
 			end
+		end
+		if onFrame then
+			onFrame(frames, screen)
 		end
 		if shotAt[frames] then
 			shot(`{tag}-{frames}`, game.Workspace:FindFirstChild("DragStrip"))
@@ -2090,6 +2094,31 @@ local function topUp()
 	towns:_with(1, function(s)
 		s.fuel = math.max(s.fuel, 50)
 	end)
+end
+
+-- The 🎥 button: each tap steps to the next view (Wide, Bumper, TV, back to the chase) and flashes
+-- its name; SHOTS=1 pictures each view once it has glided in.
+do
+	topUp()
+	local seen = {}
+	runRace("view", { [340] = true, [400] = true, [460] = true }, nil, function(frames, screen)
+		if frames == 300 or frames == 360 or frames == 420 or frames == 480 then
+			local btn = find(screen, function(d)
+				return d.Name == "Camera" and d:IsA("TextButton")
+			end)
+			assert(btn, "no camera button on the race screen")
+			signalFor(btn, "Activated"):Fire()
+			local name = find(screen, function(d)
+				return d.Name == "CameraName"
+			end)
+			table.insert(seen, if name and name.Visible then label(name) else "(none)")
+		end
+	end)
+	print(`camera views: {table.concat(seen, ", ")}`)
+	if table.concat(seen, ",") ~= "🎥 Wide,🎥 Bumper,🎥 TV,🎥 Chase" then
+		bad += 1
+		print("CAMERA: the views didn't step Wide, Bumper, TV, Chase")
+	end
 end
 
 -- Paint rivals: the roster page, a race over a half mile at the beach, and its colour won.
