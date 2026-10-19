@@ -5,7 +5,8 @@
 --
 -- It all runs here on the client, like TownLife: each player sees their own traffic. Only what's
 -- near the camera is drawn (the verges in stretches, built as they come near and cleared as they
--- go), so phones stay smooth. The cars can be got in like the town's (client/GetIn).
+-- go), so phones stay smooth. The cars are the game's real models, with their small pieces hidden
+-- far off (client/CarDetail). They can be got in like the town's (client/GetIn).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,6 +18,7 @@ local data = require(Game:WaitForChild("data")) :: any
 local Builder = require(Shared:WaitForChild("Models"):WaitForChild("Builder")) :: any
 local Paint = require(Shared.Models:WaitForChild("Paint")) :: any
 local Catalog = require(Shared.Models:WaitForChild("Catalog")) :: any
+local CarDetail = require(script.Parent:WaitForChild("CarDetail"))
 
 -- Leaves for the season the models were made in (Catalog.SEASON), like the countryside's trees.
 local LEAVES: { [string]: { string } } = {
@@ -43,6 +45,7 @@ local HIDDEN = CFrame.new(0, -10000, 0)
 type Car = {
 	uid: string,
 	model: Model,
+	detail: CarDetail.Detail,
 	along: "x" | "z", -- the axis it drives along
 	line: number, -- the road's other coordinate
 	dir: number, -- +1 or -1 along the axis
@@ -117,6 +120,27 @@ local function nearestLine(g: Grid, v: number): number
 	return best
 end
 
+-- A road car: the real model, painted, at the size cars are driven at. Returns it with its detail.
+local function carModel(id: string, color: string): (Model?, CarDetail.Detail?)
+	local m = Builder.build(id)
+	if not m then
+		return nil, nil
+	end
+	Paint.apply(m, Paint.jobOf({ color = color }))
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = false
+			d.CanTouch = false
+		end
+	end
+	local detail = CarDetail.track(m)
+	if math.abs(m:GetScale() - SCALE) > 1e-3 then
+		m:ScaleTo(SCALE)
+	end
+	return m, detail
+end
+
 local function spawnCars(g: Grid, folder: Folder)
 	local list = pool()
 	if #list == 0 then
@@ -126,21 +150,10 @@ local function spawnCars(g: Grid, folder: Folder)
 	local rng = Random.new(7)
 	for i = 1, n do
 		local def = list[(i * 5) % #list + 1]
-		local m = Builder.build(def.id)
-		if not m then
-			continue
-		end
 		local color = def.colors[(i * 3) % #def.colors + 1]
-		Paint.apply(m, Paint.jobOf({ color = color }))
-		if math.abs(m:GetScale() - SCALE) > 1e-3 then
-			m:ScaleTo(SCALE)
-		end
-		for _, d in m:GetDescendants() do
-			if d:IsA("BasePart") then
-				d.Anchored = true
-				d.CanCollide = false
-				d.CanTouch = false
-			end
+		local m, detail = carModel(def.id, color)
+		if not m or not detail then
+			continue
 		end
 		local uid = `visitor:road:{i}`
 		m.Name = uid
@@ -153,6 +166,7 @@ local function spawnCars(g: Grid, folder: Folder)
 		local c: Car = {
 			uid = uid,
 			model = m,
+			detail = detail,
 			along = if i % 2 == 0 then "x" else "z",
 			line = g.lines[rng:NextInteger(1, #g.lines)],
 			dir = if rng:NextNumber() < 0.5 then 1 else -1,
@@ -402,8 +416,23 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 	local rng = Random.new()
 	local stretches: { [string]: Model } = {}
 	local nextVerge = 0
+	local nextUpgrade = 0
 	return function(rawDt: number, eye: Vector3, me: Vector3?)
 		local dt = math.min(rawDt, 0.1)
+		-- Cars built before their meshes reached this player are built again once they have.
+		nextUpgrade -= rawDt
+		if nextUpgrade <= 0 then
+			nextUpgrade = 1
+			for _, c in cars do
+				if not c.taken and CarDetail.ready(c.detail) then
+					local fresh, detail = carModel(c.model:GetAttribute("Model") :: string, c.model:GetAttribute("Color") :: string)
+					if fresh and detail then
+						c.detail = CarDetail.swap(c.detail, fresh, detail)
+						c.model = fresh
+					end
+				end
+			end
+		end
 		for _, c in cars do
 			if c.taken then
 				continue
@@ -422,6 +451,7 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 			local shown = if c.shown then c.shown:Lerp(pose, math.min(1, dt * 6)) else pose
 			c.shown = shown
 			c.model:PivotTo(shown)
+			CarDetail.lod(c.detail, (shown.Position - eye).Magnitude)
 		end
 		-- The verges near the camera, a couple of times a second.
 		nextVerge -= rawDt

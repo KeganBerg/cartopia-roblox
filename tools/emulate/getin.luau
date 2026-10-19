@@ -13,6 +13,10 @@ local emu = Emu.load(process.args[1] or "build/place.rbxl")
 local game = emu.game
 local RS = game:GetService("ReplicatedStorage")
 local SSS = game:GetService("ServerScriptService")
+-- The mesh packs as Roblox loads them, so the cars are built from their real shapes (GetIn loads a
+-- car's own packs first when they're missing).
+Emu.fakeMeshPacks(emu)
+emu.require(RS.Shared.Models.Builder).loadMeshes(1)
 
 local Js = emu.require(RS.Shared.Game.__js)
 local NOW = 1760000000000
