@@ -7,7 +7,7 @@
 --
 -- Prices come from the server (server/Purchases): Roblox Developer Products, in Robux. A pack whose
 -- product isn't made yet shows "Soon". Paying happens in Roblox's own prompt; the server adds the
--- pack and the menu redraws with the new gems.
+-- pack, the menu redraws with the new gems and the purchase splash shows (client/Popups/Bought).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 

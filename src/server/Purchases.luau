@@ -207,18 +207,11 @@ function Purchases.process(self: Purchases, userId: number, productId: number, p
 				row.car = p.car
 			end
 			s.applyPurchases({ row })
-			local get = self.store.useGame.getState
-			local bits = { `💎 +{grant.bucks}` }
-			if grant.coins > 0 then
-				table.insert(bits, `$ +{grant.coins}`)
-			end
-			if grant.parts > 0 then
-				table.insert(bits, `⚙ +{grant.parts}`)
-			end
-			if row.car then
-				table.insert(bits, "🚗 new car in your garage")
-			end
-			get().toast(`Thanks! {table.concat(bits, "  ")}`)
+			-- The purchase splash (client/Popups/Bought): every pack paid since it last showed.
+			local game = self.store.useGame
+			local shown = table.clone(game.getState().bought or {})
+			table.insert(shown, row)
+			game.setState({ bought = shown })
 		end)
 		table.insert(r.list, purchaseId)
 		r.has[purchaseId] = "pending"

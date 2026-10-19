@@ -329,6 +329,9 @@ local function node(g, r)
 			parts = parts,
 			cam = cam and { cf = { cam.CFrame:GetComponents() }, fov = cam.FieldOfView } or nil,
 			ambient = hex(g.Ambient),
+			light = hex(g.LightColor),
+			lightDir = { g.LightDirection.X, g.LightDirection.Y, g.LightDirection.Z },
+			scene = g.BackgroundTransparency < 1,
 		}
 	end
 	if g.ClipsDescendants or g:IsA("ScrollingFrame") or g:IsA("CanvasGroup") then

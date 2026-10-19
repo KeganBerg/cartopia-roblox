@@ -89,15 +89,14 @@ local function library(kind: string, id: string): Model?
 	return m
 end
 
--- Main Street's shops on their paving, facing the road, with a tree or palm in the gap after each
--- (RaceScene useStreet and StreetShops streetPieces).
--- len: the strip's length in web units.
-local function mainStreet(into: Model, len: number)
+-- Main Street's shop slots along both kerbs, to `untilZ` web units: where each sits, which
+-- side and which shop (RaceScene useStreet).
+function DragStrip.streetSlots(untilZ: number): { { z: number, side: number, def: string } }
 	local slots = {}
 	for _, side in { -1, 1 } do
 		local z = -10 + (if side > 0 then 1.5 else 0)
 		local i = if side > 0 then 3 else 0
-		while z < (DRESS / S + len) + 30 do
+		while z < untilZ do
 			local def = FALLBACK[i % #FALLBACK + 1]
 			i += 1
 			local w = data.buildingDef(def).w * data.TILE
@@ -105,24 +104,38 @@ local function mainStreet(into: Model, len: number)
 			z += w + 1.4
 		end
 	end
-	for i, sl in slots do
+	return slots
+end
+
+-- Main Street's shops on their paving, facing the road, with a tree or palm in the gap after each
+-- (RaceScene useStreet and StreetShops streetPieces). Each slot is its own model with its place
+-- along the street (web units) as its Z attribute.
+-- len: the strip's length in web units; origin: where the street starts (the strip's own).
+local function mainStreet(into: Model, len: number, origin: Vector3?)
+	local o = origin or ORIGIN
+	for i, sl in DragStrip.streetSlots((DRESS / S + len) + 30) do
 		local d = data.buildingDef(sl.def)
 		local depth = d.h * data.TILE
 		local turn = if sl.side < 0 then math.pi / 2 else -math.pi / 2
-		local at = CFrame.new(ORIGIN + Vector3.new(sl.side * (1.6 + 1.0 + depth / 2 + 0.1), 0, sl.z) * S) * CFrame.Angles(0, turn, 0)
-		part({ Name = "Paving", Size = Vector3.new(d.w * data.TILE - 0.1, 0.05, depth - 0.1) * S, CFrame = at * CFrame.new(0, 0.2, 0), Color = hex("#eadfc8"), Material = Enum.Material.Pavement }, into)
+		local slot = Instance.new("Model")
+		slot.Name = "Slot"
+		slot:SetAttribute("Z", sl.z)
+		local at = CFrame.new(o + Vector3.new(sl.side * (1.6 + 1.0 + depth / 2 + 0.1), 0, sl.z) * S) * CFrame.Angles(0, turn, 0)
+		part({ Name = "Paving", Size = Vector3.new(d.w * data.TILE - 0.1, 0.05, depth - 0.1) * S, CFrame = at * CFrame.new(0, 0.2, 0), Color = hex("#eadfc8"), Material = Enum.Material.Pavement }, slot)
 		local b = library("Buildings", sl.def)
 		if b then
 			b:PivotTo(at)
-			b.Parent = into
+			b.Parent = slot
 		end
 		local tree = library("Buildings", if (i - 1) % 3 ~= 0 then "tree" else "palm")
 		if tree then
-			tree:PivotTo(CFrame.new(ORIGIN + Vector3.new(sl.side * (1.6 + 1.0 + 0.9), 0, sl.z + d.w + 0.7) * S))
-			tree.Parent = into
+			tree:PivotTo(CFrame.new(o + Vector3.new(sl.side * (1.6 + 1.0 + 0.9), 0, sl.z + d.w + 0.7) * S))
+			tree.Parent = slot
 		end
+		slot.Parent = into
 	end
 end
+DragStrip.mainStreet = mainStreet
 
 -- The countdown bar hanging under the START banner (RaceScene StartLights): three lamps, the reds
 -- coming on with the count and all green at GO. Returns the bar and its lamps, left to right as the
@@ -207,10 +220,9 @@ local function boostTrail(parent: Instance): (BasePart, Trail)
 	return at, trail
 end
 
--- A car on the strip, with its boost trail and wheelspin smoke.
--- Returns the car, its trail's part and trail, its smoke, and how far its back bumper sits
--- behind its pivot (studs).
-local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any, x: number, parent: Instance): (Model, BasePart, Trail, ParticleEmitter, number)
+-- A car dressed as its owner has it (paint, panels, trim, hat, mods, skins), drawn 1.4 times its
+-- town size as RaceScene draws racers, at the origin facing up the strip.
+function DragStrip.carModel(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any): Model
 	local m = library("Cars", model) or Instance.new("Model")
 	Paint.apply(m, job, library("Stripes", model))
 	Panels.apply(m, model, panels, job.finish, Builder.build)
@@ -227,6 +239,14 @@ local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string 
 			d.CFrame = pivot * (rel - rel.Position + rel.Position * CAR_SCALE)
 		end
 	end
+	return m
+end
+
+-- A car on the strip, with its boost trail and wheelspin smoke.
+-- Returns the car, its trail's part and trail, its smoke, and how far its back bumper sits
+-- behind its pivot (studs).
+local function placeCar(model: string, job: Paint.Job, hat: any, mods: { string }?, panels: any, trim: any, skin: string?, modSkin: any, x: number, parent: Instance): (Model, BasePart, Trail, ParticleEmitter, number)
+	local m = DragStrip.carModel(model, job, hat, mods, panels, trim, skin, modSkin)
 	m.Parent = parent
 	local flame, trail = boostTrail(parent)
 	local smokeAt = part({ Name = "Smoke", Size = Vector3.new(1, 1, 1), Transparency = 1 }, parent)

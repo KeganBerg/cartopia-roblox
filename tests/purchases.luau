@@ -76,6 +76,18 @@ return function(test)
 		assert(towns:save(1).bucks == after.bucks, "not paid twice")
 	end)
 
+	test("purchases: the next snapshot carries the purchase splash, once", function()
+		local p, towns = setup()
+		assert(p:process(1, productOf("bag"), "r1") == "granted")
+		assert(p:process(1, productOf("handful"), "r2") == "granted")
+		local snap = towns:snapshot(1)
+		local rows = snap.popups.bought
+		assert(rows and #rows == 2 and rows[1].pack == "bag" and rows[2].pack == "handful", "both packs on the splash")
+		assert(rows[1].bucks > 0, "with what they paid")
+		assert(towns:snapshot(1).popups.bought == nil, "shown once")
+		assert(towns:save(1).bought == nil, "not in the save")
+	end)
+
 	test("purchases: a receipt saved on another server is granted without paying again", function()
 		local p, towns = setup()
 		p:load(1, { "old" })
