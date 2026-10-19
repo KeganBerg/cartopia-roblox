@@ -22,6 +22,7 @@ local Paint = require(ReplicatedStorage.Shared.Models.Paint) :: any
 local Client = script.Parent.Parent
 local Remote = require(Client.Remote)
 local Ui = require(Client.Ui)
+local SkinShop = require(Client.SkinShop)
 local Icons = require(Client.Icons)
 local Thumb = require(Client.Thumb)
 local Sfx = require(Client.Sounds.Sfx)
@@ -96,6 +97,7 @@ local function swatch(parent: Instance, css: string?, size: number, props: { [st
 	for k, v in (props or {}) :: { [string]: any } do
 		(f :: any)[k] = v
 	end
+	SkinShop.picture(f, css)
 	f.Parent = parent
 	return f
 end

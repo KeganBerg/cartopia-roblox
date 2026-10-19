@@ -19,6 +19,7 @@ local Paint = require(ReplicatedStorage.Shared.Models.Paint) :: any
 local Client = script.Parent.Parent
 local Remote = require(Client.Remote)
 local Ui = require(Client.Ui)
+local SkinShop = require(Client.SkinShop)
 local Icons = require(Client.Icons)
 local Thumb = require(Client.Thumb)
 
@@ -89,6 +90,7 @@ function Season.swatch(parent: Instance, swatch: string?, size: number, props: {
 		end
 		Ui.new("UIGradient", { Color = ColorSequence.new(keys), Rotation = 45, Parent = f })
 	end
+	SkinShop.picture(f, swatch)
 	f.Parent = parent
 	return f
 end
