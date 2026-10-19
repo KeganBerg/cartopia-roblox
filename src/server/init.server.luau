@@ -793,6 +793,35 @@ purchases = Purchases.new(towns, require(Game.store), require(Game.bucksPacks), 
 	return saveId(userId)
 end)
 
+-- Car packs' Game Passes: paid when bought in game, and when their owner joins after buying one on
+-- the game page (checkPasses). A pass whose save didn't write yet is tried again a little later.
+local GamePasses = require(ReplicatedStorage.Shared.GamePasses) :: { [string]: number }
+local function payPass(player: Player, pass: number)
+	for _ = 1, 10 do
+		if not player.Parent then
+			return
+		end
+		local ok, result = pcall(purchases.grantPass, purchases, player.UserId, pass)
+		if not ok then
+			warn(`[Cartopia] game pass {pass} for {player.Name}: {result}`)
+		elseif result ~= "later" then
+			if result == "granted" and towns:isOpen(player.UserId) then
+				push(player)
+			end
+			return
+		end
+		task.wait(30)
+	end
+end
+local function checkPasses(player: Player)
+	for _, pass in GamePasses do
+		local ok, has = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass)
+		if ok and has then
+			task.spawn(payPass, player, pass)
+		end
+	end
+end
+
 local function save(player: Player, release: boolean?)
 	saveId(player.UserId, release)
 end
@@ -878,6 +907,7 @@ Players.PlayerAdded:Connect(function(player)
 		local ref = if okJoin and type(join) == "table" then tonumber(join.ReferredByPlayerId) else nil
 		pcall(invites.arrive, invites, player.UserId, ref, newPlayer)
 		pcall(payCrewChests, player)
+		pcall(checkPasses, player)
 		while player.Parent do
 			pcall(payInvites, player)
 			task.wait(120)
@@ -1800,13 +1830,17 @@ bankRemote.OnServerInvoke = function(player: Player, op: any, id: any)
 	if op == "shop" then
 		return true, purchases:shop(player.UserId)
 	elseif op == "buy" then
-		local product, why = purchases:canBuy(player.UserId, id)
+		local product, why, kind = purchases:canBuy(player.UserId, id)
 		if not product then
 			return false, why
 		end
 		-- The town is saved first, so whatever was just earned is safe before the prompt.
 		task.spawn(save, player)
-		MarketplaceService:PromptProductPurchase(player, product)
+		if kind == "pass" then
+			MarketplaceService:PromptGamePassPurchase(player, product)
+		else
+			MarketplaceService:PromptProductPurchase(player, product)
+		end
 		return true, nil
 	end
 	return false, "unknown"
@@ -1827,6 +1861,27 @@ MarketplaceService.ProcessReceipt = function(info: any)
 	end
 	return if result == "granted" then Enum.ProductPurchaseDecision.PurchaseGranted else Enum.ProductPurchaseDecision.NotProcessedYet
 end
+
+-- A car pack's Game Pass bought in game (payPass above).
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, pass: number, bought: boolean)
+	if bought then
+		payPass(player, pass)
+	end
+end)
+-- Their prices, looked up again every few minutes like the products below.
+task.spawn(function()
+	while true do
+		local list = {}
+		for id, pass in GamePasses do
+			-- No price (off sale, or not looked up) keeps it out of the Bank; its owners are still paid.
+			local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, pass, Enum.InfoType.GamePass)
+			local robux = if ok and type(info) == "table" and info.IsForSale ~= false then info.PriceInRobux else nil
+			table.insert(list, { id = id, pass = pass, robux = robux })
+		end
+		purchases:setPasses(list)
+		task.wait(600)
+	end
+end)
 
 -- The experience's Developer Products, matched to packs by name; looked up again every few minutes
 -- so a product made while servers run goes on sale in them too.
