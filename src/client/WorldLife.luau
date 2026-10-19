@@ -600,6 +600,7 @@ function WorldLife.attach(world: Instance): (rawDt: number, eye: Vector3, me: Ve
 			c.shown = shown
 			c.model:PivotTo(shown)
 			CarDetail.lod(c.detail, (shown.Position - eye).Magnitude)
+			CarDetail.wheels(c.detail, shown, dt)
 		end
 		-- The verges near the camera, a couple of times a second.
 		nextVerge -= rawDt
