@@ -5,9 +5,9 @@
 -- pack-only cars on coloured stages, the super and hyper cars taking turns on a big stage first, one
 -- of each per account.
 --
--- Prices come from the server (server/Purchases): Roblox Developer Products, in Robux. A pack whose
--- product isn't made yet shows "Soon". Paying happens in Roblox's own prompt; the server adds the
--- pack and the menu redraws with the new gems.
+-- Prices come from the server (server/Purchases): Developer Products for gems, Game Passes for car
+-- packs, in Robux. A pack whose product or pass isn't made yet shows "Soon". Paying happens in
+-- Roblox's own prompt; the server adds the pack and the menu redraws with the new gems.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 

@@ -45,8 +45,24 @@ local function setup(crew)
 		table.insert(list, { name = pack.name, product = 1000 + i, robux = 10 * i })
 	end
 	p:setProducts(list)
+	local passes = {}
+	for i, pack in PACKS.ALL_PACKS do
+		if pack.car then
+			table.insert(passes, { id = pack.id, pass = 2000 + i, robux = 20 * i })
+		end
+	end
+	p:setPasses(passes)
 	p:load(1, {})
 	return p, towns, disk
+end
+
+local function passOf(id)
+	for i, pack in PACKS.ALL_PACKS do
+		if pack.id == id then
+			return 2000 + i
+		end
+	end
+	error(id)
 end
 
 local function productOf(id)
@@ -98,10 +114,14 @@ return function(test)
 		assert(towns:save(1).bucks == mid and disk.receipts[1] == "r2", "saved once")
 	end)
 
-	test("purchases: a car pack brings its car and gems, and is one per account", function()
-		local p, towns = setup()
-		assert(p:canBuy(1, "car-scatto") == productOf("car-scatto"), "on sale")
-		assert(p:process(1, productOf("car-scatto"), "r3") == "granted")
+	test("purchases: a car pack is a Game Pass that brings its car and gems once", function()
+		local p, towns, disk = setup()
+		local id, why, kind = p:canBuy(1, "car-scatto")
+		assert(id == passOf("car-scatto") and why == nil and kind == "pass", "sold as its pass")
+		assert(select(3, p:canBuy(1, "bag")) == "product", "gem packs stay products")
+		assert(p:shop(1).packs["car-scatto"].robux ~= nil, "pass price shown")
+		local gems = towns:save(1).bucks
+		assert(p:grantPass(1, passOf("car-scatto")) == "granted")
 		local save = towns:save(1)
 		local car
 		for _, c in save.cars do
@@ -110,12 +130,52 @@ return function(test)
 			end
 		end
 		assert(car and car.uid == "pk-1", "car in the garage")
-		local none, why = p:canBuy(1, "car-scatto")
-		assert(none == nil and why == "owned", tostring(why))
+		assert(save.bucks == gems + 400, "and its gems")
+		assert(table.find(disk.receipts, "pass:car-scatto"), "saved with its receipt")
+		local none, why2 = p:canBuy(1, "car-scatto")
+		assert(none == nil and why2 == "owned", tostring(why2))
 		assert(p:shop(1).packs["car-scatto"].owned == true, "shop says owned")
-		-- A second copy that got through anyway pays its gems but no second car.
-		local gems = save.bucks
-		assert(p:process(1, productOf("car-scatto"), "r4") == "granted")
+		-- Seen again (rejoining, or the prompt's finish and the join check both): not paid twice.
+		assert(p:grantPass(1, passOf("car-scatto")) == "granted")
+		assert(towns:save(1).bucks == save.bucks, "not paid twice")
+		assert(p:grantPass(1, 42) == "unknown", "not a car pack's pass")
+	end)
+
+	test("purchases: a pass bought on the game page pays on joining a server, once", function()
+		local p, towns = setup()
+		p:load(1, { "pass:car-sora" })
+		local gems = towns:save(1).bucks
+		assert(p:grantPass(1, passOf("car-sora")) == "granted", "already paid on another server")
+		assert(towns:save(1).bucks == gems, "not paid again")
+		assert(p:grantPass(2, passOf("car-sora")) == "later", "no town loaded yet")
+	end)
+
+	test("purchases: a pass's receipt is kept however many purchases come after it", function()
+		local p = setup()
+		assert(p:grantPass(1, passOf("car-scatto")) == "granted")
+		for i = 1, Purchases.KEEP + 5 do
+			p:process(1, productOf("handful"), `r{i}`)
+		end
+		local list = p:toSave(1)
+		assert(#list == Purchases.KEEP + 1 and list[1] == "pass:car-scatto", `{#list} {list[1]}`)
+	end)
+
+	test("purchases: a pass off sale isn't sold but still pays its owner", function()
+		local p, towns = setup()
+		p:setPasses({ { id = "car-scatto", pass = passOf("car-scatto") } })
+		assert(select(2, p:canBuy(1, "car-scatto")) == "soon", "not on sale")
+		assert(select(2, p:canBuy(1, "car-sora")) == "soon", "no pass yet")
+		local gems = towns:save(1).bucks
+		assert(p:grantPass(1, passOf("car-scatto")) == "granted", "owner paid")
+		assert(towns:save(1).bucks == gems + 400)
+	end)
+
+	test("purchases: a car pack bought as a Developer Product still pays, one car per account", function()
+		local p, towns = setup()
+		assert(p:process(1, productOf("car-scatto"), "r3") == "granted")
+		local gems = towns:save(1).bucks
+		-- Its pass later too: gems only, no second car.
+		assert(p:grantPass(1, passOf("car-scatto")) == "granted")
 		local n = 0
 		for _, c in towns:save(1).cars do
 			if c.model == "scatto" then

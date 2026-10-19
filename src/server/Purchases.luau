@@ -1,10 +1,14 @@
 --!strict
--- Robux purchases: the web game's gem packs and car packs (Shared.Game.bucksPacks), sold as
--- Developer Products.
+-- Robux purchases: the web game's gem packs and car packs (Shared.Game.bucksPacks). Gem packs are
+-- Developer Products; car packs are Game Passes, so they show in the game page's Store row and can
+-- be bought there too.
 --
--- Each pack is a Developer Product named exactly like the pack ("Bag of Gems", "Scatto Pack"), made
--- by tools/products/sync.mjs. The server finds their ids by name when it starts (setProducts), so
--- no product id lives in the code, and a pack whose product doesn't exist yet just isn't on sale.
+-- Each gem pack is a Developer Product named exactly like the pack ("Bag of Gems"), made by
+-- tools/products/sync.mjs. The server finds their ids by name when it starts (setProducts), so no
+-- product id lives in the code, and a pack whose product doesn't exist yet just isn't on sale. Car
+-- packs' Game Passes are made by the same script, which writes their ids to Shared.GamePasses
+-- (setPasses). A pass is paid once: when it's bought in game, or when its owner joins after buying
+-- it on the game page. Its receipt is "pass:<pack id>", kept with the save for good.
 --
 -- A paid pack goes through the web store's own applyPurchases, with the row the web's Stripe webhook
 -- would have written: the next purchase number, the pack's gems, and coins and parts for the buyer's
@@ -34,6 +38,9 @@ export type Purchases = typeof(setmetatable(
 		-- pack id -> { product, robux }, from setProducts; product id -> pack id.
 		products: { [string]: { product: number, robux: number? } },
 		byProduct: { [number]: string },
+		-- car pack id -> { pass, robux }, from setPasses; pass id -> pack id.
+		passes: { [string]: { pass: number, robux: number? } },
+		byPass: { [number]: string },
 		receipts: { [number]: { list: { string }, has: { [string]: "saved" | "pending" } } },
 	},
 	Purchases
@@ -49,6 +56,8 @@ function Purchases.new(towns: any, store: any, packs: any, write: (number) -> bo
 		write = write,
 		products = {},
 		byProduct = {},
+		passes = {},
+		byPass = {},
 		receipts = {},
 	}, Purchases)
 end
@@ -85,6 +94,24 @@ function Purchases.setProducts(self: Purchases, list: { { name: string, product:
 	end
 end
 
+-- The car packs' Game Passes, as { { id = pack id, pass, robux } } (Shared.GamePasses and their
+-- prices; robux nil for one off sale, which isn't sold but still pays its owners). Gem packs aren't
+-- sold as passes.
+function Purchases.setPasses(self: Purchases, list: { { id: string, pass: number, robux: number? } })
+	self.passes, self.byPass = {}, {}
+	for _, d in list do
+		local p = self:pack(d.id)
+		if p and p.car then
+			self.passes[d.id] = { pass = d.pass, robux = d.robux }
+			self.byPass[d.pass] = d.id
+		end
+	end
+end
+
+local function passReceipt(id: string): string
+	return `pass:{id}`
+end
+
 -- What a player's receipts start as: the ones saved with their town.
 function Purchases.load(self: Purchases, userId: number, saved: { string }?)
 	local r: { list: { string }, has: { [string]: "saved" | "pending" } } = { list = {}, has = {} }
@@ -97,14 +124,21 @@ function Purchases.load(self: Purchases, userId: number, saved: { string }?)
 	self.receipts[userId] = r
 end
 
--- The receipts to write with the town's next save (the newest KEEP).
+-- The receipts to write with the town's next save: the newest KEEP, and every pass's (a pass is
+-- owned for good, so its receipt must never drop off).
 function Purchases.toSave(self: Purchases, userId: number): { string }?
 	local r = self.receipts[userId]
 	if not r then
 		return nil
 	end
 	local from = math.max(1, #r.list - Purchases.KEEP + 1)
-	return table.move(r.list, from, #r.list, 1, {})
+	local out = {}
+	for i = 1, from - 1 do
+		if r.list[i]:sub(1, 5) == "pass:" then
+			table.insert(out, r.list[i])
+		end
+	end
+	return table.move(r.list, from, #r.list, #out + 1, out)
 end
 
 -- After a save wrote: the receipts written with it (toSave's list) are saved now.
@@ -153,31 +187,89 @@ function Purchases.shop(self: Purchases, userId: number): { open: boolean, packs
 	local save = self.towns:save(userId)
 	local packs = {}
 	for _, p in self.packs.ALL_PACKS do
-		local d = self.products[p.id]
+		local d = if p.car then self.passes[p.id] else self.products[p.id]
 		packs[p.id] = { robux = d and d.robux, owned = if p.car then owns(save, p.car) else nil }
 	end
 	return { open = Purchases.hasCrewHouse(save), packs = packs }
 end
 
--- Whether a player may buy a pack now: the product id to prompt, or nil and why ("unknown", "soon"
--- for a pack whose product isn't made yet, "crew", "owned").
-function Purchases.canBuy(self: Purchases, userId: number, id: any): (number?, string?)
+-- Whether a player may buy a pack now: the id to prompt and whether it's a "product" or a "pass",
+-- or nil and why ("unknown", "soon" for a pack whose product or pass isn't made yet, "crew",
+-- "owned").
+function Purchases.canBuy(self: Purchases, userId: number, id: any): (number?, string?, ("product" | "pass")?)
 	local p = if type(id) == "string" then self:pack(id) else nil
 	if not p or not table.find(self.packs.ALL_PACKS, p) then
 		return nil, "unknown"
 	end
+	local pass = if p.car then self.passes[p.id] else nil
 	local d = self.products[p.id]
-	if not d then
+	if not (if p.car then pass and pass.robux else d) then
 		return nil, "soon"
 	end
 	local save = self.towns:save(userId)
 	if not Purchases.hasCrewHouse(save) then
 		return nil, "crew"
 	end
-	if p.car and owns(save, p.car) then
+	local r = self.receipts[userId]
+	if p.car and (owns(save, p.car) or (r and r.has[passReceipt(p.id)])) then
 		return nil, "owned"
 	end
-	return d.product, nil
+	if pass then
+		return pass.pass, nil, "pass"
+	end
+	return d.product, nil, "product"
+end
+
+-- Pays one pack into the player's town and notes its receipt as pending its save.
+local function grant(self: Purchases, userId: number, p: any, receipt: string)
+	local packs = self.packs
+	self.towns:_with(userId, function(s)
+		local g = packs.packGrant(p, s.level)
+		local row: any = { seq = (s.purchases or 0) + 1, pack = p.id, bucks = g.bucks, coins = g.coins, parts = g.parts }
+		-- One of each car per account: a second copy (bought from two servers at once) pays its gems only.
+		if p.car and not owns(s, p.car) then
+			row.car = p.car
+		end
+		s.applyPurchases({ row })
+		local get = self.store.useGame.getState
+		local bits = { `💎 +{g.bucks}` }
+		if g.coins > 0 then
+			table.insert(bits, `$ +{g.coins}`)
+		end
+		if g.parts > 0 then
+			table.insert(bits, `⚙ +{g.parts}`)
+		end
+		if row.car then
+			table.insert(bits, "🚗 new car in your garage")
+		end
+		get().toast(`Thanks! {table.concat(bits, "  ")}`)
+	end)
+	local r = self.receipts[userId]
+	table.insert(r.list, receipt)
+	r.has[receipt] = "pending"
+end
+
+-- A Game Pass the player owns (just bought in game, or found when they join): pays its car pack
+-- the first time. "granted" once that's in their saved town, "later" when it can't be yet (call
+-- again, as a join or the next save does), "unknown" for a pass that isn't a car pack's.
+function Purchases.grantPass(self: Purchases, userId: number, passId: number): "granted" | "later" | "unknown"
+	local id = self.byPass[passId]
+	local p = id and self:pack(id)
+	if not p then
+		return "unknown"
+	end
+	local r = self.receipts[userId]
+	if not r or not self.towns:isOpen(userId) then
+		return "later"
+	end
+	local receipt = passReceipt(p.id)
+	if r.has[receipt] == nil then
+		grant(self, userId, p, receipt)
+	end
+	if r.has[receipt] == "pending" then
+		self.write(userId)
+	end
+	return if r.has[receipt] == "saved" then "granted" else "later"
 end
 
 -- Handles one receipt. Returns "granted" once the pack is in the player's saved town, or "later"
@@ -198,30 +290,7 @@ function Purchases.process(self: Purchases, userId: number, productId: number, p
 			say(`[Cartopia] receipt {purchaseId}: product {productId} isn't a pack`)
 			return "later"
 		end
-		local packs = self.packs
-		self.towns:_with(userId, function(s)
-			local grant = packs.packGrant(p, s.level)
-			local row: any = { seq = (s.purchases or 0) + 1, pack = p.id, bucks = grant.bucks, coins = grant.coins, parts = grant.parts }
-			-- One of each car per account: a second copy (bought from two servers at once) pays its gems only.
-			if p.car and not owns(s, p.car) then
-				row.car = p.car
-			end
-			s.applyPurchases({ row })
-			local get = self.store.useGame.getState
-			local bits = { `💎 +{grant.bucks}` }
-			if grant.coins > 0 then
-				table.insert(bits, `$ +{grant.coins}`)
-			end
-			if grant.parts > 0 then
-				table.insert(bits, `⚙ +{grant.parts}`)
-			end
-			if row.car then
-				table.insert(bits, "🚗 new car in your garage")
-			end
-			get().toast(`Thanks! {table.concat(bits, "  ")}`)
-		end)
-		table.insert(r.list, purchaseId)
-		r.has[purchaseId] = "pending"
+		grant(self, userId, p, purchaseId)
 	end
 	self.write(userId)
 	return if r.has[purchaseId] == "saved" then "granted" else "later"
