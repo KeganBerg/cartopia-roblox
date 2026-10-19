@@ -722,17 +722,44 @@ const num = (x) => {
 }
 const str = (s) => JSON.stringify(s)
 
-// Meshes are uploaded one pack per model (the model that first draws them), as a .glb.
+// Meshes are uploaded as .glb packs. A car's mods (loaded when it needs them), the far land and the
+// race venues (loaded later) keep a pack per model; everything else a new server loads at once is
+// shared out into a few bigger packs per kind (buildings and cars, stripes, hats, ...), since each
+// pack is a separate load and hundreds of small ones kept a new server's first players waiting.
+// A model always lands in the same pack (picked by a hash of its name), so changing one model
+// uploads only its own pack again.
+const PACK_AIM = 40000 // triangles a shared pack is sized for
+const ownPack = (owner) => /^(mod|horizon|race):/.test(owner)
 export function packs(meshes) {
   const byOwner = new Map()
   for (const m of meshes.values()) {
     if (!byOwner.has(m.owner)) byOwner.set(m.owner, [])
     byOwner.get(m.owner).push(m)
   }
-  const out = []
+  const trisOf = (list) => list.reduce((n, m) => n + m.idx.length / 3, 0)
+  // The kind of a model: what its name starts with ("stripe:hotshot" -> stripe), or "model".
+  const kindOf = (owner) => (owner.includes(':') ? owner.split(':')[0] : 'model')
+  const kindTris = new Map()
   for (const [owner, all] of byOwner) {
+    if (!ownPack(owner)) kindTris.set(kindOf(owner), (kindTris.get(kindOf(owner)) ?? 0) + trisOf(all))
+  }
+  const groups = new Map()
+  for (const [owner, all] of byOwner) {
+    let group = owner
+    // (Big models, the countryside's, fill packs of their own.)
+    if (!ownPack(owner) && trisOf(all) < PACK_AIM / 2) {
+      const kind = kindOf(owner)
+      const count = Math.max(1, Math.ceil(kindTris.get(kind) / PACK_AIM))
+      const pick = parseInt(createHash('sha1').update(owner).digest('hex').slice(0, 8), 16) % count
+      group = `${kind}-${pick + 1}`
+    }
+    if (!groups.has(group)) groups.set(group, [])
+    groups.get(group).push(...all)
+  }
+  const out = []
+  for (const [owner, all] of groups) {
     all.sort((a, b) => (a.key < b.key ? -1 : 1))
-    // Big owners (the countryside) are split so no upload gets too large.
+    // Big ones are split so no upload gets too large.
     let list = [], tris = 0
     const flush = () => {
       if (!list.length) return

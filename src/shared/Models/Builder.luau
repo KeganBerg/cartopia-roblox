@@ -113,17 +113,19 @@ local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert
 	end
 end
 
--- Loads every uploaded mesh pack (server only: InsertService). Waits for all of them, up to
--- timeout seconds, calling progress(done, total) as each one finishes. Safe to call more than once.
--- The packs only the race venues use (RaceScenery), found once: nobody sees them until a race
--- starts, so a new server doesn't hold its first players up for them (Builder.loadRaces).
-local racePacks: { [number]: boolean }? = nil
-local function raceOnly(): { [number]: boolean }
-	if racePacks then
-		return racePacks
+-- The packs only the race venues (RaceScenery) and Rusty's rescue lot ("rescue:" models) use,
+-- found once: nobody sees them until a race starts or they go searching, so a new server doesn't
+-- hold its first players up for them (Builder.loadVenues).
+local venuePacks: { [number]: boolean }? = nil
+local function venueOnly(): { [number]: boolean }
+	if venuePacks then
+		return venuePacks
 	end
-	local function assetsOf(list: { [string]: { any } }, into: { [number]: boolean })
-		for _, parts in list do
+	local function assetsOf(list: { [string]: { any } }, into: { [number]: boolean }, rescue: boolean?)
+		for name, parts in list do
+			if rescue ~= nil and (string.sub(name, 1, 7) == "rescue:") ~= rescue then
+				continue
+			end
 			for _, p in parts do
 				local m = p[1] == "m" and Meshes.MESHES[p[13]]
 				if m and m.asset ~= 0 then
@@ -133,24 +135,28 @@ local function raceOnly(): { [number]: boolean }
 		end
 	end
 	local elsewhere: { [number]: boolean } = {}
-	assetsOf(Catalog.MODELS, elsewhere)
+	assetsOf(Catalog.MODELS, elsewhere, false)
 	assetsOf(Scenery.MODELS, elsewhere)
 	local set: { [number]: boolean } = {}
 	assetsOf(RaceScenery.MODELS, set)
+	assetsOf(Catalog.MODELS, set, true)
 	for asset in elsewhere do
 		set[asset] = nil
 	end
-	racePacks = set
+	venuePacks = set
 	return set
 end
 
+-- Loads every uploaded mesh pack (server only: InsertService). Waits for all of them, up to
+-- timeout seconds, calling progress(done, total) as each one finishes. Safe to call more than once.
 function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: number) -> ())?)
 	local byAsset: { [number]: boolean } = {}
-	local races = raceOnly()
+	local venues = venueOnly()
 	for _, m in Meshes.MESHES do
-		-- A car's mod pack waits until that car needs it (Builder.loadFor), the race venues until
-		-- the rest is in (Builder.loadRaces), and the far land behind them (Builder.loadLate).
-		if m.asset ~= 0 and not (m :: any).lazy and not (m :: any).late and not races[m.asset] then
+		-- A car's mod pack waits until that car needs it (Builder.loadFor), the race venues and the
+		-- rescue lot until the rest is in (Builder.loadVenues), and the far land behind them
+		-- (Builder.loadLate).
+		if m.asset ~= 0 and not (m :: any).lazy and not (m :: any).late and not venues[m.asset] then
 			byAsset[m.asset] = true
 		end
 	end
@@ -190,11 +196,12 @@ function Builder.loadMeshes(timeout: number?, progress: ((done: number, total: n
 	end
 end
 
--- Loads the race venues' own mesh packs (server only), after Builder.loadMeshes, waiting up to
--- timeout seconds for them. A race started before they're in fills in as they arrive.
-function Builder.loadRaces(timeout: number?)
+-- Loads the race venues' and the rescue lot's own mesh packs (server only), after
+-- Builder.loadMeshes, waiting up to timeout seconds for them. One opened before they're in fills
+-- in as they arrive.
+function Builder.loadVenues(timeout: number?)
 	local list = {}
-	for asset in raceOnly() do
+	for asset in venueOnly() do
 		if not packState[asset] then
 			table.insert(list, asset)
 		end
