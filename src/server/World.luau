@@ -362,6 +362,9 @@ function World.setOwner(root: Instance, i: number, userId: number?, name: string
 		if p:IsA("BasePart") then
 			p.Transparency = if userId then 1 else 0
 			p.CanCollide = userId == nil and p.Name ~= "Pad"
+		elseif p:IsA("SurfaceGui") then
+			-- A see-through part still shows its SurfaceGui: the FREE PLOT words go too.
+			p.Enabled = userId == nil
 		end
 	end
 end
