@@ -96,6 +96,7 @@ type Life = {
 	spots: { { number } },
 	bouncer: Figure,
 	beams: { { holder: Part, beam: Beam } },
+	closed: { SurfaceGui },
 	shown: boolean,
 	heading: number,
 	look: number,
@@ -120,7 +121,8 @@ local function newLife(m: Model, frame: CFrame, lvl: number, parent: Instance): 
 		local c, r = (i - 1) % cols, (i - 1) // cols
 		local jx, jz = math.sin((i - 1) * 12.9898) * 0.12, math.cos((i - 1) * 78.233) * 0.08
 		spots[i] = { ((c + 0.5) / cols - 0.5) * floor.w * 0.8 + jx, floor.z + ((r + 0.5) / rows - 0.5) * floor.d * 0.6 + jz }
-		local p = TownLife.person(`{m.Name}:dancer{i}`, "", { 0, 0 })
+		-- The number first, so each dancer's look differs (a last letter apart hashes alike).
+		local p = TownLife.person(`dancer{i}:{m.Name}`, "", { 0, 0 })
 		p.type = "walker"
 		p.colors.shirt = SHIRTS[(i - 1) % #SHIRTS + 1]
 		p.colors.pants = PANTS[(i - 1) % #PANTS + 1]
@@ -159,6 +161,16 @@ local function newLife(m: Model, frame: CFrame, lvl: number, parent: Instance): 
 		beam.Parent = holder
 		beams[k] = { holder = holder, beam = beam }
 	end
+	-- The CLOSED plaque on the door: only shown by day (NewBuildings.tsx clubSignMats).
+	local closed = {}
+	for _, d in m:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "CLOSED" then
+			local gui = d:FindFirstAncestorWhichIsA("SurfaceGui")
+			if gui then
+				table.insert(closed, gui)
+			end
+		end
+	end
 	return {
 		model = folder,
 		frame = frame,
@@ -168,6 +180,7 @@ local function newLife(m: Model, frame: CFrame, lvl: number, parent: Instance): 
 		spots = spots,
 		bouncer = bouncer,
 		beams = beams,
+		closed = closed,
 		shown = true,
 		heading = FACE.idle,
 		look = 0,
@@ -329,6 +342,12 @@ function ClubLife.attach(town: Folder, parent: Instance?): (() -> (), (dt: numbe
 		local cfs: { CFrame } = {}
 		for _, have in lives do
 			local life = have.life
+			-- The CLOSED plaque, near or far.
+			for _, gui in life.closed do
+				if gui.Enabled ~= (night < 0.5) then
+					gui.Enabled = night < 0.5
+				end
+			end
 			if eye and (eye - life.frame.Position).Magnitude > FAR and not life.shown then
 				continue
 			end
