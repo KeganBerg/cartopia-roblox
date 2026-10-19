@@ -7,6 +7,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
 
 local Game = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Game")
 local store = require(Game.store) :: any
@@ -198,7 +199,22 @@ function Cars.open(ctx: any, tab: any): Instance
 	})
 	Ui.new("Frame", { Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 1, -3), BorderSizePixel = 0, BackgroundColor3 = LINE, ZIndex = 6, Parent = head })
 	Ui.new("Frame", { BorderSizePixel = 0, BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.65, Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, 0, 0, 3), ZIndex = 6, Parent = head })
-	Ui.text({ Name = "Title", Text = "Cars", TextSize = 32, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(18, 6), Size = UDim2.fromOffset(300, 47), Stroke = 3, Shadow = 4, ZIndex = 6, Parent = head })
+	local title = Ui.text({ Name = "Title", Text = "Cars", TextSize = 32, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(18, 6), Size = UDim2.fromOffset(300, 47), Stroke = 3, Shadow = 4, ZIndex = 6, Parent = head })
+	-- Roblox's own buttons (menu, chat) sit over the bar's left end: the title starts after them.
+	local function clearTopbar()
+		local ok, inset = pcall(function()
+			return GuiService.TopbarInset
+		end)
+		local hudScale = (ctx.gui :: Instance):FindFirstChildOfClass("UIScale")
+		local k = if hudScale then hudScale.Scale else 1
+		local left = if ok and inset and inset.Height > 0 then inset.Min.X / k + 6 else 0
+		title.Position = UDim2.fromOffset(math.max(18, left), 6)
+	end
+	clearTopbar()
+	local topbarChanged = GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(clearTopbar)
+	overlay.Destroying:Connect(function()
+		topbarChanged:Disconnect()
+	end)
 	Ui.closeButton({ Name = "Close", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(42, 42), ZIndex = 6, Parent = head }, ctx.close)
 	local extras = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -66, 0.5, -1), Size = UDim2.fromOffset(240, 34), BackgroundTransparency = 1, ZIndex = 6, Parent = head }, {
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder }),

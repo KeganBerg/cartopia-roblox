@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Images = require(ReplicatedFirst:WaitForChild("Loading"):WaitForChild("SplashImages")) :: any
 local Catalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"):WaitForChild("Catalog")) :: any
 local CallCardLooks = require(ReplicatedStorage.Shared:WaitForChild("CallCardLooks")) :: any
+local IconImages = require(ReplicatedStorage.Shared:WaitForChild("IconImages")) :: any
 local Pictures = require(script.Parent.Pictures)
 
 local Splash = {}
@@ -47,6 +48,8 @@ function Splash.start()
 			end
 		end
 	end
+	-- The HUD's coin, gem and parts icons, on screen as soon as the town is.
+	resolve(IconImages.sheet)
 	-- Then every texture: the ground's first, as each town is drawn on it.
 	local textures = Catalog.TEXTURES or {}
 	for _, key in { "grass", "meadow" } do

@@ -3,6 +3,9 @@
 -- same at any size: white glyphs on the coloured buttons, the coin and fuel can in full colour.
 -- Built once with the screen; nothing here runs per frame.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Pictures = require(ReplicatedStorage.Shared.Pictures)
+
 local Icons = {}
 
 local LINE = Color3.fromHex("#14213d")
@@ -314,6 +317,40 @@ function Icons.draw(name: string, parent: Instance, size: number, color: Color3?
 	end
 	holder.Parent = parent
 	return holder
+end
+
+-- A currency icon ("coin", "bucks", "parts" or "fuel"), size pixels square: the web's own vector
+-- art, baked into one picture by tools/icons/build.mjs, so it stays smooth at any size. Until that
+-- picture is uploaded, the coin is drawn with frames and the rest are emoji.
+local EMOJI = { bucks = "💎", parts = "⚙️", fuel = "⛽" }
+function Icons.currency(kind: string, parent: Instance, size: number): GuiObject
+	local IconImages = require(ReplicatedStorage.Shared.IconImages) :: any
+	local at = IconImages.at[kind]
+	if IconImages.sheet ~= 0 and at then
+		local img = Instance.new("ImageLabel")
+		img.Name = "Icon"
+		img.BackgroundTransparency = 1
+		img.Size = UDim2.fromOffset(size, size)
+		img.ImageRectOffset = at
+		img.ImageRectSize = Vector2.new(IconImages.size, IconImages.size)
+		img.ResampleMode = Enum.ResamplerMode.Default
+		Pictures.set(img, "Image", IconImages.sheet)
+		-- For the previews (tools/emulate/render.mjs finds the sheet by this).
+		img:SetAttribute("Key", "icons:icons")
+		img.Parent = parent
+		return img
+	end
+	if kind == "coin" then
+		return Icons.draw("coin", parent, size)
+	end
+	local t = Instance.new("TextLabel")
+	t.Name = "Icon"
+	t.BackgroundTransparency = 1
+	t.Size = UDim2.fromOffset(size, size)
+	t.Text = EMOJI[kind] or ""
+	t.TextSize = math.floor(size * 0.8)
+	t.Parent = parent
+	return t
 end
 
 -- Recolours an icon drawn by Icons.draw (a tab turning on, a muted speaker): glyph parts only.

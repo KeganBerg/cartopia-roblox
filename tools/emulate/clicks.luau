@@ -304,6 +304,10 @@ if SHOTS and require("@lune/fs").isFile("build/callcards/list.json") then
 		looks.sheets[i] = i
 	end
 end
+-- And the HUD's currency icons from build/icons (tools/icons/build.mjs), the same way.
+if SHOTS and require("@lune/fs").isFile("build/icons/list.json") then
+	emu.require(RS.Shared.IconImages).sheet = 1
+end
 if SHOTS then
 	local Builder = emu.require(RS.Shared.Models.Builder)
 	Builder.previewMeshes = true
@@ -1046,6 +1050,27 @@ do
 	local walkButton = walkShadow and (if walkShadow:IsA("GuiButton") then walkShadow else walkShadow:FindFirstChildWhichIsA("GuiButton", true))
 	assert(walkButton, "no Walk button")
 	shot("hud", nil)
+	-- MENU_SHOTS=1: just the HUD and a few menus (Deals, Star Pass, the garage), then stop.
+	if process.env.MENU_SHOTS then
+		local data = emu.require(RS.Shared.Game.data)
+		towns:_with(1, function()
+			store.useGame.setState({ coins = 4215, bucks = 145, parts = 35, deals = { day = "2000-01-01", used = {} }, season = { n = data.seasonNumber(NOW), stars = 45, claimed = { 0, 1 } } })
+		end)
+		signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+		-- The coin, gem and parts pills, whatever this point of the run hides.
+		local left = hud.gui:FindFirstChild("Left", true)
+		if left then
+			left.Visible = true
+		end
+		shot("m-hud", nil)
+		for _, p in { "deals", "season", "cars" } do
+			hud.ctx.close()
+			hud.openPanel(p)
+			shot(`m-{p}`, nil)
+		end
+		hud.ctx.close()
+		process.exit(0)
+	end
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Custom, "walking didn't hand the camera to the avatar")
 	-- Their town on a plot out in the shared world (a stand-in folder, as TownView marks it).

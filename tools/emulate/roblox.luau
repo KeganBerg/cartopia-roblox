@@ -327,7 +327,7 @@ function Emu.load(placeFile: string)
 		e.Instance = setmetatable({
 			new = function(class, parent)
 				local inst = roblox.Instance.new(class)
-				if inst:IsA("GuiObject") then
+				if inst:IsA("GuiBase2d") then
 					inst.AbsoluteSize = roblox.Vector2.new(0, 0)
 					inst.AbsolutePosition = roblox.Vector2.new(0, 0)
 				end
