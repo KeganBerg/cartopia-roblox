@@ -1358,7 +1358,8 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 	local carsFolder = town:WaitForChild("Cars")
 
 	-- The player's cars' pieces, for showing the small ones only up close (client/CarDetail).
-	local serverDetails: { [Model]: CarDetail.Detail } = setmetatable({}, { __mode = "k" }) :: any
+	-- By uid (a new model under the same uid, after the server draws it again, is tracked afresh).
+	local serverDetails: { [string]: CarDetail.Detail } = {}
 	local peopleFolder = Instance.new("Folder")
 	peopleFolder.Name = "Townspeople"
 	peopleFolder.Parent = workspace
@@ -1558,10 +1559,10 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 			local at = origin + Vector3.new(a.x * S, 0.02 * S, a.z * S)
 			m:PivotTo(CFrame.new(at) * CFrame.Angles(0, a.yaw, 0) * CFrame.Angles(0, 0, tilt))
 			-- The player's own cars, from the server: tracked here, for their wheels.
-			local d = serverDetails[m]
-			if not d then
+			local d = serverDetails[m.Name]
+			if not d or d.model ~= m then
 				d = CarDetail.track(m)
-				serverDetails[m] = d
+				serverDetails[m.Name] = d
 			end
 			if d and eyeAt then
 				CarDetail.lod(d, (at - eyeAt).Magnitude)

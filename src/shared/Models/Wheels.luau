@@ -40,8 +40,10 @@ export type Rig = {
 
 -- Builds a rig for a car model. `frame` is what part positions are measured from (the model's
 -- pivot by default); `list` is the parts the rig indexes into (the model's own by default, or a
--- caller's list whose CFrames it fills in). Returns nil for a car with no wheels in Catalog.
-function Wheels.rig(model: Model, carId: string?, frame: CFrame?, list: { BasePart }?): Rig?
+-- caller's list whose CFrames it fills in). `restOf(i)`, if given, is where part i sits with the
+-- wheels straight (otherwise where it is now), so a car rigged again mid-turn doesn't keep the turn.
+-- Returns nil for a car with no wheels in Catalog.
+function Wheels.rig(model: Model, carId: string?, frame: CFrame?, list: { BasePart }?, restOf: ((number) -> CFrame)?): Rig?
 	local ids = carId and WHEELS[carId]
 	if not ids then
 		return nil
@@ -54,6 +56,9 @@ function Wheels.rig(model: Model, carId: string?, frame: CFrame?, list: { BasePa
 				table.insert(parts, d)
 			end
 		end
+	end
+	local function cfOf(i: number): CFrame
+		return if restOf then restOf(i) else parts[i].CFrame
 	end
 	-- The named wheel parts, by corner.
 	local byKey: { [string]: any } = {}
@@ -68,7 +73,7 @@ function Wheels.rig(model: Model, carId: string?, frame: CFrame?, list: { BasePa
 			continue
 		end
 		local wp = w :: BasePart
-		local p = f:PointToObjectSpace(wp.CFrame.Position)
+		local p = f:PointToObjectSpace(cfOf(i).Position)
 		local key = `{if p.X > 0 then 1 else -1},{if p.Z > 0 then 1 else -1}`
 		local c = byKey[key]
 		if not c then
@@ -77,7 +82,7 @@ function Wheels.rig(model: Model, carId: string?, frame: CFrame?, list: { BasePa
 			table.insert(corners, c)
 		end
 		table.insert(c.index, i)
-		table.insert(c.rel, f:ToObjectSpace(wp.CFrame))
+		table.insert(c.rel, f:ToObjectSpace(cfOf(i)))
 		c.sum += p
 		c.n += 1
 		taken[i] = true
@@ -94,12 +99,12 @@ function Wheels.rig(model: Model, carId: string?, frame: CFrame?, list: { BasePa
 		if taken[i] or math.max(p.Size.X, p.Size.Y, p.Size.Z) > radius * 2.1 then
 			continue
 		end
-		local q = f:PointToObjectSpace(p.CFrame.Position)
+		local q = f:PointToObjectSpace(cfOf(i).Position)
 		for _, c in corners do
 			local d = q - c.centre
 			if math.abs(d.X) < 1.5 and Vector2.new(d.Y, d.Z).Magnitude < radius * 0.6 then
 				table.insert(c.index, i)
-				table.insert(c.rel, f:ToObjectSpace(p.CFrame))
+				table.insert(c.rel, f:ToObjectSpace(cfOf(i)))
 				break
 			end
 		end
@@ -179,8 +184,11 @@ function Wheels.follow(r: Rig, model: Model, pivot: CFrame, dt: number)
 	local list: { CFrame } = {}
 	Wheels.into(r, pivot, cfs)
 	for i, cf in cfs do
-		table.insert(moved, r.parts[i])
-		table.insert(list, cf)
+		local p = r.parts[i]
+		if p.Parent then
+			table.insert(moved, p)
+			table.insert(list, cf)
+		end
 	end
 	workspace:BulkMoveTo(moved, list, Enum.BulkMoveMode.FireCFrameChanged)
 end
