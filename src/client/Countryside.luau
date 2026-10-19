@@ -194,6 +194,14 @@ function Countryside.draw(origin: Vector3, parent: Instance): (save: any) -> ()
 				elseif not owned[k] and not plots[k] then
 					local m = Builder.build(`wilds:{k}`)
 					if m then
+						-- Its long grass and stones reach down into the ground; like the lawn's
+						-- tufts they cast no shadow: thousands of thin blades in the shadow map
+						-- drew dark, blocky smears over the meadow that crawled as the camera moved.
+						for _, d in m:GetDescendants() do
+							if d:IsA("BasePart") and d.CFrame.Y - d.Size.Y / 2 < -0.5 then
+								d.CastShadow = false
+							end
+						end
 						m:PivotTo(CFrame.new(origin))
 						m.Parent = wilds
 						plots[k] = m

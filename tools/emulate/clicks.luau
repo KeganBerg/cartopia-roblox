@@ -3068,7 +3068,13 @@ do
 	for _ = 1, 4 do
 		Emu.resumeWaits()
 	end
-	hud.ctx.close()
+	-- Closing the welcome opens the Daily Spin when today's isn't spun (SHOTS' phone wheel picture
+	-- unspins it). Lune's Destroy fires no Destroying, so take the shop down as Roblox would, or its
+	-- room light (DayNight.raceFog) stays on and the town's weather stands down.
+	if player.PlayerGui:FindFirstChild("DailySpin") then
+		wheelOpened()
+	end
+	closeWheel()
 	print(`pop-ups: {bad} problems`)
 end
 
@@ -3531,6 +3537,8 @@ do
 	local TownView = emu.require(SSS.Server.TownView)
 	local DayNight = emu.require(client.DayNight)
 	local TownWeather = emu.require(client.TownWeather)
+	-- A race's or a shop's own sky makes the town's weather stand down.
+	assert(DayNight.raceFog == nil, "a race's or shop's sky is still up")
 	local Rave = emu.require(client.Rave)
 	local W = require("./weatherShot")
 	local clock = emu.require(G.clock)

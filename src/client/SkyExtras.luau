@@ -102,7 +102,14 @@ local function moon(n: number)
 	local want = pic or "rbxasset://sky/sun.jpg"
 	if sky.SunTextureId ~= want then
 		sky.SunTextureId = want
-		sky.SunAngularSize = if pic then MOON_SIZE else SUN_SIZE
+	end
+	-- The sun shrinks away as night falls and the moon grows in its place (and back at dawn), so
+	-- neither pops in: night 0.35 to 0.5 the sun goes, 0.5 to 0.65 the moon comes.
+	local size = if pic
+		then MOON_SIZE * math.clamp((n - 0.5) / 0.15, 0, 1)
+		else SUN_SIZE * math.clamp((0.5 - n) / 0.15, 0, 1)
+	if math.abs(sky.SunAngularSize - size) > 0.01 then
+		sky.SunAngularSize = size
 	end
 end
 
