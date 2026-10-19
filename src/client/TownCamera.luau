@@ -102,7 +102,8 @@ function TownCamera.start()
 		if processed or paused or walking then
 			return
 		end
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		-- Left drag (or one finger) pans unless an edit tool wants drags; right drag always pans.
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
 			if input.UserInputType == Enum.UserInputType.Touch then
 				touches[input] = Vector2.new(input.Position.X, input.Position.Y)
 			end
@@ -136,7 +137,7 @@ function TownCamera.start()
 			end
 		end
 		local moving = input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch
-		if dragging and grab and moving and panEnabled then
+		if dragging and grab and moving and (panEnabled or dragging.UserInputType == Enum.UserInputType.MouseButton2) then
 			-- Keep the spot that was grabbed under the pointer.
 			local now = Town.groundAt(Vector2.new(input.Position.X, input.Position.Y))
 			if now then
@@ -153,7 +154,7 @@ function TownCamera.start()
 				pinch = nil
 			end
 		end
-		if input == dragging or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if input == dragging or (dragging and input.UserInputType == dragging.UserInputType) then
 			dragging = nil
 			grab = nil
 		end
@@ -210,7 +211,7 @@ function TownCamera.onWalking(fn: (boolean) -> ())
 end
 
 -- Walking (true): the avatar walks and jumps around the town with Roblox's usual controls and
--- camera. Back to the town view (false): the view comes back over wherever they walked to.
+-- camera. Back to the town view (false): the view comes back over the middle of their own town.
 function TownCamera.setWalking(on: boolean)
 	if walking == on then
 		return
@@ -229,11 +230,14 @@ function TownCamera.setWalking(on: boolean)
 	if on then
 		follow()
 	else
-		local character = Players.LocalPlayer.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if root then
-			view = Vector3.new(root.Position.X, 0, root.Position.Z)
-			clamp()
+		-- Back over their own town, centred and at the usual zoom, wherever they drove or walked to
+		-- (the server takes the avatar home too).
+		fitZoom()
+		placed = false
+		local f = Town.folder()
+		if f then
+			view = f:GetAttribute("Origin") :: any
+			placed = true
 		end
 		update()
 	end

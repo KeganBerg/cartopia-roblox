@@ -1042,8 +1042,35 @@ do
 	shot("hud", nil)
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Custom, "walking didn't hand the camera to the avatar")
+	-- Their town on a plot out in the shared world (a stand-in folder, as TownView marks it).
+	local made = game.Workspace:FindFirstChild("Towns") == nil
+	local towns = game.Workspace:FindFirstChild("Towns") or Instance.new("Folder")
+	towns.Name = "Towns"
+	towns.Parent = game.Workspace
+	local stand = Instance.new("Folder")
+	stand.Name = "WalkTest"
+	stand:SetAttribute("Owner", 1)
+	stand:SetAttribute("Origin", roblox.Vector3.new(1400, 0, -1400))
+	stand.Parent = towns
+	-- Drive off to the side of the town first.
+	pcall(function()
+		player.Character:PivotTo(roblox.CFrame.new(600, 5, 600))
+	end)
 	signalFor(walkButton, "Activated"):Fire()
 	assert(game.Workspace.CurrentCamera.CameraType == roblox.Enum.CameraType.Scriptable, "the town view didn't come back")
+	-- Wherever they drove to, the town view comes back centred on their own town.
+	local mine = emu.require(client.Town).folder()
+	if mine then
+		local origin = mine:GetAttribute("Origin")
+		local focus = game.Workspace.CurrentCamera.Focus.Position
+		assert(math.abs(focus.X - origin.X) < 1 and math.abs(focus.Z - origin.Z) < 1, `the town view came back at {focus}, not over the town at {origin}`)
+		print("walk: town view back over the town's middle")
+	end
+	stand:Destroy()
+	if made then
+		towns:Destroy()
+	end
+	emu.require(client.TownCamera).lookAt(roblox.Vector3.zero)
 	print("walk: on and off")
 end
 -- Merged buildings: a town of merged blocks drawn by the server's TownView (each block once, grown

@@ -380,7 +380,7 @@ function Hud.start()
 	Ui.text({ Text = "RACE", TextSize = 20, Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 22), Shadow = 2, Stroke = 0.6, Parent = raceFace })
 
 	-- Drive: hops in your race car to drive round the shared world (server/Drive), with the camera
-	-- behind it; Town always brings you back to the view over your own town, wherever you were.
+	-- behind it; My Town always brings you back to the view over your own town, wherever you were.
 	local walk = Ui.new("Frame", { Name = "Walk", AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -26, 1, -250), Size = UDim2.fromOffset(60, 78), BackgroundTransparency = 1, Parent = root })
 	local walkLabel: TextLabel
 	local walkIcon: TextLabel
@@ -391,7 +391,7 @@ function Hud.start()
 	walkLabel = Ui.text({ Text = "DRIVE", TextSize = 13, Position = UDim2.fromOffset(-10, 62), Size = UDim2.new(1, 20, 0, 16), Shadow = 2, Stroke = 0.6, Parent = walk })
 	TownCamera.onWalking(function(on: boolean)
 		walkIcon.Text = if on then "🏙️" else "🚗"
-		walkLabel.Text = if on then "TOWN" else "DRIVE"
+		walkLabel.Text = if on then "MY TOWN" else "DRIVE"
 		-- The server puts them in their car, or takes them out and back home.
 		if not on or Players.LocalPlayer:GetAttribute("Driving") ~= true then
 			task.spawn(Remote.social, if on then "drive" else "home", nil, true)
