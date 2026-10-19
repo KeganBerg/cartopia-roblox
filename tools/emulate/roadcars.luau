@@ -76,3 +76,37 @@ for _, m in WorldLife.cars() do
 	end
 end
 print(`{near} cars within 150 studs; ok`)
+
+-- SHOT=1 also writes build/roadcars.json and -cam.json for render.mjs: behind the nearest car,
+-- as the follow camera sits behind the player's.
+if process.env.SHOT then
+	local fs = require("@lune/fs")
+	local serde = require("@lune/serde")
+	local Gui = require("./gui")
+	local best, bd = nil, math.huge
+	for _, m in WorldLife.cars() do
+		local d = (m:GetPivot().Position - eye).Magnitude
+		if d < bd then
+			best, bd = m, d
+		end
+	end
+	local at = best:GetPivot()
+	local from = (at * CFrame.new(-4, 14, -38)).Position
+	local look = (at * CFrame.new(0, 3, 60)).Position
+	cam.CFrame = CFrame.lookAt(from, look)
+	step(1 / 30, from, nil)
+	local parts = {}
+	for _, d in game.Workspace:GetDescendants() do
+		if d:IsA("BasePart") and d.Transparency < 1 then
+			local ok, ltm = pcall(function()
+				return d.LocalTransparencyModifier
+			end)
+			if not (ok and ltm == 1) and (d.CFrame.Position - from).Magnitude < 2500 then
+				table.insert(parts, Gui.partOf(d))
+			end
+		end
+	end
+	fs.writeFile("build/roadcars.json", serde.encode("json", { parts = parts }))
+	fs.writeFile("build/roadcars-cam.json", serde.encode("json", { from = { from.X, from.Y, from.Z }, at = { look.X, look.Y, look.Z }, fov = 70, far = 6000 }))
+	print(`wrote build/roadcars.json ({#parts} parts)`)
+end
