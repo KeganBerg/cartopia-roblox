@@ -467,12 +467,6 @@ function Menu.need(ctx: any, need: any?): Instance?
 	end
 	local s = store.useGame.getState()
 	local t = now()
-	local function soon(what: string): () -> ()
-		return function()
-			ctx.close()
-			ctx.toast(`{what} is coming to Roblox soon`)
-		end
-	end
 	local function owned(id: string): number
 		local n = 0
 		for _, b in s.buildings do
@@ -543,7 +537,7 @@ function Menu.need(ctx: any, need: any?): Instance?
 		table.insert(sources, { icon = "🔍", title = "Search at Rusty's", detail = "Searches can turn up coin stashes along with cars.", action = if owned("rescue") > 0 then { label = "Rusty's", run = function() ctx.open("rescue") end } else build("rescue") })
 		table.insert(sources, { icon = "🏆", title = "Win drag races", detail = `Each race costs {data.RACE_FUEL} fuel and pays a few hundred coins.`, action = { label = "Race", run = function() ctx.open("race") end } })
 		table.insert(sources, { icon = "📋", title = "Finish goals", detail = "Goals pay coins, XP and sometimes gems.", action = { label = "Goals", run = function() ctx.open("goals") end } })
-		table.insert(sources, { icon = "👫", title = "Help other towns", detail = "Visit a town and tap its shops to help.", action = { label = "Social", run = soon("Visiting towns") } })
+		table.insert(sources, { icon = "👫", title = "Help other towns", detail = "Visit a town and tap its shops to help.", action = { label = "Social", run = function() ctx.open("friends") end } })
 	elseif need.res == "parts" then
 		summary = (if missing > 0 then `You need {missing} more parts{if what then ` for {what}` else ""}.` else `You have {s.parts} parts.`) .. " Parts (the ⚙ gears) come from these businesses:"
 		local function partsRow(icon: string, title: string, id: string, detail: string): Source

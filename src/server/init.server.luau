@@ -65,6 +65,7 @@ local Purchases = require(script.Purchases)
 local Policy = require(ReplicatedStorage.Shared.Policy)
 local Splash = require(script.Splash)
 local Social = require(script.Social)
+local Leaders = require(script.Leaders)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -513,6 +514,22 @@ local function ghostCard(userId: number)
 	end
 end
 
+-- The player leaderboards (server/Leaders): Power, Wins, Trophies and Level, all time and weekly.
+local leaders = Leaders.new({
+	ordered = function(name: string): any
+		return DataStoreService:GetOrderedDataStore(name)
+	end,
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+}, os.clock, function(): string
+	return (require(Game.data) :: any).weekKey(os.time() * 1000)
+end)
+local function leaderStats(userId: number): any
+	local s = towns:save(userId)
+	return Leaders.stats(s, (require(Game.data) :: any).garagePower(s.cars or {}))
+end
+
 -- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
 local purchases
 local function saveId(userId: number, release: boolean?): boolean
@@ -523,6 +540,11 @@ local function saveId(userId: number, release: boolean?): boolean
 			purchases:saved(userId, receipts)
 		end
 		pcall(ghostCard, userId)
+		local player = Players:GetPlayerByUserId(userId)
+		if wrote and player then
+			local town = towns:save(userId).townName
+			task.spawn(pcall, leaders.record, leaders, userId, player.DisplayName, if type(town) == "string" then town else "My Town", leaderStats(userId), release)
+		end
 		return wrote
 	end
 	return false
@@ -1074,6 +1096,18 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return claim(player, arg)
 		elseif op == "help" and type(arg) == "string" and #arg <= 64 then
 			return helpAt(player, arg)
+		elseif op == "leaders" and type(arg) == "table" and table.find(Leaders.METRICS, arg.metric) and (arg.period == "all" or arg.period == "week") then
+			-- A leaderboard (Social's Leaderboards tab), with who on it is in this server.
+			local stats = leaderStats(player.UserId)
+			local town = towns:save(player.UserId).townName
+			pcall(leaders.record, leaders, player.UserId, player.DisplayName, if type(town) == "string" then town else "My Town", stats)
+			local rows, mine = leaders:board(arg.metric, arg.period, player.UserId, stats)
+			local out = {}
+			for _, r in rows do
+				local here = Players:GetPlayerByUserId(r.id)
+				table.insert(out, { id = r.id, name = r.name, town = r.town, level = r.level, value = r.value, here = here ~= nil and here ~= player and views[here] ~= nil })
+			end
+			return { rows = out, mine = mine }, nil
 		elseif op == "join" and type(arg) == "number" then
 			return join(player, arg)
 		end

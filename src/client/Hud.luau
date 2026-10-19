@@ -307,7 +307,7 @@ function Hud.start()
 	Icons.draw("trophy", trophyRow, 16, Ui.WHITE).LayoutOrder = 1
 	local trophyText = Ui.text({ Text = "0", TextSize = 17, Size = UDim2.fromOffset(0, 23), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Shadow = 2, ShadowColor = Ui.BLACK, ShadowTransparency = 0.55, Parent = trophyRow })
 	trophyRow.Activated:Connect(function()
-		toast("Leaderboards are coming to Roblox soon")
+		openPanel("friends", "leaders")
 	end)
 	-- Sound on/off: mutes the game's sounds (they play through the Cartopia sound group).
 	local soundGroup = SoundService:FindFirstChild("Cartopia") or Ui.new("SoundGroup", { Name = "Cartopia", Volume = 1, Parent = SoundService })
