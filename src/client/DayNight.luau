@@ -5,6 +5,7 @@
 -- stands in for the web's post-processing with ColorCorrection, Bloom and Atmosphere.
 
 local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -126,10 +127,14 @@ local function apply(now: number)
 	-- black. So the Roblox sun stands where the web's light is, and the keys above give it the
 	-- moon's colour and strength at night. At latitude 0 the sun's height is 90 - 15 degrees an hour
 	-- from noon.
+	-- At latitude 0 Roblox's sun can only stand on the east-west arc through the top of the sky, so
+	-- it stands at the point of that arc nearest the web's light: its angle from straight up
+	-- towards +X (east, the morning side), one hour per 15 degrees. That moves smoothly whichever
+	-- way the web's light swings (picking a side by the light's own east-west sign jumped the sun
+	-- from one horizon to the other at dusk).
 	local dir = lightDir(phase, night)
-	local el = math.deg(math.asin(math.clamp(dir.Y, -1, 1)))
 	Lighting.GeographicLatitude = 0
-	Lighting.ClockTime = 12 + (if dir.X < 0 then 1 else -1) * (90 - el) / 15
+	Lighting.ClockTime = 12 - math.deg(math.atan2(dir.X, math.max(dir.Y, 0.05))) / 15
 	Lighting.Brightness = look.sunIntensity * 1.4
 	Lighting.ColorShift_Top = sun
 	Lighting.OutdoorAmbient = look.sky:Lerp(look.ground, 0.35):Lerp(Color3.new(0, 0, 0), 1 - math.clamp(look.hemi + 0.35, 0, 1))
@@ -216,7 +221,13 @@ local function apply(now: number)
 	local air = effect("Atmosphere", "Air") :: Atmosphere
 	-- Light: the town camera stands several hundred studs back (TownCamera), and thick air would
 	-- wash the whole town out.
-	air.Density = 0.08
+	-- Thinner the further back the camera stands: the air's haze builds with distance, and from the
+	-- shared world's zoomed-out views (Popups/Claim stands back several thousand studs) the whole
+	-- map drowned in it. Scaling by the camera's height keeps the haze over any view about the
+	-- same as over a town.
+	local cam = workspace.CurrentCamera
+	local height = if cam then cam.CFrame.Position.Y else 0
+	air.Density = 0.08 * math.clamp(450 / math.max(height, 1), 0.08, 1)
 	air.Offset = 0
 	air.Color = haze or look.sky
 	air.Decay = haze or look.ground
@@ -225,12 +236,10 @@ local function apply(now: number)
 end
 
 function DayNight.start()
-	task.spawn(function()
-		while true do
-			apply(DateTime.now().UnixTimestampMillis)
-			-- A town day lasts 20 minutes, so a quarter-second step is smooth enough and costs nothing.
-			task.wait(0.25)
-		end
+	-- Every frame, just after the camera moves (and before TownWeather nudges what it sets), so the
+	-- light glides rather than stepping.
+	RunService:BindToRenderStep("DayNight", Enum.RenderPriority.Camera.Value + 1, function()
+		apply(DateTime.now().UnixTimestampMillis)
 	end)
 end
 

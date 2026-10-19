@@ -103,8 +103,34 @@ local function hideOthers(mine: Folder)
 	end
 end
 
--- Draws the far land round a town whose middle is at origin, into parent.
-function Horizon.draw(origin: Vector3, parent: Instance): Model?
+-- In the shared world (server/World) the land round a town is the world's own ground, roads and
+-- neighbours, out to the ground's edge. The far land is drawn round the world's middle instead, with
+-- every piece that lies wholly on the world's ground left out, and the rest sunk SINK studs: its
+-- flat land, a few studs either side of the world's ground, cut through it in patches that flickered
+-- as the camera moved, and sunk it stays out of sight under it.
+local SINK = 5
+
+-- How far (studs, each way from its middle) the shared world's ground reaches, or nil outside it.
+-- As server/World works it out: half a plot past the last ring, and 600 more.
+local function worldReach(): number?
+	local world = workspace:FindFirstChild("World")
+	local pitch = world and world:GetAttribute("Pitch")
+	local rings = world and world:GetAttribute("Rings")
+	if type(pitch) ~= "number" or type(rings) ~= "number" then
+		return nil
+	end
+	return (rings + 0.5) * pitch + 600
+end
+
+-- Whether a box (middle x, z and size sx, sz, studs from the land's middle) lies wholly within
+-- clear of it each way.
+local function within(x: number, z: number, sx: number, sz: number, clear: number): boolean
+	return math.abs(x) + sx / 2 < clear and math.abs(z) + sz / 2 < clear
+end
+
+-- Draws the far land round a town whose middle is at origin, into parent. clear: leave out the
+-- pieces wholly within that many studs of origin each way, and sink the rest (the shared world).
+function Horizon.draw(origin: Vector3, parent: Instance, clear: number?): Model?
 	local land = Builder.build(LAND)
 	if not land then
 		return nil
@@ -117,7 +143,18 @@ function Horizon.draw(origin: Vector3, parent: Instance): Model?
 			d.CanQuery = false
 		end
 	end
-	land:PivotTo(CFrame.new(origin))
+	land:PivotTo(CFrame.new(origin - Vector3.new(0, if clear then SINK else 0, 0)))
+	if clear then
+		for _, d in land:GetDescendants() do
+			if d:IsA("BasePart") then
+				local at = d.CFrame.Position - origin
+				local size = d.CFrame:VectorToWorldSpace(d.Size)
+				if within(at.X, at.Z, math.abs(size.X), math.abs(size.Z), clear) then
+					d:Destroy()
+				end
+			end
+		end
+	end
 	land.Parent = parent
 	return land
 end
@@ -162,11 +199,21 @@ type Piece = { part: BasePart, at: CFrame }
 
 -- Builds the rotors and balloons round a town whose middle is at origin, into parent, and
 -- returns a function that moves them on: dt seconds since the last call, t since they appeared.
-function Horizon.movers(origin: Vector3, parent: Instance): (dt: number, t: number) -> ()
+-- clear and the sinking as Horizon.draw: rotors whose tower it left out are left out too.
+function Horizon.movers(origin: Vector3, parent: Instance, clear: number?): (dt: number, t: number) -> ()
 	local folder = Instance.new("Folder")
 	folder.Name = "HorizonMovers"
 	folder.Parent = parent
 	local turbines = Scenery.TURBINES or {}
+	if clear then
+		local kept = {}
+		for _, tb in turbines do
+			if not within(tb[1], tb[3], 0, 0, clear) then
+				table.insert(kept, { tb[1], tb[2] - SINK, tb[3], tb[4], tb[5] })
+			end
+		end
+		turbines = kept
+	end
 
 	-- Three blades round a hub, turning about the rotor's own z (Horizon.tsx WindFarm), each
 	-- rotor starting from its own angle.
@@ -264,11 +311,14 @@ function Horizon.start()
 			return
 		end
 		Builder.useLibrary(5)
-		local land = Horizon.draw((folder :: Folder):GetAttribute("Origin") :: any, workspace)
+		-- Round this player's town, or in the shared world round its middle, past its ground.
+		local reach = worldReach()
+		local origin: Vector3 = if reach then Vector3.zero else (folder :: Folder):GetAttribute("Origin") :: any
+		local land = Horizon.draw(origin, workspace, reach)
 		if land then
 			land.Name = "Horizon"
 		end
-		local move = Horizon.movers((folder :: Folder):GetAttribute("Origin") :: any, workspace)
+		local move = Horizon.movers(origin, workspace, reach)
 		local t = 0
 		RunService.RenderStepped:Connect(function(dt)
 			t += dt
@@ -345,7 +395,22 @@ function Horizon.sky(phase: number): Color3?
 			(s :: any)[`Skybox{face}`] = want
 		end
 	end
-	return Color3.fromHex(best.haze)
+	-- The haze between the two baked steps either side of now, so the far land's colour glides
+	-- while the pictures change step by step.
+	local above, below = nil, nil
+	for _, step in SkyImages.steps do
+		if step.d >= d and (not above or step.d < above.d) then
+			above = step
+		end
+		if step.d <= d and (not below or step.d > below.d) then
+			below = step
+		end
+	end
+	if above and below and above ~= below then
+		local t = (d - below.d) / (above.d - below.d)
+		return Color3.fromHex(below.haze):Lerp(Color3.fromHex(above.haze), t)
+	end
+	return Color3.fromHex((above or below or best).haze)
 end
 
 return Horizon

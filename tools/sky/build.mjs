@@ -78,7 +78,11 @@ async function bake() {
   const night = (d) => (d <= 0.1 ? 1 : d >= 0.3 ? 0 : easeFn((0.3 - d) / 0.2))
   const dusk = (d) => easeFn(Math.max(0, 1 - Math.abs(d - 0.22) / 0.13))
   // The steps baked: plain day, through golden hour, to full night.
-  const STEPS = [0.5, 0.33, 0.29, 0.25, 0.21, 0.17, 0.13, 0.09]
+  // Close together through dusk and dawn, where the sky changes fast (Roblox shows one skybox at
+  // a time, so each change is a step: small steps keep it gliding). Plain day and full night hold
+  // for minutes and get the sharpest pictures; the passing steps are smaller to keep loading light.
+  const STEPS = [0.5, 0.44, 0.39]
+  for (let d = 0.35; d > 0.06; d -= 0.02) STEPS.push(Math.round(d * 100) / 100)
   // The sun's direction (web look.ts lightDir) only shades the clouds' bright sides here.
   const NOON = [25, 40, 15].map((v) => v / Math.hypot(25, 40, 15))
   function sunDir(d) {
@@ -91,7 +95,7 @@ async function bake() {
     const l = Math.hypot(...v)
     return v.map((c) => c / l)
   }
-  const steps = STEPS.map((d) => ({ d, night: night(d), dusk: dusk(d), sun: sunDir(d) }))
+  const steps = STEPS.map((d) => ({ d, night: night(d), dusk: dusk(d), sun: sunDir(d), size: d >= 0.44 || d <= 0.07 ? SIZE : 640 }))
 
   // Each face: where the camera looks and which way is up in the picture (see the layout above;
   // Left looks along +x, so Back is +z, Right -x and Front -z).
@@ -134,6 +138,7 @@ async function bake() {
   const cam = new T.PerspectiveCamera(90, 1, 0.1, 100)
   // As Horizon.tsx's Sky does each frame, for clear weather.
   window.bake = (step, look, up) => {
+    renderer.setSize(step.size, step.size)
     const u = mat.uniforms, n = step.night, k = step.dusk
     u.uNight.value = n
     u.uDusk.value = k
