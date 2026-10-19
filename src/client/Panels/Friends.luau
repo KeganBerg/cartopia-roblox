@@ -19,6 +19,7 @@ local Remote = require(script.Parent.Parent.Remote)
 local Leaders = require(script.Parent.Parent.Social.Leaders)
 local MeetTab = require(script.Parent.Parent.Social.Meet)
 local Card = require(script.Parent.Parent.Social.Card)
+local Postcards = require(script.Parent.Parent.Social.Postcards)
 
 local Friends = {}
 Friends.id = "friends"
@@ -208,6 +209,33 @@ function Friends.open(ctx: any, arg: any?): Instance
 			end)()
 			local friends = robloxFriends()
 			local okPlayers, here = Remote.social("players", nil, true)
+			local okSent, sent = Remote.social("sent", nil, true)
+			sent = if okSent then sent else { gifts = {}, cards = {} }
+			-- Today's gift and postcard for a player (Social/Postcards); ✔ once sent.
+			local function mailButtons(buttons: { Button }, id: number, name: string)
+				local gifted = sent.gifts[tostring(id)] == true
+				local carded = sent.cards[tostring(id)] == true
+				table.insert(buttons, { text = if carded then "💌✔" else "💌", kind = if carded then "grey" else "garage", width = if carded then 62 else 48, onClick = function()
+					if carded then
+						ctx.toast("Postcard sent today")
+						return
+					end
+					Postcards.pick(overlay, id, name, function()
+						shown = ""
+						show("friends")
+					end)
+				end })
+				table.insert(buttons, { text = if gifted then "🎁✔" else "🎁", kind = if gifted then "grey" else "garage", width = if gifted then 62 else 48, onClick = function()
+					if gifted then
+						ctx.toast("Gift sent today")
+						return
+					end
+					Postcards.gift(overlay, id, name, function()
+						shown = ""
+						show("friends")
+					end)
+				end })
+			end
 			if not overlay.Parent or shown ~= "friends" then
 				return
 			end
@@ -238,12 +266,12 @@ function Friends.open(ctx: any, arg: any?): Instance
 			if #friends == 0 then
 				note(list, nextOrder(), "No Roblox friends yet. Add the drivers below, or invite yours.")
 			end
-			local shown = 0
+			local listed = 0
 			for _, f in friends do
-				if shown >= 40 then
+				if listed >= 40 then
 					break
 				end
-				shown += 1
+				listed += 1
 				local p = byId[f.id]
 				local buttons: { Button } = {}
 				local line: string
@@ -263,6 +291,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 				else
 					line = "Offline"
 				end
+				mailButtons(buttons, f.id, f.name)
 				row(list, nextOrder(), { name = f.name, userId = f.id, on = f.online, line = line, badge = badge(f.id), dim = not f.online, buttons = buttons })
 			end
 
@@ -279,6 +308,15 @@ function Friends.open(ctx: any, arg: any?): Instance
 			end
 			for _, p in others do
 				local helpedAll = p.helped >= HELPS_PER_TOWN
+				local buttons: { Button } = {
+					{ text = if helpedAll then "🏠 Visit" else "🤝 Visit", kind = "garage", width = 92, onClick = function()
+						visit(p.id)
+					end },
+					{ text = "+ 👫", kind = "garage", width = 56, onClick = function()
+						addFriend(p.id)
+					end },
+				}
+				mailButtons(buttons, p.id, p.name)
 				row(list, nextOrder(), {
 					name = p.name,
 					userId = p.id,
@@ -288,14 +326,7 @@ function Friends.open(ctx: any, arg: any?): Instance
 					onTap = function()
 						card(p.id, p.name, p.townName)
 					end,
-					buttons = {
-						{ text = if helpedAll then "🏠 Visit" else "🤝 Visit", kind = "garage", width = 92, onClick = function()
-							visit(p.id)
-						end },
-						{ text = "+ 👫", kind = "garage", width = 56, onClick = function()
-							addFriend(p.id)
-						end },
-					},
+					buttons = buttons,
 				})
 			end
 		end)
