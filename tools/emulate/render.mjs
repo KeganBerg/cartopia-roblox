@@ -20,6 +20,7 @@ const ROOT = resolve(HERE, '../..')
 export async function render({ web, scene, out, gui, width = 1280, height = 800, camera }) {
   // Lune writes an empty list as {}.
   if (!Array.isArray(scene.parts)) scene = { ...scene, parts: [] }
+  if (scene.lights && !Array.isArray(scene.lights)) scene = { ...scene, lights: [] }
   // One folder per run, so renders running side by side don't swap scenes.
   const dir = join(resolve(web), '.rbx-preview', String(process.pid))
   mkdirSync(dir, { recursive: true })

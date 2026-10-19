@@ -2881,7 +2881,16 @@ do
 		print(`  [diag] showing {tostring(Kit.showing())} hudUp {Kit.hudUp()} gui {hud.gui.Enabled} levelUp {tostring(st.levelUp)} mode {tostring(st.mode)} visiting {tostring(st.visiting)} root [{table.concat(kids, " ")}]`)
 	end
 	assert(goal, "no goal screen after the last step")
-	print(`tutorial step 9: the goal screen; the hand {if Tut.box(s, hud.root) then "points" else "rests"}`)
+	-- One frame of the hand's own loop, so it's put away for the picture as it would be in game.
+	Tut.frame()
+	local handShown = false
+	for _, d in hud.root:GetDescendants() do
+		if d.Name == "TutHand" and d.Visible then
+			handShown = true
+		end
+	end
+	print(`tutorial step 9: the goal screen; the hand {if Tut.box(s, hud.root) or handShown then "points" else "rests"}`)
+	assert(not handShown, "the hand still shows over the goal screen")
 	picture("goal", false)
 	local go = find(goal, function(d)
 		return d:IsA("TextButton") and d.Name == "Face" and label(d) == "Let's go!"
