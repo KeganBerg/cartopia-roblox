@@ -75,6 +75,7 @@ local Mail = require(script.Mail)
 local Duels = require(script.Duels)
 local Invites = require(script.Invites)
 local Crews = require(script.Crews)
+local CrewGoals = require(script.CrewGoals)
 local World = require(script.World)
 local Drive = require(script.Drive)
 local Sky = require(script.Sky)
@@ -671,6 +672,72 @@ local function crewWho(userId: number): Crews.Who
 	return { name = if player then player.DisplayName else "Driver", town = if type(town) == "string" then town else nil, level = st.level, power = st.power, wins = st.race_wins, trophies = st.trophies }
 end
 
+-- Crew weekly goals (server/CrewGoals): each save credits the jobs and races made since the last
+-- one to the player's crew, as the web game's crew_track_points trigger.
+local crewGoals = CrewGoals.new({
+	plain = function(name: string): any
+		return DataStoreService:GetDataStore(name)
+	end,
+	clock = os.time,
+})
+-- The jobs and races each player's town had when last counted.
+local crewSeen: { [number]: { jobs: number, races: number } } = {}
+-- now: counted before this returns (else in the background, as a save goes on).
+local function crewPoints(userId: number, now: boolean?)
+	local stats = towns:save(userId).stats or {}
+	local jobs, races = tonumber(stats.jobs) or 0, tonumber(stats.races) or 0
+	local seen = crewSeen[userId]
+	crewSeen[userId] = { jobs = jobs, races = races }
+	if not seen or (jobs <= seen.jobs and races <= seen.races) then
+		return
+	end
+	local function count()
+		local id = crews:mineId(userId)
+		local c = id and crews:crew(id)
+		if not c then
+			return
+		end
+		local members = 0
+		for _ in c.members do
+			members += 1
+		end
+		local _, reached = crewGoals:add(userId, c.id, members, jobs - seen.jobs, races - seen.races)
+		if not reached then
+			return
+		end
+		-- Everyone in the crew who's in this server hears it.
+		for uid in c.members do
+			local other = Players:GetPlayerByUserId(tonumber(uid) or 0)
+			if other and towns:isOpen(other.UserId) then
+				towns:_with(other.UserId, function(st: any)
+					st.toast("🧰 Your crew hit its weekly goal! Open your crew chest.")
+				end)
+				push(other)
+			end
+		end
+	end
+	if now then
+		pcall(count)
+	else
+		task.spawn(pcall, count)
+	end
+end
+-- Pays the crew chests a player has opened that their town hasn't had yet (one per chest).
+local function payCrewChests(player: Player)
+	local userId = player.UserId
+	local total = crewGoals:chests(userId)
+	if not towns:isOpen(userId) or total <= (towns:save(userId).crewChests or 0) then
+		return
+	end
+	towns:_with(userId, function(st: any)
+		local useGame = (require(Game.store) :: any).useGame
+		for _ = (st.crewChests or 0) + 1, total do
+			useGame.getState().openCrewChest()
+		end
+	end)
+	push(player)
+end
+
 -- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
 local purchases
 local function saveId(userId: number, release: boolean?): boolean
@@ -690,6 +757,9 @@ local function saveId(userId: number, release: boolean?): boolean
 				meet:saveCard(userId, player.DisplayName, cardOf(userId))
 			end)
 			task.spawn(pcall, crews.touch, crews, userId, crewWho(userId))
+		end
+		if wrote then
+			pcall(crewPoints, userId)
 		end
 		return wrote
 	end
@@ -776,12 +846,14 @@ Players.PlayerAdded:Connect(function(player)
 	purchases:load(player.UserId, receipts)
 	local newPlayer = data == nil
 	towns:open(player.UserId, data)
+	pcall(crewPoints, player.UserId)
 	-- Joined from a friend's invite with no town yet: theirs (server/Invites). Then any invite
 	-- gems waiting, now and every couple of minutes (other servers can't tell this one).
 	task.spawn(function()
 		local okJoin, join = pcall(player.GetJoinData, player)
 		local ref = if okJoin and type(join) == "table" then tonumber(join.ReferredByPlayerId) else nil
 		pcall(invites.arrive, invites, player.UserId, ref, newPlayer)
+		pcall(payCrewChests, player)
 		while player.Parent do
 			pcall(payInvites, player)
 			task.wait(120)
@@ -840,6 +912,10 @@ Players.PlayerRemoving:Connect(function(player)
 	races:close(player.UserId)
 	duels:leave(player.UserId)
 	inviteChecked[player.UserId] = nil
+	-- (After the last save, which counted their last crew points.)
+	task.defer(function()
+		crewSeen[player.UserId] = nil
+	end)
 	karts:close(player.UserId)
 	parties:forget(player.UserId)
 	arcade:close(player.UserId)
@@ -1504,11 +1580,27 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			-- The Crew tab: the player's crew (and its requests, for officers), or the browser.
 			local mine = crews:mine(player.UserId)
 			local house = Purchases.hasCrewHouse(towns:save(player.UserId))
+			-- Points made since the last save count straight away.
+			pcall(crewPoints, player.UserId, true)
+			pcall(payCrewChests, player)
 			if mine then
+				local members = 0
+				for _ in mine.crew.members do
+					members += 1
+				end
 				mine.house = house
+				mine.goal = crewGoals:goal(player.UserId, mine.crew.id, members)
 				return mine, nil
 			end
-			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1 }, nil
+			return { house = house, browse = crews:browse(if type(arg) == "string" then arg:sub(1, 24) else nil), asked = crews:asked(player.UserId), level = towns:save(player.UserId).level or 1, goal = crewGoals:goal(player.UserId, nil, 0) }, nil
+		elseif op == "crewChest" and type(arg) == "string" then
+			-- Opening a crew chest: recorded first, then paid (data.CREW_CHEST, store.openCrewChest).
+			local total, no = crewGoals:open(player.UserId, arg)
+			if not total then
+				return nil, no
+			end
+			payCrewChests(player)
+			return { chests = total }, nil
 		elseif op == "crewCreate" and type(arg) == "table" then
 			-- Starting a crew: a Crew House and $2,000 (data.CLAN_COST), charged once it's made.
 			local data = require(Game.data) :: any

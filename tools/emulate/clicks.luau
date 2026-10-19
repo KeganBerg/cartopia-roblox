@@ -638,6 +638,8 @@ mailDesk:postcard(7, "Kai", "Kai Harbour", 1, "sunset", 2)
 -- Crews (server/Crews, in memory): Rosa's open crew and Kai's, which takes requests.
 local crewHouse = false
 local crewN = 0
+-- Crew weekly goals, on the real clock (the week is today's).
+local goalDesk = emu.require(SSS.Server.CrewGoals).new({ clock = os.time })
 local crewDesk = emu.require(SSS.Server.Crews).new({
 	clock = function()
 		return raceClock
@@ -703,10 +705,27 @@ local function socialDesk(op, arg)
 		elseif op == "crew" then
 			local mine = crewDesk:mine(1)
 			if mine then
+				local n = 0
+				for _ in mine.crew.members do
+					n += 1
+				end
 				mine.house = crewHouse
+				mine.goal = goalDesk:goal(1, mine.crew.id, n)
 				return mine, nil
 			end
-			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1 }, nil
+			return { house = crewHouse, browse = crewDesk:browse(arg), asked = crewDesk:asked(1), level = towns:save(1).level or 1, goal = goalDesk:goal(1, nil, 0) }, nil
+		elseif op == "crewChest" then
+			local total, no = goalDesk:open(1, arg)
+			if not total then
+				return nil, no
+			end
+			towns:_with(1, function(st)
+				for _ = (st.crewChests or 0) + 1, total do
+					store.useGame.getState().openCrewChest()
+				end
+			end)
+			signalFor(townEvent, "OnClientEvent"):Fire(towns:snapshot(1))
+			return { chests = total }, nil
 		elseif op == "crewCreate" then
 			if not crewHouse then
 				return nil, "crew house"
@@ -1981,6 +2000,31 @@ if SHOTS then
 			table.insert(problems, "couldn't join Night Riders")
 		end
 		shot("crew-joined", nil)
+		-- The weekly goal: Rosa and I fill it, and the chest pays out.
+		local niteId = crewDesk:mineId(1)
+		if niteId then
+			goalDesk:add(2, niteId, 2, 240, 0)
+			goalDesk:add(1, niteId, 2, 100, 10)
+			local before = towns:save(1).coins or 0
+			hud.ctx.close()
+			hud.openPanel("friends", "clan")
+			Emu.resumeWaits()
+			shot("crew-goal", nil)
+			local chest = hud.gui:FindFirstChild("Chest", true)
+			local open = chest and chest:FindFirstChild("Open", true)
+			local openButton = open and (if open:IsA("GuiButton") then open else open:FindFirstChildWhichIsA("GuiButton", true))
+			if openButton then
+				signalFor(openButton, "Activated"):Fire()
+				Emu.resumeWaits()
+			else
+				table.insert(problems, "no Open button on the crew chest")
+			end
+			local pay = emu.require(G.data).payAt(emu.require(G.data).CREW_CHEST, towns:save(1).level or 1)
+			if (towns:save(1).crewChests or 0) ~= 1 or (towns:save(1).coins or 0) < before + pay.coins then
+				table.insert(problems, `the crew chest didn't pay: {towns:save(1).crewChests} chests, coins {before} -> {towns:save(1).coins}`)
+			end
+			shot("crew-goal-opened", nil)
+		end
 		crewDesk:leave(1)
 		hud.ctx.close()
 		print(`crews: {#problems} problems {table.concat(problems, "; ")}`)

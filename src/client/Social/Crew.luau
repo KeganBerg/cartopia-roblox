@@ -65,6 +65,70 @@ local function box(parent: Instance, order: number, h: number, name: string?): F
 	})
 end
 
+-- "3d 4h", "5h": how long until the week ends (web CrewGoal's left()).
+local function left(seconds: number): string
+	local h = math.max(1, math.ceil(seconds / 3600))
+	if h > 24 then
+		return if h % 24 > 0 then `{h // 24}d {h % 24}h` else `{h // 24}d`
+	end
+	return `{h}h`
+end
+
+-- What a crew chest pays at the player's level (data.CREW_CHEST).
+local function chestPay(): string
+	local level = store.useGame.getState().level or 1
+	local pay = data.payAt(data.CREW_CHEST, level)
+	return `{money(pay.coins)} · 💎 {data.CREW_CHEST.bucks} · ⚙ {data.CREW_CHEST.parts}`
+end
+
+-- A chest row: its icon, name, what it pays (or what's missing) and its button.
+local function chestRow(parent: Instance, order: number, name: string, title: string, sub: string, button: string, kind: string, onOpen: (() -> ())?): Frame
+	local row = box(parent, order, 58, name)
+	Ui.text({ Text = if button == "✔" then "📭" else "🧰", TextSize = 28, Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(44, 58), Parent = row })
+	Ui.text({ Text = title, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(56, 9), Size = UDim2.new(1, -160, 0, 20), Parent = row })
+	Ui.text({ Name = "Pay", Text = sub, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(56, 30), Size = UDim2.new(1, -160, 0, 17), Parent = row })
+	if button == "✔" then
+		Ui.text({ Text = "✔", TextSize = 22, TextColor3 = Color3.fromHex("#43a047"), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(84, 36), Parent = row })
+	else
+		Ui.buy({ Name = "Open", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(88, 36), Parent = row }, button, kind, onOpen, 16)
+	end
+	return row
+end
+
+-- The crew's weekly goal (web CrewGoalCard): the shared bar, how points are made, and the chest at
+-- the end; last week's chest above it while it still waits. open(week) opens a chest.
+function Crew.goal(parent: Instance, nextOrder: () -> number, goal: any, open: (string) -> ())
+	if not goal then
+		return
+	end
+	local min = goal.rules and goal.rules.minPoints or 30
+	if goal.last then
+		chestRow(parent, nextOrder(), "LastChest", "Last week's chest", chestPay(), "Open", "green", function()
+			open(goal.last.week)
+		end)
+	end
+	local w = goal.current
+	if not w then
+		return
+	end
+	local card = box(parent, nextOrder(), 84, "CrewGoal")
+	Ui.text({ Text = "🧰 Crew goal", Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 8), Size = UDim2.new(0.6, 0, 0, 20), Parent = card })
+	Ui.text({ Name = "Left", Text = `⏱ {left(goal.left or 0)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 9), Size = UDim2.new(0.4, -12, 0, 18), Parent = card })
+	local bar = Ui.new("Frame", { Name = "Bar", Position = UDim2.fromOffset(12, 34), Size = UDim2.new(1, -24, 0, 16), BackgroundColor3 = Color3.fromHex("#e3e8ef"), Parent = card }, { Ui.corner(8) })
+	local pct = math.clamp(w.points / math.max(1, w.target), 0, 1)
+	Ui.new("Frame", { Name = "Fill", Size = UDim2.fromScale(pct, 1), Visible = pct > 0, BackgroundColor3 = if w.reached then Color3.fromHex("#43a047") else Color3.fromHex("#ffa726"), Parent = bar }, { Ui.corner(8) })
+	Ui.text({ Name = "Points", Text = `{Ui.commas(w.points)} / {Ui.commas(w.target)}`, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 56), Size = UDim2.new(0.5, -12, 0, 18), Parent = card })
+	Ui.text({ Text = `🍕 +{data.CREW_POINTS.job} a job · 🏁 +{data.CREW_POINTS.race} a race`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 57), Size = UDim2.new(0.5, 0, 0, 17), Parent = card })
+	local ready = w.reached and not w.opened and w.mine >= min
+	local sub = if w.mine < min and not w.opened then `Add {min - w.mine} more points to earn yours` else chestPay()
+	local button = if w.opened then "✔" elseif ready then "Open" else "🔒"
+	chestRow(parent, nextOrder(), "Chest", "Crew chest", sub, button, if ready then "green" else "broke", function()
+		if ready then
+			open(w.week)
+		end
+	end)
+end
+
 local function label(parent: Instance, text: string, y: number)
 	Ui.text({ Text = text, Body = true, Weight = "heavy", TextSize = 14, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 18), Parent = parent })
 end
@@ -252,6 +316,9 @@ function Crew.draw(list: Instance, kit: any, state: any)
 			return order
 		end
 		local me = Players.LocalPlayer and Players.LocalPlayer.UserId or 0
+		local function openChest(week: string)
+			call("crewChest", week)
+		end
 
 		-- ── In a crew ─────────────────────────────────────────────────────────────────────────
 		if res.crew then
@@ -266,6 +333,12 @@ function Crew.draw(list: Instance, kit: any, state: any)
 			Ui.text({ Text = `{RANKS[role].icon} {RANKS[role].label} · 👥 {sum.members or 0}/{c.cap} · ⚡ {Ui.commas(sum.power or 0)} · {MODE_ICON[c.joinMode] or ""}`, Body = true, Weight = "heavy", TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, Stroke = 1.5, Position = UDim2.fromOffset(90, 42), Size = UDim2.new(1, -100, 0, 18), Parent = hero })
 			if c.motto ~= "" then
 				Ui.text({ Text = c.motto, Body = true, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Stroke = 1.5, Position = UDim2.fromOffset(90, 64), Size = UDim2.new(1, -100, 0, 18), Parent = hero })
+			end
+			Crew.goal(list, nextOrder, res.goal, openChest)
+			-- Each driver's points towards the goal this week.
+			local goalPts: { [number]: number } = {}
+			for _, g in (res.goal and res.goal.current and res.goal.current.members) or {} do
+				goalPts[g.id] = g.points
 			end
 
 			-- Join requests, for the Leader and Co-Leaders.
@@ -353,7 +426,7 @@ function Crew.draw(list: Instance, kit: any, state: any)
 					right += 48
 				end
 				Ui.text({ Text = if mine then `{m.name} (you)` else m.name, Body = true, Weight = "heavy", TextSize = 16, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(46, 8), Size = UDim2.new(1, -54 - right, 0, 20), Parent = row })
-				Ui.text({ Text = `Lvl {m.level or 1} · ⚡ {Ui.commas(m.power or 0)} · 🏁 {Ui.commas(m.wins or 0)} · 🏆 {Ui.commas(m.trophies or 0)}`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(46, 29), Size = UDim2.new(1, -54 - right, 0, 17), Parent = row })
+				Ui.text({ Text = `Lvl {m.level or 1} · ⚡ {Ui.commas(m.power or 0)} · 🏁 {Ui.commas(m.wins or 0)} · 🏆 {Ui.commas(m.trophies or 0)} · 🧰 {Ui.commas(goalPts[m.id] or 0)}`, Body = true, TextSize = 13, TextColor3 = Ui.MUTED, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(46, 29), Size = UDim2.new(1, -54 - right, 0, 17), Parent = row })
 			end
 
 			-- Settings, for the Leader and Co-Leaders.
@@ -398,6 +471,8 @@ function Crew.draw(list: Instance, kit: any, state: any)
 		end
 
 		-- ── Not in a crew ─────────────────────────────────────────────────────────────────────
+		-- (Last week's chest still opens after leaving the crew that earned it.)
+		Crew.goal(list, nextOrder, res.goal, openChest)
 		if not res.house then
 			local lock = box(list, nextOrder(), 120, "Locked")
 			Ui.text({ Text = "🔒 Crews open with a Crew House", TextSize = 19, TextColor3 = Ui.INK, Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 26), Parent = lock })
