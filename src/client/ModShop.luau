@@ -220,6 +220,12 @@ function ModShop.draw(parent: Instance, ctx: any, car: any, trying: string?, set
 			Ui.text({ Text = `🎨 Fit a {string.lower(info.name)} part to give it a mod skin.`, Body = true, TextSize = 13, TextColor3 = SOFT, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 900, Size = UDim2.new(1, -8, 0, 20), ZIndex = 3, Parent = body })
 		end
 	end
+	-- A tank's tracks take a track skin, under its Tracks (rims) slot.
+	if slot == "rims" and def.body == "tank" then
+		SkinShop.tracks(body, 901, car, if skinTry and skinTry.slot == "tracks" then skinTry.skin else nil, function(skin: SkinShop.Trying)
+			setSkinTry(if skin == nil then nil else { slot = "tracks", skin = skin })
+		end)
+	end
 	Ui.new("Frame", { LayoutOrder = 999, Size = UDim2.new(1, 0, 0, 6), BackgroundTransparency = 1, Parent = body })
 end
 

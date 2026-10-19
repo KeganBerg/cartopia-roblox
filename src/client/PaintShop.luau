@@ -11,6 +11,7 @@ local data = require(Game.data) :: any
 local mastery = require(Game.mastery) :: any
 local paintRivals = require(Game.paintRivals) :: any
 local Paint = require(ReplicatedStorage.Shared.Models.Paint)
+local ColourPicker = require(script.Parent.ColourPicker)
 local Remote = require(script.Parent.Remote)
 local Ui = require(script.Parent.Ui)
 
@@ -102,6 +103,7 @@ function PaintShop.draw(parent: Instance, ctx: any, car: any, job: Paint.Job, se
 	end
 
 	local body = Ui.scroller({ Name = "PaintShop", Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = parent })
+	Ui.keepScroll(body, `paint:{car.uid}`)
 	Ui.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = body })
 	if top then
 		top(body)
@@ -160,8 +162,7 @@ function PaintShop.draw(parent: Instance, ctx: any, car: any, job: Paint.Job, se
 				price = "DEAL " .. price
 			end
 			local function buy()
-				local ok = Remote.act("paintCar", car.uid, { color = job.color, finish = job.finish or "gloss", stripe = job.stripe or false })
-				if ok then
+				local ok = Remote.act("paintCar", car.uid, { color = job.color, finish = job.finish or "gloss", stripe = job.stripe or false })				if ok then
 					ctx.toast("Fresh paint! 🎨")
 					setJob(nil)
 				end
@@ -174,6 +175,7 @@ function PaintShop.draw(parent: Instance, ctx: any, car: any, job: Paint.Job, se
 		end
 		button.Name = "Go"
 		button.ZIndex = 3
+		Ui.sticky(bar, body)
 	end
 
 	-- Finishes: a chip of the colour in each one, its name, and its price or lock.
@@ -234,10 +236,20 @@ function PaintShop.draw(parent: Instance, ctx: any, car: any, job: Paint.Job, se
 			Ui.text({ Name = "Lock", Text = "🔒", TextSize = 11, AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 6, 1, 6), Size = UDim2.fromOffset(14, 14), ZIndex = 3, Parent = d })
 		end
 	end
+	-- Custom Colour at the end of the row: any colour, once won.
+	ColourPicker.draw(dots, #data.PAINTS + 1, body, 6, {
+		key = "paint",
+		color = job.color,
+		custom = paintBy[job.color] == nil,
+		onPick = function(c: string)
+			pick({ color = c })
+		end,
+		ctx = ctx,
+	})
 
 	-- Stripes: none, then each stripe colour shown as two bars down the car's colour.
-	header(body, 6, "Racing stripes", `${data.STRIPE_COST}`)
-	local stripes = grid(body, 7, UDim2.fromOffset(32, 32), 8)
+	header(body, 7, "Racing stripes", `${data.STRIPE_COST}`)
+	local stripes = grid(body, 8, UDim2.fromOffset(32, 32), 8)
 	for i, st in data.STRIPES do
 		local d = dot(stripes, i, if st then `stripe{i}` else "nostripe", Color3.fromHex(job.color), job.stripe == st, false, function()
 			pick({ stripe = st })
@@ -251,7 +263,7 @@ function PaintShop.draw(parent: Instance, ctx: any, car: any, job: Paint.Job, se
 			Ui.text({ Text = "∅", TextSize = 14, TextColor3 = SOFT, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = d })
 		end
 	end
-	Ui.new("Frame", { LayoutOrder = 8, Size = UDim2.new(1, 0, 0, 6), BackgroundTransparency = 1, Parent = body })
+	Ui.new("Frame", { LayoutOrder = 9, Size = UDim2.new(1, 0, 0, 6), BackgroundTransparency = 1, Parent = body })
 end
 
 return PaintShop
