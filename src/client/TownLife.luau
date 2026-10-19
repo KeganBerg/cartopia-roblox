@@ -1112,6 +1112,7 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 	local locals: { [string]: Model } = {}
 	-- Their pieces, for showing the small ones only up close (client/CarDetail).
 	local details: { [string]: CarDetail.Detail } = {}
+	local serverDetails: { [Model]: CarDetail.Detail } = setmetatable({}, { __mode = "k" }) :: any
 	local function localModel(id: string, color: string): (Model?, CarDetail.Detail?)
 		local m = Builder.build(id)
 		if not m then
@@ -1369,8 +1370,17 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 			local at = origin + Vector3.new(a.x * S, 0.02 * S, a.z * S)
 			m:PivotTo(CFrame.new(at) * CFrame.Angles(0, a.yaw, 0) * CFrame.Angles(0, 0, tilt))
 			local d = details[m.Name]
+			if not d and m.Parent == carsFolder then
+				-- The player's own cars, from the server: tracked here too, for their wheels.
+				d = serverDetails[m]
+				if not d then
+					d = CarDetail.track(m)
+					serverDetails[m] = d
+				end
+			end
 			if d and eyeAt then
 				CarDetail.lod(d, (at - eyeAt).Magnitude)
+				CarDetail.wheels(d, m:GetPivot(), dt)
 			end
 		end
 		-- The townspeople.
