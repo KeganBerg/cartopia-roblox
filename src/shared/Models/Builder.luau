@@ -39,6 +39,49 @@ end
 -- it can be tried again.
 local packState: { [number]: "loading" | "done" } = {}
 
+-- Whether a loaded mesh came in the shape it was made: its own size (MeshSize) in the same
+-- proportions as the converter recorded (Meshes.MESHES). A mesh Roblox imported turned on its side
+-- or squashed would be stretched by its part's size into long beams across the sky, so one that
+-- doesn't fit is treated as not loaded and left out. Only the countryside's meshes are checked,
+-- where a missing piece is simply not drawn (a town would show a box).
+local sceneryMeshes: { [string]: boolean }? = nil
+local function fits(d: MeshPart): boolean
+	if not sceneryMeshes then
+		local set = {}
+		for _, list in { Scenery.MODELS, RaceScenery.MODELS } do
+			for _, parts in list do
+				for _, p in parts do
+					if p[1] == "m" then
+						set[p[13]] = true
+					end
+				end
+			end
+		end
+		sceneryMeshes = set
+	end
+	if not (sceneryMeshes :: any)[d.Name] then
+		return true
+	end
+	local want = Meshes.MESHES[d.Name]
+	local ok, got = pcall(function()
+		return d.MeshSize
+	end)
+	if not want or not ok or typeof(got) ~= "Vector3" or got.Magnitude < 1e-6 then
+		return true
+	end
+	local lo, hi = math.huge, 0
+	for _, axis in { "X", "Y", "Z" } do
+		local w, g = (want.size :: any)[axis], (got :: any)[axis]
+		-- (Very thin sides are left out: the converter rounds them up.)
+		if w > 0.2 then
+			local r = math.max(g, 1e-6) / w
+			lo = math.min(lo, r)
+			hi = math.max(hi, r)
+		end
+	end
+	return hi == 0 or hi / lo < 1.5
+end
+
 -- Loads mesh packs (server only) and shares a copy of each mesh with the clients through
 -- ReplicatedStorage.MeshLibrary once that exists. Calls back after each pack.
 local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert.Priority?)
@@ -50,7 +93,7 @@ local function loadPacks(assets: { number }, each: (() -> ())?, priority: Insert
 			if model then
 				local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
 				for _, d in model:GetDescendants() do
-					if d:IsA("MeshPart") and not meshParts[d.Name] then
+					if d:IsA("MeshPart") and not meshParts[d.Name] and fits(d) then
 						meshParts[d.Name] = d
 						meshArrived()
 						if library then
@@ -138,14 +181,14 @@ function Builder.useLibrary(timeout: number?): boolean
 		return false
 	end
 	for _, d in library:GetChildren() do
-		if d:IsA("MeshPart") then
+		if d:IsA("MeshPart") and fits(d) then
 			meshParts[d.Name] = d
 		end
 	end
 	table.clear(templates)
 	-- Meshes the server loads later (a car's mods, Builder.loadFor) arrive one by one.
 	library.ChildAdded:Connect(function(d: Instance)
-		if d:IsA("MeshPart") then
+		if d:IsA("MeshPart") and fits(d) then
 			meshParts[d.Name] = d
 			meshArrived()
 		end
@@ -163,7 +206,7 @@ local function findMesh(key: string): MeshPart?
 	end
 	local library = game:GetService("ReplicatedStorage"):FindFirstChild("MeshLibrary")
 	local d = library and library:FindFirstChild(key)
-	if d and d:IsA("MeshPart") then
+	if d and d:IsA("MeshPart") and fits(d) then
 		meshParts[key] = d
 		meshArrived()
 		return d
