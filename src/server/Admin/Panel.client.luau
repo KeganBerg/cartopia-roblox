@@ -22,6 +22,7 @@ local TownWeather = require(Client:WaitForChild("TownWeather")) :: any
 local TownCamera = require(Client:WaitForChild("TownCamera")) :: any
 local GetIn = require(Client:WaitForChild("GetIn")) :: any
 local Visitors = require(Client:WaitForChild("Visitors")) :: any
+local SeasonLook = require(Client:WaitForChild("SeasonLook")) :: any
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Game = Shared:WaitForChild("Game")
 local clock = require(Game:WaitForChild("clock")) :: any
@@ -59,6 +60,9 @@ local WHY = {
 	["bad amount"] = "That amount won't work.",
 	["no such car"] = "No car by that name.",
 	["nowhere"] = "Can't go there.",
+	["empty"] = "Write the banner's message first.",
+	["bad weather"] = "Pick a weather.",
+	["not allowed words"] = "Roblox's filter won't let that message be shown.",
 }
 local function call(op: string, ...: any): (boolean, any)
 	local sent, ok, result = pcall(remote.InvokeServer, remote, op, ...)
@@ -341,6 +345,7 @@ local PAGES = {
 	{ id = "world", label = "World" },
 	{ id = "move", label = "Move" },
 	{ id = "people", label = "Players" },
+	{ id = "live", label = "Live" },
 }
 
 local FIELDS = {
@@ -436,6 +441,7 @@ end
 local function setSeason(name: string?)
 	season.SEASON = name or realSeason.scene
 	Catalog.SEASON = name or realSeason.catalog
+	SeasonLook.set(name)
 end
 
 local function pageWorld(list: Instance, _redraw: () -> ())
@@ -460,7 +466,7 @@ local function pageWorld(list: Instance, _redraw: () -> ())
 	for _, s in { "winter", "spring", "summer", "fall" } do
 		button(r3, s:sub(1, 1):upper() .. s:sub(2), 84, "garage", function()
 			setSeason(s)
-			say(`Season: {s}. Buildings and trees keep their look; light, sky, music and people change.`)
+			say(`Season: {s}. The lawn and greenery change; snow on trees and bare winter branches need a model rebuild.`)
 		end)
 	end
 	button(r3, "Real", 64, "green", function()
@@ -636,7 +642,149 @@ local function pagePeople(list: Instance, redraw: () -> ())
 	end)
 end
 
-local BUILD = { money = pageMoney, items = pageItems, world = pageWorld, move = pageMove, people = pagePeople }
+
+-- ---------- Live events: for every player in every server (server/LiveEvents), as the web's
+-- Admin.tsx LiveTab ----------
+local KINDS = {
+	{ id = "night", icon = "🌙", label = "Night" },
+	{ id = "day", icon = "☀️", label = "Day" },
+	{ id = "rave", icon = "🎧", label = "Rave" },
+	{ id = "weather", icon = "🌦️", label = "Weather" },
+	{ id = "banner", icon = "📢", label = "Banner" },
+}
+local KIND_ICON: { [string]: string } = {}
+for _, k in KINDS do
+	KIND_ICON[k.id] = k.icon
+end
+local SKIES = {
+	{ "clear", "☀️" }, { "rain", "🌧️" }, { "storm", "⛈️" }, { "drizzle", "🌦️" }, { "fog", "🌫️" },
+	{ "wind", "💨" }, { "snow", "🌨️" }, { "blizzard", "❄️" }, { "mist", "🌁" }, { "heat", "🥵" },
+}
+local MINUTES = { 5, 15, 30, 60, 120 }
+local liveKind, liveMins, liveSky, liveMsg = "night", 15, "rain", ""
+
+-- Admin.tsx clock(): h:mm:ss or m:ss.
+local function left(ms: number): string
+	local sec = math.max(0, math.ceil(ms / 1000))
+	local h, m, ss = sec // 3600, (sec % 3600) // 60, sec % 60
+	return if h > 0 then string.format("%d:%02d:%02d", h, m, ss) else string.format("%d:%02d", m, ss)
+end
+
+local function pageLive(list: Instance, redraw: () -> ())
+	local ok, got = call("live")
+	local events = if ok and type(got) == "table" and type(got.list) == "table" then got.list else {}
+	-- The server's clock to this device's.
+	local skew = if ok and type(got) == "table" and type(got.now) == "number" then DateTime.now().UnixTimestampMillis - got.now else 0
+	local now = DateTime.now().UnixTimestampMillis - skew
+	local running = {}
+	for _, e in events do
+		if e.from <= now and now < e.to then
+			table.insert(running, e)
+		end
+	end
+	heading(list, "Running now (every server)", 1)
+	local timers: { [TextLabel]: number } = {}
+	if #running == 0 then
+		label(row(list, 2), "Nothing live right now.", 400)
+	end
+	for i, e in running do
+		local r = row(list, 1 + i)
+		local sky = if type(e.payload) == "table" and type(e.payload.kind) == "string" then ` · {e.payload.kind}` else ""
+		label(r, `{KIND_ICON[e.kind] or "✨"} {e.kind}{sky}`, 200)
+		local t = label(r, "⏱ " .. left(e.to - now), 110)
+		timers[t] = e.to
+		button(r, "⏹ End", 90, "broke", function()
+			local done, n = call("liveEnd", e.kind)
+			if done then
+				say(`⏹ Ended {n or 0}`)
+				redraw()
+			end
+		end)
+	end
+	if #running > 1 then
+		careful(row(list, 20), "⏹ End all", 140, function()
+			local done, n = call("liveEnd", nil)
+			if done then
+				say(`⏹ Ended {n or 0}`)
+				redraw()
+			end
+		end)
+	end
+	task.spawn(function()
+		while list.Parent do
+			task.wait(1)
+			local at = DateTime.now().UnixTimestampMillis - skew
+			for l, to in timers do
+				l.Text = "⏱ " .. left(to - at)
+			end
+		end
+	end)
+
+	heading(list, "Start for everyone", 21)
+	local kr = row(list, 22)
+	for _, k in KINDS do
+		local on = false
+		for _, e in running do
+			on = on or e.kind == k.id
+		end
+		button(kr, `{k.icon} {k.label}{if on then " ●" else ""}`, 98, if k.id == liveKind then "green" else "garage", function()
+			liveKind = k.id
+			redraw()
+		end)
+	end
+	if liveKind == "weather" then
+		local w1, w2 = row(list, 23), row(list, 24)
+		for i, w in SKIES do
+			button(if i <= 5 then w1 else w2, w[2], 52, if w[1] == liveSky then "green" else "garage", function()
+				liveSky = w[1]
+				redraw()
+			end)
+		end
+	end
+	local mr = row(list, 25)
+	for _, m in MINUTES do
+		button(mr, `⏱ {if m < 60 then `{m}m` else `{m // 60}h`}`, 84, if m == liveMins then "green" else "garage", function()
+			liveMins = m
+			redraw()
+		end)
+	end
+	local br = row(list, 26)
+	local needsMsg = liveKind == "banner"
+	local msgBox = box(br, if needsMsg then "📢 Message" else "💬 Toast (optional)", 500)
+	msgBox.Text = liveMsg
+	msgBox:GetPropertyChangedSignal("Text"):Connect(function()
+		if #msgBox.Text > 120 then
+			msgBox.Text = string.sub(msgBox.Text, 1, 120)
+		end
+		liveMsg = msgBox.Text
+	end)
+	local label_ = ""
+	for _, k in KINDS do
+		if k.id == liveKind then
+			label_ = k.label
+		end
+	end
+	careful(row(list, 27), `▶ Start {label_} · {liveMins} min`, 260, function()
+		if needsMsg and not liveMsg:match("%S") then
+			say("Write the banner's message first.")
+			return
+		end
+		local payload: { [string]: any } = {}
+		if liveMsg:match("%S") then
+			payload.message = liveMsg
+		end
+		if liveKind == "weather" then
+			payload.kind = liveSky
+		end
+		if call("liveStart", liveKind, liveMins, payload) then
+			liveMsg = ""
+			say(`{KIND_ICON[liveKind]} Live for {liveMins} min`)
+			redraw()
+		end
+	end)
+end
+
+local BUILD = { money = pageMoney, items = pageItems, world = pageWorld, move = pageMove, people = pagePeople, live = pageLive }
 
 -- ---------- The panel ----------
 local page = "money"
@@ -695,7 +843,7 @@ local function show()
 		Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	for i, p in PAGES do
-		button(tabs, p.label, 92, if p.id == page then "green" else "grey", function()
+		button(tabs, p.label, 84, if p.id == page then "green" else "grey", function()
 			page = p.id
 			show()
 		end, i)

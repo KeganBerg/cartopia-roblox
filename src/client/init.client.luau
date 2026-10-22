@@ -13,6 +13,8 @@ require(script.Prefs)
 require(script.DayNight).start()
 require(script.TownCamera).start()
 require(script.Remote)
+-- The town's lawn and greenery in the real date's season (the models are built for one).
+require(script.SeasonLook).start()
 require(script.Countryside).start()
 require(script.Horizon).start()
 require(script.SkyExtras).start()
@@ -34,5 +36,7 @@ require(script.Hud).start()
 -- The town's weather and Rave Mode, over what DayNight and the HUD draw.
 require(script.TownWeather).start()
 require(script.Rave).start()
+-- Live events from the owner's admin panel: night, day, weather and rave for everyone, and the banner.
+require(script.LiveBanner).start()
 require(script.RescueBadge).start()
 require(script.Sounds).start()

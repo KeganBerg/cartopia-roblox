@@ -989,6 +989,28 @@ local hud = emu.require(client.Hud).start()
 -- stands in for the owner (ADMIN_ONLY=1 checks just this); every page is opened and every button pressed, and SHOTS=1 pictures
 -- each page (build/shot-admin-<page>-gui.json).
 local function adminCheck()
+	-- Live events (server/LiveEvents) for the admin panel's Live page: no DataStore or MessagingService
+	-- here, so this server's own list, shown through Workspace's LiveEvents attribute as JSON.
+	local liveDesk = emu.require(SSS.Server.LiveEvents).new({
+		-- The server's clock, as players see it (GetServerTimeNow).
+		now = function()
+			return game:GetService("Workspace"):GetServerTimeNow() * 1000
+		end,
+		random = math.random,
+		update = function()
+			return nil
+		end,
+		read = function()
+			return nil
+		end,
+		publish = function() end,
+		show = function(list)
+			game:GetService("Workspace"):SetAttribute("LiveEvents", require("@lune/serde").encode("json", list))
+		end,
+		filter = function(_, text)
+			return text
+		end,
+	})
 	local fs = require("@lune/fs")
 	local serde = require("@lune/serde")
 	local Gui = require("./gui")
@@ -1021,6 +1043,7 @@ local function adminCheck()
 		rave = function()
 			return true, nil
 		end,
+		live = liveDesk,
 		stats = function()
 			return { memoryMb = 900, physicsFps = 60, heartbeatMs = 2, uptime = 600, players = 1, instances = 40000, version = 1, job = "emu" }
 		end,
@@ -1074,7 +1097,7 @@ local function adminCheck()
 	end
 	press(find(holder, "AdminButton"))
 	assert(find(holder, "Panel"), "the admin panel didn't open")
-	local pages = { "Money", "Cars", "World", "Move", "Players" }
+	local pages = { "Money", "Cars", "World", "Move", "Players", "Live" }
 	for _, name in pages do
 		-- The page's tab: a button whose label says its name.
 		local tabs = find(holder, "Pages")
@@ -1441,7 +1464,7 @@ do
 end
 print(`{total} buttons pressed, {bad} problems, {silent} not wired`)
 
-local fs = require("@lune/fs")
+	local fs = require("@lune/fs")
 local serde = require("@lune/serde")
 local Gui = require("./gui")
 -- SHOTS_ONLY=tools-: only the pictures whose names start with it, without the real models (quick
@@ -6668,5 +6691,100 @@ do
 	Emu.resumeWaits()
 	hud.ctx.toast = toastWas
 	print(`help, settings and town tools: {problems} problems`)
+	bad += problems
+end
+
+-- Live events and the season's look (client/LiveBanner, client/SeasonLook): the owner starts a
+-- banner from the admin panel's server side, every player's screen pins it under the top bar and
+-- toasts it once; ending it takes it away. Then the town's greenery is shown in each season and
+-- back in the real one.
+do
+	local problems = 0
+	local function problem(msg)
+		problems += 1
+		print("PROBLEM live/season: " .. msg)
+	end
+	pcall(roblox.implementMethod, "HttpService", "JSONDecode", function(_, s)
+		return serde.decode("json", s)
+	end)
+	local ws = game:GetService("Workspace")
+	local LiveBanner = emu.require(client.LiveBanner)
+	LiveBanner.start()
+	Emu.resumeWaits()
+	local ok, id = adminCall("liveStart", "banner", 15, { message = "Grand opening on Main Street tonight!" })
+	if not ok then
+		problem(`the owner couldn't start a banner ({tostring(id)})`)
+	end
+	-- Attribute change signals never fire here: hand the change over as Roblox would.
+	local hudGui = player.PlayerGui:FindFirstChild("Cartopia")
+	local function bannerShown()
+		return hudGui and hudGui:FindFirstChild("LiveBanner", true)
+	end
+	LiveBanner._refresh()
+	Emu.resumeWaits()
+	local b = bannerShown()
+	if not b then
+		problem("the banner didn't show")
+	else
+		local msg = b:FindFirstChild("Message", true)
+		if not msg or msg.Text ~= "Grand opening on Main Street tonight!" then
+			problem("the banner's message is wrong")
+		end
+		if b.Size.X.Offset > 560 or b.Size.X.Offset < 100 then
+			problem(`the banner is {b.Size.X.Offset} wide`)
+		end
+		print(`live banner: shown, {b.Size.X.Offset}x{b.Size.Y.Offset}`)
+	end
+	if SHOTS then
+		local fs = require("@lune/fs")
+		local Gui = require("./gui")
+		fs.writeFile("build/shot-live-banner-gui.json", serde.encode("json", { nodes = Gui.dump(hudGui, 1280, 800), bubbles = {} }))
+	end
+	-- A long one wraps, still within the web's 560.
+	adminCall("liveStart", "banner", 5, { message = string.rep("Big race at the speedway! ", 5) })
+	LiveBanner._refresh()
+	b = bannerShown()
+	if not b or b.Size.X.Offset > 560 or b.Size.Y.Offset < 50 then
+		problem("a long banner didn't wrap inside 560")
+	end
+	-- Someone else can't, and ending it takes it down.
+	local Admin = emu.require(SSS.Server.Admin)
+	local stranger = { UserId = 999 }
+	local refused = Admin.new({ live = {}, now = function()
+		return NOW
+	end }):run(stranger, "liveStart", "banner", 15, { message = "Hi" })
+	if refused then
+		problem("someone who isn't the owner started a live event")
+	end
+	adminCall("liveEnd", nil)
+	LiveBanner._refresh()
+	Emu.resumeWaits()
+	if bannerShown() then
+		problem("the banner stayed after it ended")
+	end
+	-- The weather and night kinds reach the converted game code the town follows.
+	adminCall("liveStart", "night", 15, {})
+	LiveBanner._refresh()
+	local live = emu.require(RS.Shared.Game.liveEvents)
+	if not live.activeEvent({ "night" }) then
+		problem("a live night didn't reach game/liveEvents")
+	end
+	adminCall("liveEnd", nil)
+	LiveBanner._refresh()
+
+	-- The season's look: every season, then the real one, without errors.
+	local SeasonLook = emu.require(client.SeasonLook)
+	local ran, err = pcall(function()
+		SeasonLook.start()
+		Emu.resumeWaits()
+		for _, name in { "winter", "spring", "summer", "fall" } do
+			SeasonLook.set(name)
+		end
+		SeasonLook.set(nil)
+	end)
+	if not ran then
+		problem(`the season look failed: {err}`)
+	end
+	print(`live events and season look: {problems} problems`)
 	bad += problems
 end
