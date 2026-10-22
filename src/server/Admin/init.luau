@@ -17,6 +17,9 @@
 --     "crate"  target, count         free Gold Crates waiting in their Crate Depot
 --     "visitor" target               the next visitor may come now
 --     "rave"                         Rave Mode for everyone, as the DJ's button
+--     "liveStart" kind, minutes, payload  a live event in every server (server/LiveEvents)
+--     "liveEnd"   kind or nil            ends the running live events of that kind, or all
+--     "live"                         the live events running now (server clock, ms)
 --     "tp"     target, kind, value   moves target to the hub, a plot, or another player
 --     "inspect" target               their save, summed up
 --     "reset"  target, "RESET"       a brand new town in place of theirs (saved at once)
@@ -57,6 +60,8 @@ export type Mods = {
 	plots: number,
 	-- Starts Rave Mode as the admin's press of the DJ button would.
 	rave: (player: any) -> (boolean, string?),
+	-- Live events for every server (server/LiveEvents).
+	live: any,
 	-- The server's own numbers for the debug view.
 	stats: () -> { [string]: any },
 	now: () -> number,
@@ -135,6 +140,23 @@ function Admin.run(self: Admin, caller: any, op: any, target: any, a: any, b: an
 		return true, { players = list, cars = cars, plots = m.plots, server = m.stats() }
 	elseif op == "rave" then
 		return m.rave(caller)
+	elseif op == "liveStart" or op == "liveEnd" or op == "live" then
+		if not m.live then
+			return false, "unknown"
+		end
+		if op == "live" then
+			return true, { list = m.live:current(), now = m.live.mods.now() }
+		end
+		local result, why
+		if op == "liveStart" then
+			result, why = m.live:start(caller.UserId, target, a, b)
+		else
+			result, why = m.live:finish(target)
+		end
+		if result == nil then
+			return false, why
+		end
+		return true, result
 	end
 
 	-- Everything else is done to one player in this server, whose town is open.

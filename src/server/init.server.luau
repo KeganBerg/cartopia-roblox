@@ -89,6 +89,7 @@ local GetIn = require(script.GetIn)
 local Visitors = require(script.Visitors)
 local Admin = require(script.Admin)
 local Rave = require(script.Rave)
+local LiveEvents = require(script.LiveEvents)
 
 local AUTOSAVE = 5 * 60 -- seconds; well inside Saves.LOCK_TTL
 local TICK = 1 -- seconds between town clock ticks, as on the web
@@ -401,6 +402,8 @@ prefsRemote.Name = "Prefs"
 prefsRemote.Parent = remotes
 -- Rave Mode's button (the DJ only), shared with every server.
 Rave.start(remotes)
+-- Live events (night, day, rave, weather, banner) the owner starts from the admin panel, in every server.
+local live = LiveEvents.roblox()
 remotes.Parent = ReplicatedStorage
 Prefs.start(DataStoreService:GetDataStore("Prefs_v1"), prefsRemote, Players)
 GetIn.start(towns)
@@ -2094,6 +2097,7 @@ local admin = Admin.new({
 	rave = function(player: any): (boolean, string?)
 		return Rave.go(player)
 	end,
+	live = live,
 	stats = function(): { [string]: any }
 		local Stats = game:GetService("Stats")
 		return {
