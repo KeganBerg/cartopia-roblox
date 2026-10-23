@@ -2002,24 +2002,6 @@ if SHOTS then
 	local kaiRow = hud.gui:FindFirstChild("Kai", true)
 	assert(kaiRow and kaiRow:FindFirstChild("CrewTag"), "Kai's leaderboard row has no crew tag")
 	shot("panel-leaders", nil)
-	-- The Crews board: a crew of Rosa's ranked by its members combined.
-	if not crewDesk:mineId(2) then
-		crewDesk:create(2, { name = "Rosa", town = "Rosaville", level = 9, power = 420, wins = 3, trophies = 5 }, { name = "Road Hogs", tag = "HOG", emblem = emu.require(G.data).CLAN_EMBLEMS[1], color = emu.require(G.data).CLAN_COLORS[1], motto = "", minLevel = 1, joinMode = "open" })
-	end
-	local crewsSwitch = hud.gui:FindFirstChild("crews", true)
-	assert(crewsSwitch, "no Crews switch on the leaderboard")
-	signalFor(if crewsSwitch:IsA("GuiButton") then crewsSwitch else crewsSwitch:FindFirstChildWhichIsA("GuiButton", true), "Activated"):Fire()
-	local hogs = hud.gui:FindFirstChild("Road Hogs", true)
-	assert(hogs and hogs:FindFirstChild("Crest"), "the Crews board doesn't show Road Hogs with its crest")
-	local hogLine = false
-	for _, d in hogs:GetDescendants() do
-		if d:IsA("TextLabel") and string.find(d.Text, "420", 1, true) and string.find(d.Text, "[HOG]", 1, true) then
-			hogLine = true
-		end
-	end
-	assert(hogLine, "Road Hogs' row doesn't show its power and tag")
-	print("leaders: crews board")
-	crewDesk:leave(2)
 	hud.ctx.close()
 	-- The Car Meet tab: your display, then Rosa's and Kai's; like Rosa's.
 	hud.openPanel("friends", "meet")
@@ -6884,5 +6866,50 @@ do
 		problem(`the season pieces failed: {err2}`)
 	end
 	print(`live events and season look: {problems} problems`)
+	bad += problems
+end
+
+-- The Leaderboards' Crews board: a crew ranked by its members combined, with its crest and tag.
+do
+	local problems = 0
+	local function problem(msg)
+		problems += 1
+		print("PROBLEM crews board: " .. msg)
+	end
+	local ok, err = pcall(function()
+		local data = emu.require(G.data)
+		local id = crewDesk:create(77, { name = "Hog", town = "Hogville", level = 9, power = 4242, wins = 3, trophies = 5 }, { name = "Road Hogs", tag = "HOG", emblem = data.CLAN_EMBLEMS[1], color = data.CLAN_COLORS[1], motto = "", minLevel = 1, joinMode = "open" })
+		if not id then
+			problem("couldn't start the test crew")
+		end
+		hud.ctx.close()
+		hud.openPanel("friends", "leaders")
+		local switch = hud.gui:FindFirstChild("crews", true)
+		if not switch then
+			problem("no Crews switch on the leaderboard")
+			return
+		end
+		signalFor(if switch:IsA("GuiButton") then switch else switch:FindFirstChildWhichIsA("GuiButton", true), "Activated"):Fire()
+		local hogs = hud.gui:FindFirstChild("Road Hogs", true)
+		if not (hogs and hogs:FindFirstChild("Crest")) then
+			problem("Road Hogs isn't on the Crews board with its crest")
+			return
+		end
+		local line = false
+		for _, d in hogs:GetDescendants() do
+			if d:IsA("TextLabel") and string.find(d.Text, "4,242", 1, true) and string.find(d.Text, "[HOG]", 1, true) then
+				line = true
+			end
+		end
+		if not line then
+			problem("Road Hogs' row doesn't show its power and tag")
+		end
+		hud.ctx.close()
+		crewDesk:leave(77)
+	end)
+	if not ok then
+		problem(`failed: {err}`)
+	end
+	print(`crews board: {problems} problems`)
 	bad += problems
 end
