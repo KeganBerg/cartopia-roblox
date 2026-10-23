@@ -30,7 +30,7 @@ Crews.MODES = { open = true, request = true, closed = true }
 Crews.RANKS = { leader = 0, co_leader = 1, member = 2 }
 local STORE = "Crews_v1"
 
-export type Member = { role: string, at: number, name: string, town: string?, level: number, power: number, wins: number, trophies: number }
+export type Member = { role: string, at: number, name: string, town: string?, level: number, power: number, wins: number, trophies: number, wk: string?, base: any? }
 export type Crew = {
 	id: string,
 	name: string,
@@ -58,6 +58,8 @@ export type Mods = {
 	-- The emblems and colours a crew can pick (data.CLAN_EMBLEMS, data.CLAN_COLORS).
 	emblems: { string },
 	colors: { string },
+	-- This week's key ("2026-W42", data.weekKey), for the crews board's weekly gains (nil: none).
+	week: (() -> string)?,
 }
 
 export type Crews = typeof(setmetatable(
@@ -124,13 +126,23 @@ local function count(t: { [any]: any }): number
 end
 
 -- The crew's line in the browser: its look, members and totals.
-function Crews.summary(c: Crew): any
+-- week: this week's key; members' gains since they were first seen in it are added up as the
+-- week's (the web's clan_leaderboard week_* columns).
+function Crews.summary(c: Crew, week: string?): any
 	local power, wins, trophies, levels = 0, 0, 0, 0
+	local wPower, wWins, wTrophies, wLevels = 0, 0, 0, 0
 	for _, m in c.members do
 		power += m.power or 0
 		wins += m.wins or 0
 		trophies += m.trophies or 0
 		levels += m.level or 0
+		local base = m.base
+		if week and m.wk == week and type(base) == "table" then
+			wPower += math.max(0, (m.power or 0) - (base.power or 0))
+			wWins += math.max(0, (m.wins or 0) - (base.wins or 0))
+			wTrophies += math.max(0, (m.trophies or 0) - (base.trophies or 0))
+			wLevels += math.max(0, (m.level or 0) - (base.level or 0))
+		end
 	end
 	return {
 		id = c.id,
@@ -147,6 +159,8 @@ function Crews.summary(c: Crew): any
 		wins = wins,
 		trophies = trophies,
 		levels = levels,
+		wk = week,
+		week = { power = wPower, wins = wWins, trophies = wTrophies, levels = wLevels },
 		-- When a member last played (crew battles only match crews still playing).
 		seen = (c :: any).seen or c.at,
 	}
@@ -156,7 +170,7 @@ end
 function Crews._list(self: Crews, id: string, c: Crew?)
 	self:_update("list", function(old: any): any
 		local list = if type(old) == "table" then old else {}
-		list[id] = if c then Crews.summary(c) else nil
+		list[id] = if c then Crews.summary(c, self.mods.week and self.mods.week()) else nil
 		return list
 	end)
 end
@@ -206,7 +220,7 @@ function Crews.mine(self: Crews, userId: number): any?
 		end)
 		return nil
 	end
-	return { crew = c, role = me.role, summary = Crews.summary(c) }
+	return { crew = c, role = me.role, summary = Crews.summary(c, self.mods.week and self.mods.week()) }
 end
 
 -- The crews a player has asked to join.
@@ -724,7 +738,13 @@ function Crews.touch(self: Crews, userId: number, who: Who)
 		-- (Seen is kept to the day, so a save doesn't always mean a write.)
 		local now = self.mods.clock()
 		local stale = (c.seen or c.at or 0) < now - 86400
-		if not stale and m.name == who.name and m.town == who.town and m.level == who.level and m.power == who.power and m.wins == who.wins and m.trophies == who.trophies then
+		-- Their numbers when first seen this week, for the week's gains.
+		local wk = self.mods.week and self.mods.week()
+		local newWeek = wk ~= nil and m.wk ~= wk
+		if newWeek then
+			m.wk, m.base = wk, { power = who.power, wins = who.wins, trophies = who.trophies, level = who.level }
+		end
+		if not stale and not newWeek and m.name == who.name and m.town == who.town and m.level == who.level and m.power == who.power and m.wins == who.wins and m.trophies == who.trophies then
 			return nil
 		end
 		m.name, m.town, m.level, m.power, m.wins, m.trophies = who.name, who.town, who.level, who.power, who.wins, who.trophies

@@ -349,7 +349,9 @@ function Friends.open(ctx: any, arg: any?): Instance
 		shown = id
 		clear()
 		if id == "leaders" then
-			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit, card = card }, leaderState)
+			Leaders.draw(list, { row = row, heading = heading, note = note, visit = visit, card = card, tab = function(to: string)
+				pick(to)
+			end }, leaderState)
 		elseif id == "meet" then
 			MeetTab.draw(list, { note = note, visit = visit, card = card, toast = ctx.toast }, meetState)
 		elseif id == "clan" then

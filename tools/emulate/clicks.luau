@@ -709,6 +709,9 @@ local function socialDesk(op, arg)
 			for _, r in rows do
 				r.here = r.id == 2
 			end
+			if arg.scope == "crews" then
+				return { crews = Leaders.crews(crewDesk:browse(), arg.metric, arg.period, "2026-W42"), myCrew = crewDesk:mineId(1) }, nil
+			end
 			return { rows = rows, mine = mine }, nil
 		elseif op == "meet" then
 			local out = {}
@@ -1999,6 +2002,24 @@ if SHOTS then
 	local kaiRow = hud.gui:FindFirstChild("Kai", true)
 	assert(kaiRow and kaiRow:FindFirstChild("CrewTag"), "Kai's leaderboard row has no crew tag")
 	shot("panel-leaders", nil)
+	-- The Crews board: a crew of Rosa's ranked by its members combined.
+	if not crewDesk:mineId(2) then
+		crewDesk:create(2, { name = "Rosa", town = "Rosaville", level = 9, power = 420, wins = 3, trophies = 5 }, { name = "Road Hogs", tag = "HOG", emblem = emu.require(G.data).CLAN_EMBLEMS[1], color = emu.require(G.data).CLAN_COLORS[1], motto = "", minLevel = 1, joinMode = "open" })
+	end
+	local crewsSwitch = hud.gui:FindFirstChild("crews", true)
+	assert(crewsSwitch, "no Crews switch on the leaderboard")
+	signalFor(if crewsSwitch:IsA("GuiButton") then crewsSwitch else crewsSwitch:FindFirstChildWhichIsA("GuiButton", true), "Activated"):Fire()
+	local hogs = hud.gui:FindFirstChild("Road Hogs", true)
+	assert(hogs and hogs:FindFirstChild("Crest"), "the Crews board doesn't show Road Hogs with its crest")
+	local hogLine = false
+	for _, d in hogs:GetDescendants() do
+		if d:IsA("TextLabel") and string.find(d.Text, "420", 1, true) and string.find(d.Text, "[HOG]", 1, true) then
+			hogLine = true
+		end
+	end
+	assert(hogLine, "Road Hogs' row doesn't show its power and tag")
+	print("leaders: crews board")
+	crewDesk:leave(2)
 	hud.ctx.close()
 	-- The Car Meet tab: your display, then Rosa's and Kai's; like Rosa's.
 	hud.openPanel("friends", "meet")

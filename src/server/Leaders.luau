@@ -227,6 +227,35 @@ function Leaders.board(self: Leaders, metric: string, period: string, me: number
 	return rows, mine
 end
 
+-- The crews board (the web's Crews scope, its clan_leaderboard view): crews ranked by their members'
+-- numbers added up, all time or gained this week, best first, the top 50. list: Crews:browse()'s
+-- lines; week: this week's key (a line summed in another week counts nothing this week).
+local CREW_FIELD = { power = "power", race_wins = "wins", trophies = "trophies", level = "levels" }
+function Leaders.crews(list: { any }, metric: string, period: string, week: string): { any }
+	local field = CREW_FIELD[metric]
+	assert(field, `no board {metric}`)
+	local out = {}
+	for _, c in list do
+		local value = if period == "week"
+			then (if c.wk == week and type(c.week) == "table" then tonumber(c.week[field]) or 0 else 0)
+			else tonumber(c[field]) or 0
+		table.insert(out, { id = c.id, name = c.name, tag = c.tag, emblem = c.emblem, color = c.color, members = c.members or 0, cap = c.cap, value = value })
+	end
+	table.sort(out, function(a, b)
+		if a.value ~= b.value then
+			return a.value > b.value
+		end
+		return a.name < b.name
+	end)
+	while #out > TOP do
+		table.remove(out)
+	end
+	for i, c in out do
+		c.place = i
+	end
+	return out
+end
+
 -- Forgets the cached boards (after a write the asker should see at once, in tests).
 function Leaders.refresh(self: Leaders)
 	self.cache = {}

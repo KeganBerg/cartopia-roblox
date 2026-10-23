@@ -1,7 +1,8 @@
 --!strict
 -- The Social menu's Leaderboards tab, as the web game's LeadersPanel (ui/Social.tsx): Power, Wins,
 -- Trophies or Level, all time or gained this week, best first (server/Leaders). Players in this
--- server can be visited from their row; your own row is always shown.
+-- server can be visited from their row; your own row is always shown. The Crews switch ranks crews
+-- by their members' numbers added up instead (web scope "clans", the clan_leaderboard view).
 
 local Players = game:GetService("Players")
 
@@ -38,11 +39,45 @@ local function n(v: number): string
 	return (out:gsub("^,", ""))
 end
 
+-- The Crews board's rows: crest, name, [TAG] · members, and the crews' numbers added up.
+function Leaders._crews(list: Instance, kit: any, board: any, icon: string, plus: string)
+	local rows = board.crews or {}
+	if #rows == 0 then
+		kit.note(list, 4, "No crews yet.")
+		if kit.tab then
+			Ui.buy({ Name = "StartCrew", LayoutOrder = 5, Size = UDim2.new(1, 0, 0, 40), Parent = list }, "Start the first one", "green", function()
+				kit.tab("clan")
+			end, 15)
+		end
+		return
+	end
+	for i, c in rows do
+		local mine = c.id == board.myCrew
+		local name = c.name .. (if mine then " (yours)" else "")
+		local place = MEDALS[i] or ("#" .. i)
+		local r = kit.row(list, 4 + i, {
+			name = name,
+			on = mine,
+			line = `{place} · {icon} {plus}{n(c.value)} · [{c.tag}] · {c.members}/{c.cap or 20} members`,
+			buttons = {},
+		})
+		if r then
+			-- The crew's crest where a player's picture goes.
+			local a = r:FindFirstChild("Avatar")
+			if a then
+				a:Destroy()
+			end
+			Crew.crest(r, c, 34, UDim2.new(0, 10, 0.5, -17))
+		end
+	end
+end
+
 -- Draws the tab into list (a scrolling list with a UIListLayout). kit: the Friends panel's row,
 -- heading and note, visit(userId) and card(userId, name, town).
 function Leaders.draw(list: Instance, kit: any, state: any)
 	state.metric = state.metric or "power"
 	state.period = state.period or "all"
+	state.scope = state.scope or "players"
 	local function redraw()
 		for _, c in list:GetChildren() do
 			if c:IsA("GuiObject") then
@@ -53,7 +88,7 @@ function Leaders.draw(list: Instance, kit: any, state: any)
 	end
 
 	-- The switches: what the board counts, and all time or this week.
-	local controls = Ui.new("Frame", { Name = "Controls", LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 84), BackgroundTransparency = 1, Parent = list })
+	local controls = Ui.new("Frame", { Name = "Controls", LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 124), BackgroundTransparency = 1, Parent = list })
 	local w = 1 / #METRICS
 	for i, m in METRICS do
 		local on = m.id == state.metric
@@ -73,15 +108,26 @@ function Leaders.draw(list: Instance, kit: any, state: any)
 			end
 		end, 15)
 	end
+	-- Players or crews (web: "Ranked by members combined").
+	for i, p in { { id = "players", label = "Players" }, { id = "crews", label = "Crews" } } do
+		local on = p.id == state.scope
+		Ui.buy({ Name = p.id, Position = UDim2.new(0.5 * (i - 1), 2, 0, 86), Size = UDim2.new(0.5, -4, 0, 36), Parent = controls }, p.label, if on then "green" else "garage", function()
+			if state.scope ~= p.id then
+				state.scope = p.id
+				redraw()
+			end
+		end, 15)
+	end
 	if state.period == "week" then
 		kit.note(list, 2, `⏳ Gains since Monday. Resets in {resetsIn()}.`)
 	end
-	local loading = Ui.text({ Name = "Loading", Text = "Loading the leaderboard…", Body = true, TextSize = 15, TextColor3 = Ui.MUTED, LayoutOrder = 3, Size = UDim2.new(1, 0, 0, 40), Parent = list })
+	local crewsOn = state.scope == "crews"
+	local loading = Ui.text({ Name = "Loading", Text = if crewsOn then "Loading crew rankings…" else "Loading the leaderboard…", Body = true, TextSize = 15, TextColor3 = Ui.MUTED, LayoutOrder = 3, Size = UDim2.new(1, 0, 0, 40), Parent = list })
 
-	local metric, period = state.metric, state.period
+	local metric, period, scope = state.metric, state.period, state.scope
 	task.spawn(function()
-		local ok, board = Remote.social("leaders", { metric = metric, period = period }, true)
-		if not loading.Parent or state.metric ~= metric or state.period ~= period then
+		local ok, board = Remote.social("leaders", { metric = metric, period = period, scope = if crewsOn then "crews" else nil }, true)
+		if not loading.Parent or state.metric ~= metric or state.period ~= period or state.scope ~= scope then
 			return
 		end
 		loading:Destroy()
@@ -96,6 +142,10 @@ function Leaders.draw(list: Instance, kit: any, state: any)
 			end
 		end
 		local plus = if period == "week" then "+" else ""
+		if crewsOn then
+			Leaders._crews(list, kit, board, icon, plus)
+			return
+		end
 		local me = Players.LocalPlayer
 		local rows = table.clone(board.rows or {})
 		-- You always appear: in your place when the board is short, else after the top 50.
