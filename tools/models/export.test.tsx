@@ -239,6 +239,184 @@ type Look = {
   tex?: string // the texture's maker in scene/textures.ts (brickTex, sidingTex...)
 }
 
+// ---------------------------------------------------------------------------------------------
+// The season-only pieces (see the call above). A stand-in PropKit (propKit.tsx) keeps each shape it
+// is asked for apart, with its place, instead of merging them, so two seasons' props can be
+// compared shape by shape. Shapes are compared by kind, size and place only: a colour that changes
+// with the season (leaves, hedges, grass) is SeasonLook's recolouring, not a new piece.
+type PropLook = { c: string; r?: number; m?: number; e?: string; cast?: boolean; glow?: unknown; use?: { uuid: string } }
+type Shape = { key: string; group: string; look: PropLook; geo: () => BufferGeometry; mx: Matrix4 }
+type V3 = [number, number, number]
+const SEASONS = ['winter', 'spring', 'summer', 'fall'] as const
+
+async function seasonPieces(models: { id: string; kind: string; level?: number; block?: string; pieces: Piece[] }[], geos: Map<BufferGeometry, number>, geoList: Geo[]) {
+  const THREE = await import('three')
+  const real = await import('./scene/season')
+  const decor = await import('./scene/decorProps')
+  // Each prop of decorProps.ts that changes with the season, as the town above drew it (propKit
+  // keeps each one built, so these are the very shapes the models were drawn with).
+  const pick = (d: typeof decor) => ({
+    oak: d.DECOR_PROPS.oak, pine: d.DECOR_PROPS.pine, hedge: d.DECOR_PROPS.hedge,
+    'wild-oak': d.WILD_PROPS.oak, 'wild-pine': d.WILD_PROPS.pine, 'wild-rock': d.WILD_PROPS.boulder,
+  }) as unknown as Record<string, () => unknown>
+  const drawn = pick(decor)
+  // propKit's own grouping: one mesh per look, in the order looks are first used.
+  const groupOf = (l: PropLook) => (l.use ? `use${l.use.uuid}|${l.cast ? 1 : 0}` : l.glow ? `glow${l.glow}` : `${l.c}|${l.r ?? 0.8}|${l.m ?? 0}|${l.e ?? ''}|${l.cast ? 1 : 0}`)
+  const euler = (r?: V3) => new Quaternion().setFromEuler(new Euler(r?.[0] ?? 0, r?.[1] ?? 0, r?.[2] ?? 0, 'YXZ'))
+  const at = (p: V3, q: Quaternion, s: V3) => new Matrix4().compose(new Vector3(...p), q, new Vector3(...s))
+  class Recorder {
+    shapes: Shape[] = []
+    private put(look: PropLook, kind: string, geo: () => BufferGeometry, mx: Matrix4) {
+      this.shapes.push({ key: `${kind}|${mx.elements.map((x) => Math.round(x * 1e4)).join(',')}`, group: groupOf(look), look, geo, mx })
+      return this
+    }
+    add(look: PropLook, geo: BufferGeometry, p: V3, r?: V3, s: V3 = [1, 1, 1]) {
+      return this.put(look, `${geo.type}${JSON.stringify((geo as { parameters?: unknown }).parameters ?? {})}`, () => geo, at(p, euler(r), s))
+    }
+    box(look: PropLook, s: V3, p: V3, r?: V3) {
+      return this.put(look, 'box', () => new THREE.BoxGeometry(1, 1, 1), at(p, euler(r), s))
+    }
+    cyl(look: PropLook, rt: number, rb: number, h: number, p: V3, r?: V3, n = 10) {
+      return this.put(look, `cyl${rt / rb}|${n}`, () => new THREE.CylinderGeometry(rt / rb, 1, 1, n), at(p, euler(r), [rb, h, rb]))
+    }
+    rod(look: PropLook, a: V3, b: V3, rad: number, n = 6) {
+      const d = new Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2])
+      const len = d.length()
+      const q = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), d.normalize())
+      return this.put(look, `rod${n}`, () => new THREE.CylinderGeometry(1, 1, 1, n, 1, true), at([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], q, [rad, len, rad]))
+    }
+    sphere(look: PropLook, rad: number, p: V3, s: V3 = [1, 1, 1], w = 10, h = 6, cap = Math.PI) {
+      return this.put(look, `sph${w}|${h}|${cap}`, () => new THREE.SphereGeometry(1, w, h, 0, Math.PI * 2, 0, cap), at(p, euler(), [rad * s[0], rad * s[1], rad * s[2]]))
+    }
+    ico(look: PropLook, rad: number, p: V3, s: V3 = [1, 1, 1], detail = 1) {
+      const make = () => {
+        const g = new THREE.IcosahedronGeometry(1, detail)
+        g.computeVertexNormals()
+        return g
+      }
+      return this.put(look, `ico${detail}`, make, at(p, euler(), [rad * s[0], rad * s[1], rad * s[2]]))
+    }
+    cone(look: PropLook, rad: number, h: number, p: V3, r?: V3, n = 10) {
+      return this.put(look, `cone${n}`, () => new THREE.ConeGeometry(1, 1, n), at(p, euler(r), [rad, h, rad]))
+    }
+    torus(look: PropLook, R: number, t: number, p: V3, r?: V3, arc = Math.PI * 2, seg = 16, tube = 5) {
+      return this.put(look, `tor${R}|${t}|${arc}|${seg}|${tube}`, () => new THREE.TorusGeometry(R, t, tube, seg, arc), at(p, euler(r), [1, 1, 1]))
+    }
+  }
+  // Every prop's shapes in a season (null: today's, as drawn above), from a fresh load of the scene
+  // modules with the season (and the stand-in PropKit) swapped in.
+  const record = async (season: string | null) => {
+    vi.resetModules()
+    vi.doMock('./scene/propKit', () => ({
+      PropKit: Recorder,
+      prop: (_key: string, make: (k: Recorder) => void) => {
+        const k = new Recorder()
+        make(k)
+        return k.shapes
+      },
+      PropMesh: () => null,
+      propMat: () => null,
+    }))
+    if (season) {
+      vi.doMock('./scene/season', async (load) => {
+        const m = (await load()) as typeof real
+        return { ...m, SEASON: season, PAL: m.PALETTES[season as keyof typeof m.PALETTES], SEASON_MIX: { other: season, mix: 0 } }
+      })
+    } else vi.doUnmock('./scene/season')
+    const out: Record<string, Shape[]> = {}
+    for (const [name, make] of Object.entries(pick(await import('./scene/decorProps')))) out[name] = make() as Shape[]
+    return out
+  }
+  const today = await record(null)
+  // What each season adds to each prop, and the looks (by today's mesh order) it leaves out.
+  const adds: Record<string, Record<string, Shape[]>> = {}
+  const leaves: Record<string, Record<number, string[]>> = {}
+  for (const season of SEASONS) {
+    if (season === real.SEASON) continue
+    const then = await record(season)
+    for (const [name, now] of Object.entries(today)) {
+      const left = new Map<string, number>()
+      for (const s of now) left.set(s.key, (left.get(s.key) ?? 0) + 1)
+      const extra: Shape[] = []
+      const kept = new Map<string, number>()
+      for (const s of then[name]) {
+        if ((left.get(s.key) ?? 0) > 0) {
+          left.set(s.key, left.get(s.key)! - 1)
+          kept.set(s.key, (kept.get(s.key) ?? 0) + 1)
+        } else extra.push(s)
+      }
+      if (extra.length) (adds[name] ??= {})[season] = extra
+      // A look whose every shape is gone that season is hidden then.
+      const order = [...new Set(now.map((s) => s.group))]
+      order.forEach((group, i) => {
+        const gone = now.filter((s) => s.group === group).every((s) => {
+          const n = kept.get(s.key) ?? 0
+          if (n > 0) kept.set(s.key, n - 1)
+          return n === 0
+        })
+        if (gone) ((leaves[name] ??= {})[i] ??= []).push(season)
+      })
+    }
+  }
+  vi.doUnmock('./scene/propKit')
+  vi.doUnmock('./scene/season')
+  // Which prop and look each of today's meshes is (props share some: the wild land's grass and
+  // pebbles are the same shapes round an oak, a pine or a boulder), and each prop's meshes.
+  const meshOf = new Map<number, { name: string; group: number }[]>()
+  const meshesOf = new Map<string, number[]>()
+  for (const [name, make] of Object.entries(drawn)) {
+    const ids: number[] = []
+    ;(make() as { geo: BufferGeometry }[]).forEach((b, group) => {
+      const id = geos.get(b.geo)
+      if (id === undefined) return
+      ids.push(id)
+      if (!meshOf.has(id)) meshOf.set(id, [])
+      meshOf.get(id)!.push({ name, group })
+    })
+    meshesOf.set(name, ids)
+  }
+  const extras: typeof models = []
+  for (const model of models) {
+    if (model.kind !== 'building') continue
+    // Each prop in the model, where it stands: one whose every mesh is there, in the same place.
+    const at = new Map<string, Piece[]>()
+    for (const piece of model.pieces) {
+      for (const hit of meshOf.get(piece.g) ?? []) {
+        const k = `${hit.name}|${piece.m.join(',')}`
+        if (!at.has(k)) at.set(k, [])
+        at.get(k)!.push(piece)
+      }
+    }
+    const props = new Map<string, { name: string; m: number[] }>()
+    for (const [k, pieces] of at) {
+      const name = k.slice(0, k.indexOf('|'))
+      if (!meshesOf.get(name)!.every((id) => pieces.some((p) => p.g === id))) continue
+      props.set(k, { name, m: pieces[0].m })
+      for (const piece of pieces) {
+        const group = meshOf.get(piece.g)!.find((h) => h.name === name)!.group
+        const hide = leaves[name]?.[group]
+        if (hide) piece.hide = hide
+      }
+    }
+    for (const season of SEASONS) {
+      const root = new THREE.Group()
+      for (const { name, m } of props.values()) {
+        const place = new Matrix4().fromArray(m)
+        for (const s of adds[name]?.[season] ?? []) {
+          const mesh = new Mesh(s.geo(), new THREE.MeshStandardMaterial({ color: s.look.c, roughness: s.look.r ?? 0.8, metalness: s.look.m ?? 0 }))
+          mesh.matrixAutoUpdate = false
+          mesh.matrix.multiplyMatrices(place, s.mx)
+          root.add(mesh)
+        }
+      }
+      if (!root.children.length) continue
+      const name = `${model.id}@${model.level ?? 1}${model.block ? `/${model.block}` : ''}`
+      extras.push({ id: `season:${name}:${season}`, kind: 'season', pieces: walk(root, geos, geoList) })
+    }
+  }
+  models.push(...extras)
+}
+
 function cssColor(s: string): string | null {
   try {
     return hex(new Color().setStyle(s))
@@ -307,7 +485,7 @@ const visible = (o: Object3D, root: Object3D) => {
 }
 
 // One drawn piece: its geometry (by id), where it is, and how it looks.
-type Piece = { g: number; group?: number; m: number[]; look: Look; spin?: number }
+type Piece = { g: number; group?: number; m: number[]; look: Look; spin?: number; hide?: string[] }
 
 type Geo = { type: string; params: Record<string, unknown>; pos: number[]; idx: number[]; nrm?: number[]; col?: number[] }
 
@@ -1245,6 +1423,15 @@ it('exports every building and car', async () => {
     const s = townSize(c.body)
     townSizes[c.id] = [r4(s.len), r4(s.wid), r4(bodyScale(c.body))]
   }
+  // Season-only pieces (decorProps.ts). The town's trees, hedges and wild land were drawn above in
+  // today's season (SEASON). Each is drawn again in every season, piece by piece, and compared with
+  // today's: what another season adds (bare twigs and snow in winter, blossom along the hedge in
+  // spring and summer) becomes a model of its own, "season:<model>:<season>", which the players'
+  // screens put on in that season (client/SeasonLook); a look today's draws that another season
+  // doesn't (the oak's canopy in winter, its fallen leaves outside the fall) is listed on its
+  // pieces (hide: the seasons it's left out in), for SeasonLook to hide then. Last, as it reloads
+  // the scene's modules.
+  if (!only) await seasonPieces(models, geos, geoList)
   // The shapes go in a file of their own, one per line: all of them in one string is more than
   // JavaScript can hold (build.mjs loadModels reads them back).
   const fd = openSync(`${OUT}.geos`, 'w')

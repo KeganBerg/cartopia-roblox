@@ -34,4 +34,52 @@ return function(test)
 		end
 		assert(SeasonColours.kindOf("tuft:3") == "tuft" and SeasonColours.kindOf("tree@1") == "tree" and SeasonColours.kindOf("wildoak") == "wildoak")
 	end)
+
+	test("season look: parts left out by season, and the lawn's wildflowers only in spring and summer", function()
+		assert(SeasonColours.shows(nil, "winter") and SeasonColours.shows("winter", "fall"))
+		assert(not SeasonColours.shows("winter spring summer", "summer") and not SeasonColours.shows("winter", "winter"))
+		assert(#SeasonColours.BLOOMS.spring == 4 and #SeasonColours.BLOOMS.summer == 4)
+		assert(SeasonColours.BLOOMS.fall == nil and SeasonColours.BLOOMS.winter == nil)
+	end)
+
+	test("season look: what another season adds uses only shapes already uploaded", function()
+		-- Every mesh some other model draws (and so was uploaded with it).
+		local used: { [string]: boolean } = {}
+		for name, parts in Catalog.MODELS do
+			if string.sub(name, 1, 7) ~= "season:" then
+				for _, p in parts do
+					if p[1] == "m" then
+						used[p[13]] = true
+					end
+				end
+			end
+		end
+		local adds = 0
+		for name, parts in Catalog.MODELS do
+			local model, s = string.match(name, "^season:(.+):(%a+)$")
+			if model then
+				adds += 1
+				assert(Catalog.MODELS[model], `{name}: no {model}`)
+				assert(s ~= Catalog.SEASON and (s == "winter" or s == "spring" or s == "summer" or s == "fall"), name)
+				for _, p in parts do
+					assert(p[1] ~= "m" or used[p[13]], `{name}: mesh {p[13]} is new`)
+				end
+			end
+		end
+		assert(adds > 0, "no season pieces")
+		if Catalog.SEASON == "winter" then
+			return
+		end
+		-- The oak's canopy is left out in winter (and its fallen leaves outside the fall).
+		local hide = Catalog.SEASON_HIDE["tree@1"]
+		assert(hide, "tree@1 hides nothing")
+		local winter = 0
+		for i, s in hide do
+			assert(Catalog.MODELS["tree@1"][i], `tree@1 has no part {i}`)
+			if not SeasonColours.shows(s, "winter") then
+				winter += 1
+			end
+		end
+		assert(winter > 0 and Catalog.MODELS["season:tree@1:winter"] ~= nil)
+	end)
 end

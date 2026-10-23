@@ -117,6 +117,23 @@ function decompose(e) {
   return { p: [e[12], e[13], e[14]], axes: u, s, mirrored: dot(cr, u[2]) < 0 }
 }
 
+// decompose for a transform that is only nearly square: its axes straightened out, longest first.
+function squared(e) {
+  const c = [col(e, 0), col(e, 1), col(e, 2)]
+  const s = c.map(len)
+  if (s.some((x) => x < 1e-9)) return null
+  const order = [0, 1, 2].sort((a, b) => s[b] - s[a])
+  const u = []
+  for (const i of order) {
+    let v = c[i]
+    for (const j of Object.keys(u)) v = v.map((x, k) => x - dot(c[i], u[j]) * u[j][k])
+    u[i] = scale(v, 1 / len(v))
+  }
+  const fixed = [u[0], u[1], u[2]]
+  const cr = [fixed[0][1] * fixed[1][2] - fixed[0][2] * fixed[1][1], fixed[0][2] * fixed[1][0] - fixed[0][0] * fixed[1][2], fixed[0][0] * fixed[1][1] - fixed[0][1] * fixed[1][0]]
+  return { p: [e[12], e[13], e[14]], axes: fixed, s, mirrored: dot(cr, fixed[2]) < 0 }
+}
+
 // Unit axes (columns) to a quaternion [x, y, z, w], for CFrame.new(x, y, z, qx, qy, qz, qw).
 function quat([X, Y, Z]) {
   const m00 = X[0], m01 = Y[0], m02 = Z[0]
@@ -387,6 +404,51 @@ export function convert(data) {
 
   const out = {}
   const piecesToParts = {}
+  const seasonHide = {}
+
+  // A season-only piece ("season:<model>:<season>", export.test.tsx seasonPieces), which the
+  // players' screens put on in its season. These add no meshes of their own, so nothing new has to
+  // be uploaded: a shape another model already has (only its size differing, like the snow on a
+  // pine's tiers, a smaller copy of the tier) is used again, and anything else becomes the nearest
+  // plain part: a block for a box, a cylinder for a rod, a ball for the rest (snow, blossom).
+  // (They come after every other model, so all the town's meshes are known by then.)
+  let shapes = null
+  const unit = (pos, size) => pos.map((x, k) => (size[k % 3] > 1e-9 ? x / size[k % 3] : 0))
+  function sameShape(m) {
+    if (!shapes) {
+      shapes = new Map()
+      for (const e of meshes.values()) {
+        const k = `${e.pos.length}|${e.idx.length}`
+        if (!shapes.has(k)) shapes.set(k, [])
+        shapes.get(k).push({ e, n: unit(e.pos, e.size) })
+      }
+    }
+    const want = unit(m.pos, m.size)
+    for (const { e, n } of shapes.get(`${m.pos.length}|${m.idx.length}`) ?? []) {
+      if (e.idx.every((x, j) => x === m.idx[j]) && n.every((x, j) => Math.abs(x - want[j]) < 2e-3)) return e.key
+    }
+    return null
+  }
+  function seasonPiece(geo, piece, T, add) {
+    // A thin twig's place, rounded to four places, comes out a little skewed: square it up.
+    T ??= squared(piece.m)
+    if (!T || T.mirrored) return
+    if (geo.type === 'BoxGeometry') return add('b', T.p, T.axes, [geo.params.width * T.s[0], geo.params.height * T.s[1], geo.params.depth * T.s[2]])
+    const tris = trianglesOf(geo)
+    if (tris.length !== 1) return
+    const m = cleanMesh(geo.pos, geo.nrm, tris[0].idx)
+    if (!m.idx.length) return
+    const b = bounds(m.pos)
+    for (let v = 0; v < m.pos.length; v += 3) for (let k = 0; k < 3; k++) m.pos[v + k] -= b.c[k]
+    m.size = b.s
+    const p = apply(piece.m, b.c)
+    const size = b.s.map((x, k) => x * T.s[k])
+    const key = sameShape(m)
+    if (key) return add('m', p, T.axes, size, key)
+    const [X, Y, Z] = T.axes
+    if (geo.type === 'CylinderGeometry') return add('c', p, [Y, neg(X), Z], [size[1], size[0], size[2]])
+    return add(near(size[0], size[1]) && near(size[1], size[2]) ? 's' : 'e', p, T.axes, size)
+  }
   const loose = new Map()
   const scenery = new Set()
   const races = new Set()
@@ -410,6 +472,10 @@ export function convert(data) {
       partsOf[i] = Array.from({ length: parts.length - from }, (_, k) => from + k + 1)
     })
     if (model.kind === 'car' || data.spinsOf?.[model.id]) piecesToParts[model.id] = partsOf
+    // Parts left out in some seasons (the oak's canopy in winter): part index -> those seasons.
+    model.pieces.forEach((piece, i) => {
+      if (piece.hide) for (const k of partsOf[i]) (seasonHide[name] ??= {})[k] = piece.hide.join(' ')
+    })
     function convertPiece(piece, i) {
       const geo = geos[piece.g]
       // The web game stacks the strip's flat layers (ground, asphalt, paint) a hundredth of a unit
@@ -426,6 +492,7 @@ export function convert(data) {
         parts.push([kind, ...p.map((x) => x * SCALE), ...q, ...size.map((x) => Math.max(THIN, x * SCALE)), look, ...(extra ? [extra] : [])])
         stats.parts++
       }
+      if (model.kind === 'season') return seasonPiece(geo, piece, T, add)
       // Small race pieces (anything but signs) go to the mesh merge whatever their shape.
       const small = model.kind === 'race' && !piece.look.text && T && Math.max(...bounds(geo.pos).s.map((x, k) => x * T.s[k])) * SCALE < RACE_SMALL
       if (T && !T.mirrored && piece.group === undefined && pristine(geo) && !small) {
@@ -690,7 +757,7 @@ export function convert(data) {
   const stance = {}
   for (const [car, byMod] of Object.entries(data.stanceOf ?? {}))
     for (const [mod, rise] of Object.entries(byMod)) (stance[car] ??= {})[mod] = rise * SCALE
-  return { models: out, scenery, races, looks, meshes, stats, ground, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, spins, townSizes: data.townSizes ?? {}, turbines: (data.turbines ?? []).map(([x, y, z, yaw, tint]) => [x * SCALE, y * SCALE, z * SCALE, yaw, tint]), textures: [...(data.textures ?? []), ...skinTextures()] }
+  return { models: out, scenery, races, looks, meshes, stats, ground, seasonHide, hatSpots, modDrops, wheels, rims, panelDrops, trim, stance, spins, townSizes: data.townSizes ?? {}, turbines: (data.turbines ?? []).map(([x, y, z, yaw, tint]) => [x * SCALE, y * SCALE, z * SCALE, yaw, tint]), textures: [...(data.textures ?? []), ...skinTextures()] }
 }
 
 // The car skins baked by skins.mjs (kept in tools/models/skins/), as textures to upload: each
@@ -869,6 +936,9 @@ Catalog.LOOKS = {
   for (const [car, byMod] of Object.entries(result.stance ?? {})) cat += `\t[${str(car)}] = { ${Object.entries(byMod).map(([k, v]) => `${k} = ${num(v)}`).join(', ')} },\n`
   cat += '}\n\n-- Each car in town traffic (townCarSize.ts): { length, width } in web units, and the scale it\'s\n-- drawn at.\nCatalog.TOWN_SIZE = {\n'
   for (const [car, v] of Object.entries(result.townSizes ?? {})) cat += `\t[${str(car)}] = { ${v.map(num).join(', ')} },\n`
+  cat += '}\n\n-- Parts the web game leaves out in some seasons (an oak\'s canopy in winter, its fallen leaves\n-- outside the fall): by model, part index (into MODELS) -> those seasons, space-separated.\n-- client/SeasonLook hides them then, and puts on "season:<model>:<season>", what that season adds.\nCatalog.SEASON_HIDE = {\n'
+  for (const [name, byPart] of Object.entries(result.seasonHide ?? {}))
+    cat += `\t[${str(name)}] = { ${Object.entries(byPart).map(([k, v]) => `[${k}] = ${str(v)}`).join(', ')} },\n`
   cat += '}\n\nCatalog.MODELS = {\n' + modelList('town') + '}\n\nreturn Catalog\n'
   writeFileSync(join(OUT_DIR, 'Catalog.luau'), cat)
   // Each building's grown levels (server/Levels/<id>.luau), loaded by TownView when a town has one.

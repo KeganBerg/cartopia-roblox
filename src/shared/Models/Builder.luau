@@ -22,6 +22,8 @@ local WHEELS: { [string]: any } = (Catalog :: any).WHEELS or {}
 local SPINS: { [string]: any } = (Catalog :: any).SPINS or {}
 local PANEL_DROPS: { [string]: any } = (Catalog :: any).PANEL_DROPS or {}
 local TRIM: { [string]: any } = (Catalog :: any).TRIM or {}
+-- Parts left out in some seasons (part index -> seasons): marked "Hide" for client/SeasonLook.
+local SEASON_HIDE: { [string]: { [number]: string } } = (Catalog :: any).SEASON_HIDE or {}
 
 local templates: { [string]: Model } = {}
 local meshParts: { [string]: MeshPart } = {}
@@ -643,6 +645,7 @@ local function template(name: string): Model?
 	local numbered = mod or MOD_DROPS[name] ~= nil or WHEELS[name] ~= nil or PANEL_DROPS[name] ~= nil or TRIM[name] ~= nil or SPINS[name] ~= nil
 	local missing = false
 	local stood = false
+	local hide = SEASON_HIDE[name]
 	for i, p in parts do
 		local absent = p[1] == "m" and not findMesh(p[13])
 		if absent then
@@ -654,6 +657,9 @@ local function template(name: string): Model?
 			local part = makePart(p)
 			if numbered then
 				part.Name = tostring(i)
+			end
+			if hide and hide[i] then
+				part:SetAttribute("Hide", hide[i])
 			end
 			part.Parent = model
 		end
