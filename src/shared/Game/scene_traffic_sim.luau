@@ -51,6 +51,7 @@ function apart(a, b, dx, dz, nx, nz)
     local rb = b.hl * math.abs(b.ux * nx + b.uz * nz) + b.hw * math.abs(-b.uz * nx + b.ux * nz)
     return math.abs(dx * nx + dz * nz) > ra + rb
 end
+local HAND = "hand"
 local ACCEL = 1.6
 local BRAKE = 3.2
 local GAP = 0.22
@@ -159,6 +160,7 @@ function Traffic.prototype.____constructor(self)
     self.limp = __TS__New(Map)
     self.sigs = __TS__New(Map)
     self.walkWait = __TS__New(Map)
+    self.hand = nil
     self.q = {p = {0, 0}, h = {0, 0}}
     self.probe = {
         x = 0,
@@ -248,6 +250,151 @@ function Traffic.prototype.setTown(self, roads, buildings, turnOf)
         end
     end
     self:syncCars()
+end
+function Traffic.prototype.setHand(self, p)
+    if not p then
+        self.hand = nil
+        return
+    end
+    local a = self.hand or __obj(
+        false and (function() return {
+            uid = HAND,
+            len = p.len,
+            wid = p.wid,
+            cruise = 0,
+            legs = {},
+            ci = 0,
+            s = 0,
+            v = 0,
+            odo = 0,
+            x = 0,
+            z = 0,
+            yaw = 0,
+            hx = 0,
+            hz = 1,
+            stalled = false,
+            parked = 0,
+            parkedAt = nil,
+            wait = 0,
+            plan = {},
+            trip = nil,
+            nextVisit = math.huge,
+            tow = 0,
+            truck = 0,
+            towT = 0,
+            ot = nil,
+            rerouteAt = 0,
+            pend = nil,
+            approach = nil,
+            arrived = nil,
+            halt = nil,
+            boxes = {},
+            claim = {},
+            gapTo = nil,
+            gap = math.huge,
+            show = 1,
+            leaving = false,
+            queuedAt = -1,
+            pull = nil
+        } end),
+        "uid",
+        HAND,
+        "len",
+        p.len,
+        "wid",
+        p.wid,
+        "cruise",
+        0,
+        "legs",
+        {},
+        "ci",
+        0,
+        "s",
+        0,
+        "v",
+        0,
+        "odo",
+        0,
+        "x",
+        0,
+        "z",
+        0,
+        "yaw",
+        0,
+        "hx",
+        0,
+        "hz",
+        1,
+        "stalled",
+        false,
+        "parked",
+        0,
+        "parkedAt",
+        nil,
+        "wait",
+        0,
+        "plan",
+        {},
+        "trip",
+        nil,
+        "nextVisit",
+        math.huge,
+        "tow",
+        0,
+        "truck",
+        0,
+        "towT",
+        0,
+        "ot",
+        nil,
+        "rerouteAt",
+        0,
+        "pend",
+        nil,
+        "approach",
+        nil,
+        "arrived",
+        nil,
+        "halt",
+        nil,
+        "boxes",
+        {},
+        "claim",
+        {},
+        "gapTo",
+        nil,
+        "gap",
+        math.huge,
+        "show",
+        1,
+        "leaving",
+        false,
+        "queuedAt",
+        -1,
+        "pull",
+        nil
+    )
+    __TS__ObjectAssign(
+        a,
+        {
+            x = p.x,
+            z = p.z,
+            yaw = p.yaw,
+            hx = math.sin(p.yaw),
+            hz = math.cos(p.yaw),
+            len = p.len,
+            wid = p.wid
+        }
+    )
+    a.boxes = {{
+        x = p.x,
+        z = p.z,
+        ux = a.hx,
+        uz = a.hz,
+        hl = p.len / 2 + 0.02,
+        hw = p.wid / 2
+    }}
+    self.hand = a
 end
 function Traffic.prototype.setCars(self, cars, max)
     self.specs = __TS__New(Map)
@@ -2105,6 +2252,10 @@ function Traffic.prototype.drive(self, a, dt)
             others[#others + 1] = o
         end
     end
+    local hand = self.hand
+    if hand and __hypot(hand.x - a.x, hand.z - a.z) < near + hand.len then
+        others[#others + 1] = hand
+    end
     local hit = self:scan(a, look, others)
     if hit then
         a.gap = hit[1]
@@ -2112,7 +2263,7 @@ function Traffic.prototype.drive(self, a, dt)
     end
     a.pend = nil
     if __truthy(a.gapTo) then
-        local o = self.agents:get(a.gapTo)
+        local o = self.agents:get(a.gapTo) or self.hand
         local room = if o.parked > 0 and not a.ot then PARKED_GAP else GAP
         cap(a.gap - room)
         limit = math.min(
