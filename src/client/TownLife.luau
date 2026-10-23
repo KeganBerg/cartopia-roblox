@@ -23,6 +23,7 @@ local clock = require(Game:WaitForChild("clock")) :: any
 -- The real date's season (scene/season.ts SEASON), as SeasonLook paints the town: beanies in winter.
 local WINTER = (require(Game:WaitForChild("scene_season")) :: any).SEASON == "winter"
 local trafficLevel = require(Game:WaitForChild("traffic")) :: any
+local meet = require(Game:WaitForChild("meet")) :: any
 local sim = require(Game:WaitForChild("scene_traffic_sim")) :: any
 local layout = require(Game:WaitForChild("scene_traffic_layout")) :: any
 local grid = require(Game:WaitForChild("scene_grid")) :: any
@@ -72,6 +73,11 @@ local taken: { [string]: boolean } = {}
 -- top of the usual cap (TownCars.tsx), so everyone gives way to everyone at the junctions.
 local guests: { any } = {}
 
+-- The cars on show at the Car Meet (game/meet.ts showcaseOf: the picks, else the three best):
+-- always out on the road, ahead of the rest, with a spinning gold gem over each (TownCars.tsx
+-- ShowcaseStars).
+local stars: { string } = {}
+
 local function updateTraffic(save: any)
 	local roads = save.roads or {}
 	local buildings = save.buildings or {}
@@ -106,7 +112,19 @@ local function updateTraffic(save: any)
 		table.insert(specs, g)
 		table.insert(sig, `{g.uid}:{g.cruise}`)
 	end
+	stars = {}
+	local ordered = {}
+	for _, c in meet.showcaseOf(cars, save.showcase) do
+		table.insert(stars, c.uid)
+		table.insert(ordered, c)
+	end
 	for _, c in cars do
+		if not table.find(stars, c.uid) then
+			table.insert(ordered, c)
+		end
+	end
+	table.insert(sig, "*" .. table.concat(stars, ","))
+	for _, c in ordered do
 		if taken[c.uid] then
 			continue
 		end
@@ -132,7 +150,17 @@ local function updateTraffic(save: any)
 	local ck = table.concat(sig, ";") .. `|{pace}|{max}`
 	if moved or ck ~= carsKey then
 		carsKey = ck
-		traffic:setCars(specs, max)
+		-- The sim keeps the stalled cars, then the first ones given, up to max; its sort here
+		-- isn't stable, so the cut is made first (stalled, then in order: the cars on show lead).
+		local kept = {}
+		for pass = 1, 2 do
+			for _, sp in specs do
+				if #kept < max and (sp.stalled == true) == (pass == 1) then
+					table.insert(kept, sp)
+				end
+			end
+		end
+		traffic:setCars(kept, max)
 	end
 	local homes = {}
 	local hk = {}
@@ -1384,6 +1412,38 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 	local peopleFolder = Instance.new("Folder")
 	peopleFolder.Name = "Townspeople"
 	peopleFolder.Parent = workspace
+	-- The gold gems over the cars on show: one part each, at most three.
+	local gems: { BasePart } = {}
+	local gemTime = 0
+	local function stepGems(dt: number)
+		gemTime += dt
+		for i = 1, math.max(#stars, #gems) do
+			local a = stars[i] and not taken[stars[i]] and traffic.agents:get(stars[i])
+			local gem = gems[i]
+			if not a or a.show < 0.5 then
+				if gem then
+					gem.Transparency = 1
+				end
+				continue
+			end
+			if not gem then
+				gem = Instance.new("Part")
+				gem.Name = "ShowcaseStar"
+				gem.Anchored, gem.CanCollide, gem.CanQuery, gem.CanTouch, gem.CastShadow = true, false, false, false, false
+				gem.Material = Enum.Material.Neon
+				gem.Color = Color3.fromHex("#ffca28")
+				gem.Parent = peopleFolder
+				gems[i] = gem
+			end
+			-- The web's gem is an octahedron 0.26 across; here a cube tipped onto its corner.
+			local side = 0.26 * math.sqrt(2) * S * a.show
+			gem.Size = Vector3.new(side, side, side)
+			gem.Transparency = 0
+			gem.CFrame = CFrame.new(origin + Vector3.new(a.x * S, (1.6 + math.sin(gemTime * 3 + i) * 0.08) * S, a.z * S))
+				* CFrame.Angles(0, gemTime * 2 + i, 0)
+				* CFrame.Angles(math.pi / 4, 0, math.pi / 4)
+		end
+	end
 	local maxPeople = if smallScreen() then 20 else 44
 	local people: { Person } = {}
 	local graph: any = nil
@@ -1551,6 +1611,7 @@ function TownLife.attach(town: Folder): ((save: any) -> (), (rawDt: number) -> (
 		end
 		traffic:step(dt)
 		stepSignals()
+		stepGems(dt)
 		-- The cars: each server model goes where the sim has it, at its town size.
 		-- A car the player has taken stays wherever they left it.
 		local cam0 = workspace.CurrentCamera

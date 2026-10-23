@@ -133,4 +133,13 @@ print(`body furthest {string.format("%.1f", worstBody)} studs from pivot`)
 print(`{#view.folder.Cars:GetChildren()} cars; checked {checked} wheel placements; furthest wheel {string.format("%.1f", worst)} studs from its car's middle ({worstName})`)
 assert(checked > 0, "no wheels checked")
 assert(worst < 7, "a wheel left its car")
+-- The cars on show (the best ones, with no picks) are out with a gold gem over each.
+local gems = 0
+for _, d in game.Workspace:GetDescendants() do
+	if d.Name == "ShowcaseStar" and d.Transparency < 1 then
+		gems += 1
+	end
+end
+print(`{gems} showcase gems over the cars on show`)
+assert(gems > 0, "no gem over the cars on show")
 print("ok")
