@@ -709,6 +709,9 @@ local function socialDesk(op, arg)
 			for _, r in rows do
 				r.here = r.id == 2
 			end
+			if arg.scope == "crews" then
+				return { crews = Leaders.crews(crewDesk:browse(), arg.metric, arg.period, "2026-W42"), myCrew = crewDesk:mineId(1) }, nil
+			end
 			return { rows = rows, mine = mine }, nil
 		elseif op == "meet" then
 			local out = {}
@@ -6863,5 +6866,50 @@ do
 		problem(`the season pieces failed: {err2}`)
 	end
 	print(`live events and season look: {problems} problems`)
+	bad += problems
+end
+
+-- The Leaderboards' Crews board: a crew ranked by its members combined, with its crest and tag.
+do
+	local problems = 0
+	local function problem(msg)
+		problems += 1
+		print("PROBLEM crews board: " .. msg)
+	end
+	local ok, err = pcall(function()
+		local data = emu.require(G.data)
+		local id = crewDesk:create(77, { name = "Hog", town = "Hogville", level = 9, power = 4242, wins = 3, trophies = 5 }, { name = "Road Hogs", tag = "HOG", emblem = data.CLAN_EMBLEMS[1], color = data.CLAN_COLORS[1], motto = "", minLevel = 1, joinMode = "open" })
+		if not id then
+			problem("couldn't start the test crew")
+		end
+		hud.ctx.close()
+		hud.openPanel("friends", "leaders")
+		local switch = hud.gui:FindFirstChild("crews", true)
+		if not switch then
+			problem("no Crews switch on the leaderboard")
+			return
+		end
+		signalFor(if switch:IsA("GuiButton") then switch else switch:FindFirstChildWhichIsA("GuiButton", true), "Activated"):Fire()
+		local hogs = hud.gui:FindFirstChild("Road Hogs", true)
+		if not (hogs and hogs:FindFirstChild("Crest")) then
+			problem("Road Hogs isn't on the Crews board with its crest")
+			return
+		end
+		local line = false
+		for _, d in hogs:GetDescendants() do
+			if d:IsA("TextLabel") and string.find(d.Text, "4,242", 1, true) and string.find(d.Text, "[HOG]", 1, true) then
+				line = true
+			end
+		end
+		if not line then
+			problem("Road Hogs' row doesn't show its power and tag")
+		end
+		hud.ctx.close()
+		crewDesk:leave(77)
+	end)
+	if not ok then
+		problem(`failed: {err}`)
+	end
+	print(`crews board: {problems} problems`)
 	bad += problems
 end

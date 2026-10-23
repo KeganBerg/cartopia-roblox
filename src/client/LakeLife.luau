@@ -51,8 +51,8 @@ local TAU = math.pi * 2
 -- water's height and the dock's middle. Scenery's lake (Countryside) is drawn from the same numbers.
 local LAKE = { x = -82, z = -14, rx = 17, rz = 11, y = -0.032 }
 local DOCK = { x = LAKE.x + LAKE.rx - 2.5, z = LAKE.z + 2 }
--- The scenery is built for one season (Catalog.SEASON); the lake is ice in winter.
-local FROZEN = Catalog.SEASON == "winter"
+-- The lake is ice in the real date's winter (scene/season.ts SEASON, as SeasonLook paints the town).
+local FROZEN = (require(Game:WaitForChild("scene_season")) :: any).SEASON == "winter"
 
 -- The still frame's meshes in the current Scenery "outskirts:forest", by mesh key (the forest's
 -- meshes are merged by look, so each is one look of one kind of thing): the boat, its tackle and the

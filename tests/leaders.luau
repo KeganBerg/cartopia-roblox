@@ -2,6 +2,7 @@
 -- Tests for server/Leaders: the player boards, all time and this week, kept in memory here.
 
 local Leaders = require("../src/server/Leaders")
+local Crews = require("../src/server/Crews")
 
 local function expectEq(a, b, what)
 	if a ~= b then
@@ -51,5 +52,52 @@ return function(test)
 		expectEq(mineAll, 2, "own level")
 		local _, onBoard = l:board("power", "all", 2, { power = 500, race_wins = 2, trophies = 3, level = 7 })
 		expectEq(onBoard, nil, "no extra row when already on the board")
+	end)
+
+	test("leaders: the crews board ranks crews by their members combined, all time and this week", function()
+		local now, week = 0, "2026-W42"
+		local c = Crews.new({
+			clock = function()
+				return now
+			end,
+			newId = (function()
+				local n = 0
+				return function()
+					n += 1
+					return `crew{n}`
+				end
+			end)(),
+			emblems = { "🏁", "🔥" },
+			colors = { "#ff7043", "#1e88e5" },
+			week = function()
+				return week
+			end,
+		})
+		local function who(name, level, power, wins, trophies)
+			return { name = name, town = name .. "ville", level = level, power = power, wins = wins, trophies = trophies }
+		end
+		local a = c:create(1, who("Ann", 5, 300, 4, 9), { name = "Night Riders", tag = "NR", emblem = "🏁", color = "#ff7043", motto = "", minLevel = 1, joinMode = "open" })
+		local b = c:create(2, who("Bo", 7, 500, 2, 3), { name = "Dust Devils", tag = "DD", emblem = "🔥", color = "#1e88e5", motto = "", minLevel = 1, joinMode = "open" })
+		assert(a and b, "crews made")
+		c:ask(3, who("Cy", 4, 250, 6, 1), a)
+		-- All time: Night Riders 300 + 250 power beat Dust Devils' 500.
+		local rows = Leaders.crews(c:browse(), "power", "all", week)
+		expectEq(#rows, 2, "crew rows")
+		expectEq(rows[1].tag, "NR", "first on power")
+		expectEq(rows[1].value, 550, "members' power added up")
+		expectEq(rows[1].members, 2, "members")
+		expectEq(rows[1].place, 1, "place")
+		expectEq(Leaders.crews(c:browse(), "level", "all", week)[1].value, 9, "levels added up")
+		expectEq(Leaders.crews(c:browse(), "race_wins", "all", week)[1].value, 10, "wins added up")
+		-- This week: nothing gained until members play on.
+		expectEq(Leaders.crews(c:browse(), "race_wins", "week", week)[1].value, 0, "no gains yet")
+		c:touch(2, who("Bo", 7, 500, 2, 3)) -- first seen this week
+		c:touch(2, who("Bo", 8, 520, 5, 3))
+		local wk = Leaders.crews(c:browse(), "race_wins", "week", week)
+		expectEq(wk[1].tag, "DD", "first on this week's wins")
+		expectEq(wk[1].value, 3, "wins gained this week")
+		-- A new week starts everyone at nothing again.
+		week = "2026-W43"
+		expectEq(Leaders.crews(c:browse(), "race_wins", "week", week)[1].value, 0, "last week's gains don't count")
 	end)
 end

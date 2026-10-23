@@ -672,6 +672,7 @@ local crews = Crews.new({
 	end,
 	emblems = (require(Game.data) :: any).CLAN_EMBLEMS,
 	colors = (require(Game.data) :: any).CLAN_COLORS,
+	week = leaders.week,
 })
 -- What a crew keeps of a player: their name, town and numbers.
 local function crewWho(userId: number): Crews.Who
@@ -1638,6 +1639,10 @@ socialRemote.OnServerInvoke = function(player: Player, op: any, arg: any)
 			return helpAt(player, arg)
 		elseif op == "leaders" and type(arg) == "table" and table.find(Leaders.METRICS, arg.metric) and (arg.period == "all" or arg.period == "week") then
 			-- A leaderboard (Social's Leaderboards tab), with who on it is in this server.
+			if arg.scope == "crews" then
+				-- The Crews board: crews ranked by their members combined.
+				return { crews = Leaders.crews(crews:browse(), arg.metric, arg.period, leaders.week()), myCrew = crews:mineId(player.UserId) }, nil
+			end
 			local stats = leaderStats(player.UserId)
 			local town = towns:save(player.UserId).townName
 			pcall(function()
