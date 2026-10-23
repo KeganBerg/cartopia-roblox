@@ -20,6 +20,8 @@ local lualib = require(Game:WaitForChild("lualib_bundle")) :: any
 local data = require(Game:WaitForChild("data")) :: any
 local placement = require(Game:WaitForChild("placement")) :: any
 local clock = require(Game:WaitForChild("clock")) :: any
+-- The real date's season (scene/season.ts SEASON), as SeasonLook paints the town: beanies in winter.
+local WINTER = (require(Game:WaitForChild("scene_season")) :: any).SEASON == "winter"
 local trafficLevel = require(Game:WaitForChild("traffic")) :: any
 local sim = require(Game:WaitForChild("scene_traffic_sim")) :: any
 local layout = require(Game:WaitForChild("scene_traffic_layout")) :: any
@@ -428,13 +430,13 @@ local function person(id: string, home: string, pos: Pt): Person
 			shirt = SHIRTS[h % #SHIRTS + 1],
 			pants = PANTS[(h // 8) % #PANTS + 1],
 			skin = SKIN[(h // 64) % #SKIN + 1],
-			hair = (if Catalog.SEASON == "winter" then BEANIES else HAIR)[(h // 512) % 5 + 1],
+			hair = (if WINTER then BEANIES else HAIR)[(h // 512) % 5 + 1],
 			dog = DOG_COATS[(h // 2048) % #DOG_COATS + 1],
 		},
 		look = {
 			top = if kind == "jogger" then "tee" else TOPS[(h // 4096) % #TOPS + 1],
-			hair = if Catalog.SEASON == "winter" then "beanie" else HAIRDOS[(h // 32768) % #HAIRDOS + 1],
-			shorts = Catalog.SEASON ~= "winter" and (kind == "jogger" or (h // 262144) % 4 == 0),
+			hair = if WINTER then "beanie" else HAIRDOS[(h // 32768) % #HAIRDOS + 1],
+			shorts = not WINTER and (kind == "jogger" or (h // 262144) % 4 == 0),
 			coat = JACKETS[(h // 1048576) % #JACKETS + 1],
 			trim = if (h // 4194304) % 2 == 0 then "#fafafa" else "#212121",
 			shoes = if kind == "jogger" then "#fafafa" else SHOES[(h // 16777216) % #SHOES + 1],
