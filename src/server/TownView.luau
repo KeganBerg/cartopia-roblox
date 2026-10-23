@@ -289,7 +289,9 @@ local function scatter(parent: Instance, name: string, at: Vector3, ry: number, 
 end
 
 -- Lawn detail on the empty tiles of the town's land, as Tufts.tsx: grass clumps in the season's
--- greens, leaf heaps and mushroom rings in the fall, and pebbles, as many as the web draws.
+-- greens, leaf heaps and mushroom rings in the fall, and pebbles, as many as the web draws. The
+-- wildflower drifts of spring and summer are only listed (the Lawn folder's "Blooms"), for each
+-- player's screen to draw in those seasons (client/SeasonLook).
 local GREENS = 0
 for name in Catalog.MODELS do
 	if string.match(name, "^tuft:%d+$") then
@@ -382,6 +384,7 @@ function TownView._renderLawn(self: TownView, land: { string }, roads: { string 
 	end
 	local fall = Catalog.SEASON == "fall"
 	local winter = Catalog.SEASON == "winter"
+	local blooms = {}
 	for _, k in land do
 		local px, pz = splitKey(k)
 		for x = px * PLOT, px * PLOT + PLOT - 1 do
@@ -411,12 +414,24 @@ function TownView._renderLawn(self: TownView, land: { string }, roads: { string 
 						scatter(folder, "mushroom", mid + Vector3.new(math.cos(a), 0, math.sin(a)) * 0.3 * SCALE, a, 0.7 + hash(x, z, i + 90) * 0.5, 1)
 					end
 				end
+				if roll < 0.22 then
+					-- A drift of six wildflowers, which only grows in spring and summer: each one's foot,
+					-- turn, size and which of the season's colours, for the players' screens to draw then
+					-- (client/SeasonLook), so the other half of the year costs nothing.
+					local mid = spot(9, 0.5)
+					local tint = math.floor(hash(x, z, 8) * 4)
+					for f = 0, 5 do
+						local at = mid + Vector3.new((hash(x, z, f + 60) - 0.5) * 0.7 * SCALE, 0, (hash(x, z, f + 70) - 0.5) * 0.7 * SCALE)
+						table.insert(blooms, string.format("%.2f,%.2f,%.2f,%d,%.3f,%d", at.X, at.Y, at.Z, f, 0.7 + hash(x, z, f + 80) * 0.4, tint))
+					end
+				end
 				if hash(x, z, 15) < 0.12 then
 					scatter(folder, `rock:{(x + z) % 3 + 1}`, spot(16, 0.85), hash(x, z, 17) * 6, 0.22 + hash(x, z, 18) * 0.2, 1)
 				end
 			end
 		end
 	end
+	folder:SetAttribute("Blooms", table.concat(blooms, ";"))
 end
 
 -- Road tiles, put together the way World.tsx's RoadTile does: asphalt, a sidewalk on every side
@@ -896,6 +911,8 @@ function TownView._buildingModel(self: TownView, b: any, turn: number, g: any, c
 		c = self:tileToWorld(b.x + (w - 1) / 2, b.z + (h - 1) / 2)
 	end
 	model:PivotTo(CFrame.new(c) * model:GetPivot())
+	-- Where the model stands, for what client/SeasonLook adds to it in another season.
+	model:SetAttribute("Base", model:GetPivot())
 	local paved = def.kind ~= "decor" and def.kind ~= "obstacle"
 	spreadLayers(model, if paved then c.Y + 0.02 * SCALE else nil)
 	if paved then

@@ -6785,6 +6785,83 @@ do
 	if not ran then
 		problem(`the season look failed: {err}`)
 	end
+	-- What only another season has: snow and bare twigs on the town's oaks in winter (their canopy
+	-- hidden), the lawn's wildflowers in spring, and neither in the fall. Stand-in boxes count as
+	-- meshes here, as the preview tools draw them.
+	local Builder = emu.require(RS.Shared.Models.Builder)
+	local preview = Builder.previewMeshes
+	Builder.previewMeshes = true
+	local function count(): (number, number, number, number, number)
+		local trees, dressed, hidden, lawns, blooms = 0, 0, 0, 0, 0
+		for _, d in ws:GetDescendants() do
+			if d:IsA("Model") and d:GetAttribute("Def") == "tree" and not d:GetAttribute("Merged") then
+				trees += 1
+				if d:FindFirstChild("Season") then
+					dressed += 1
+				end
+				for _, p in d:GetChildren() do
+					if p:IsA("BasePart") and p:GetAttribute("Hide") and p.Transparency >= 1 then
+						hidden += 1
+					end
+				end
+			elseif d:IsA("Folder") and d.Name == "Lawn" and (d:GetAttribute("Blooms") or "") ~= "" then
+				lawns += 1
+				if d:FindFirstChild("Blooms") then
+					blooms += 1
+				end
+			end
+		end
+		return trees, dressed, hidden, lawns, blooms
+	end
+	-- An oak and a patch of lawn as server/TownView leaves them, so there is something to check.
+	local stage = Instance.new("Folder")
+	stage.Name = "SeasonStage"
+	stage.Parent = ws
+	local oak = Builder.build("tree@1")
+	if oak then
+		oak:SetAttribute("Def", "tree")
+		oak:SetAttribute("Level", 1)
+		oak:SetAttribute("Base", roblox.CFrame.new(40, 0, 40))
+		oak.Parent = stage
+	else
+		problem("no tree@1 model")
+	end
+	local lawn = Instance.new("Folder")
+	lawn.Name = "Lawn"
+	lawn.Parent = stage
+	lawn:SetAttribute("Blooms", "40.00,0.40,44.00,0,0.900,1;42.00,0.40,45.00,3,1.000,3")
+	local ran2, err2 = pcall(function()
+		SeasonLook._scan(stage)
+		SeasonLook.set("winter")
+		local trees, dressed, hidden, lawns = count()
+		if trees == 0 or lawns == 0 then
+			problem(`nothing to check: {trees} oaks, {lawns} lawns`)
+		end
+		if trees > 0 and (dressed < trees or hidden == 0) then
+			problem(`winter: {dressed} of {trees} oaks got snow, {hidden} canopy parts hidden`)
+		end
+		SeasonLook.set("spring")
+		local _, sDressed, sHidden, _, blooms = count()
+		if lawns > 0 and blooms < lawns then
+			problem(`spring: {blooms} of {lawns} lawns grew wildflowers`)
+		end
+		-- (Only the fallen leaves stay hidden in spring.)
+		if sDressed > 0 or sHidden >= hidden then
+			problem(`spring kept the winter oaks ({sDressed} dressed, {sHidden} parts hidden)`)
+		end
+		SeasonLook.set("fall")
+		local _, fDressed, _, _, fBlooms = count()
+		if fDressed > 0 or fBlooms > 0 then
+			problem("the fall kept another season's pieces")
+		end
+		print(`season pieces: {dressed}/{trees} oaks dressed in winter ({hidden} parts hidden), {blooms}/{lawns} lawns in bloom in spring`)
+		SeasonLook.set(nil)
+	end)
+	stage.Parent = nil
+	Builder.previewMeshes = preview
+	if not ran2 then
+		problem(`the season pieces failed: {err2}`)
+	end
 	print(`live events and season look: {problems} problems`)
 	bad += problems
 end

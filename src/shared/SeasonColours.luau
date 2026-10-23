@@ -38,6 +38,26 @@ local WINTER_GREENS = { "#c9b98f", "#bfae84", "#d6c79d" }
 -- Lawn pieces drawn only in one season (Tufts.tsx).
 SeasonColours.ONLY = { heap = "fall", mushroom = "fall" }
 
+-- The lawn's wildflower drifts, by season (Tufts.tsx BLOOMS): only in spring and summer.
+SeasonColours.BLOOMS = {
+	spring = { "#fff59d", "#ffffff", "#f8bbd0", "#ce93d8" },
+	summer = { "#fdd835", "#ffffff", "#ffffff", "#ec407a" },
+} :: { [string]: { string } }
+
+-- Whether a part marked with the seasons it's left out in (Catalog.SEASON_HIDE, "winter spring")
+-- shows in `season`.
+function SeasonColours.shows(hide: string?, season: string): boolean
+	if not hide then
+		return true
+	end
+	for s in string.gmatch(hide, "%a+") do
+		if s == season then
+			return false
+		end
+	end
+	return true
+end
+
 -- Which colours each kind of model takes, by its building def or model name.
 SeasonColours.KINDS = {
 	tree = { "leaves" },
@@ -113,6 +133,14 @@ function SeasonColours.shade(hex: string, dl: number): string
 		r, g, b = hue2rgb(q, p, hue + 1 / 3), hue2rgb(q, p, hue), hue2rgb(q, p, hue - 1 / 3)
 	end
 	return "#" .. hexOf(toSrgb(r), toSrgb(g), toSrgb(b))
+end
+
+-- Two colours multiplied in linear light, as three.js tints an instance (a wildflower by its colour).
+function SeasonColours.multiply(a: Color3, b: Color3): Color3
+	local function ch(x: number, y: number): number
+		return math.clamp(toSrgb(toLinear(x) * toLinear(y)), 0, 1)
+	end
+	return Color3.new(ch(a.R, b.R), ch(a.G, b.G), ch(a.B, b.B))
 end
 
 -- Tufts.tsx GREENS for a season and its palette.
