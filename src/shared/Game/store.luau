@@ -2101,6 +2101,7 @@ function ____exports.lastCollectAll()
         end
     end
 end
+local fullAt = 0
 local skips = {fuel = 0, coins = 0, at = 0}
 ____exports.collectAllSkips = function() return skips end
 local function setLastCollectAll(t, left)
@@ -2430,17 +2431,22 @@ ____exports.useGame = __ns______zustand_1.create()(__ns______zustand_middleware_
                 end
                 local cap = ____exports.fuelCap(s)
                 if s.fuel >= cap then
-                    if s.fuelUpdatedAt ~= now then
-                        set({fuelUpdatedAt = now})
-                    end
+                    fullAt = now
                     return
                 end
+                if now - fullAt < 5000 and fullAt > s.fuelUpdatedAt then
+                    set({fuelUpdatedAt = fullAt})
+                    fullAt = 0
+                    return
+                end
+                fullAt = 0
+                local from = s.fuelUpdatedAt
                 local every = __ns___data_1.fuelRegenSeconds(s.level) * 1000
-                local gained = math.floor((now - s.fuelUpdatedAt) / every)
+                local gained = math.floor((now - from) / every)
                 if gained > 0 then
                     set({
                         fuel = math.min(cap, s.fuel + gained),
-                        fuelUpdatedAt = s.fuelUpdatedAt + gained * every
+                        fuelUpdatedAt = from + gained * every
                     })
                 end
             end,
