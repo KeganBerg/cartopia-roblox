@@ -15,7 +15,10 @@ return function(test)
 	end)
 
 	test("season look: fall lawn, leaves and flowers turn to spring's", function()
-		assert(Catalog.SEASON == "fall" and Catalog.GRASS == P.fall.grass and Catalog.MEADOW == P.fall.ground)
+		-- The models are drawn in their season's own palette (not the web's blend into the next one),
+		-- whichever season the last conversion ran in, so SeasonLook's maps find their colours.
+		local built = P[Catalog.SEASON]
+		assert(built and Catalog.GRASS == built.grass and Catalog.MEADOW == built.ground, `{Catalog.SEASON} {Catalog.GRASS} {Catalog.MEADOW}`)
 		local m = SeasonColours.maps("fall", P.fall, "spring", P.spring)
 		assert(m.ground["a9b552"] == "86d05a" and m.ground["8c9a43"] == "68b444")
 		assert(m.leaves["ef6c00"] == "8bd96a" and m.leaves["fbc02d"] == "f8bbd0")
