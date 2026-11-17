@@ -61,6 +61,17 @@ vi.mock('./scene/FairCrowd', async (load) => ({ ...((await load()) as object), F
 // So do the countryside lake's fisherman, gulls and ducks (LakeLife.tsx): client/LakeLife.luau. Until
 // the next conversion the forest still has one still frame of them, which that hides.
 vi.mock('./scene/LakeLife', async (load) => ({ ...((await load()) as object), LakeLife: () => null }))
+// The town is drawn in today's season's own palette, never the web's blend into the next season
+// (SEASON_MIX, its last and first couple of weeks): client/SeasonLook recolours from
+// PALETTES[Catalog.SEASON], so a blended lawn or leaf colour would match nothing there, and each
+// player's screen blends toward the next season itself from its own date.
+// (vi.hoisted: vi.mock calls run before the rest of the file.)
+const pureSeason = vi.hoisted(() => (season: string | null) => async (load: () => Promise<unknown>) => {
+  const m = (await load()) as { SEASON: string; PALETTES: Record<string, unknown> }
+  const s = season ?? m.SEASON
+  return { ...m, SEASON: s, PAL: m.PALETTES[s], SEASON_MIX: { other: s, mix: 0 } }
+})
+vi.mock('./scene/season', pureSeason(null))
 
 // --- A canvas that remembers what was painted on it ---------------------------------------
 // Signs and other painted textures are drawn on 2D canvases. jsdom has none, so this records
@@ -317,12 +328,7 @@ async function seasonPieces(models: { id: string; kind: string; level?: number; 
       PropMesh: () => null,
       propMat: () => null,
     }))
-    if (season) {
-      vi.doMock('./scene/season', async (load) => {
-        const m = (await load()) as typeof real
-        return { ...m, SEASON: season, PAL: m.PALETTES[season as keyof typeof m.PALETTES], SEASON_MIX: { other: season, mix: 0 } }
-      })
-    } else vi.doUnmock('./scene/season')
+    vi.doMock('./scene/season', pureSeason(season))
     const out: Record<string, Shape[]> = {}
     for (const [name, make] of Object.entries(pick(await import('./scene/decorProps')))) out[name] = make() as Shape[]
     return out
@@ -359,7 +365,7 @@ async function seasonPieces(models: { id: string; kind: string; level?: number; 
     }
   }
   vi.doUnmock('./scene/propKit')
-  vi.doUnmock('./scene/season')
+  vi.doMock('./scene/season', pureSeason(null))
   // Which prop and look each of today's meshes is (props share some: the wild land's grass and
   // pebbles are the same shapes round an oak, a pine or a boulder), and each prop's meshes.
   const meshOf = new Map<number, { name: string; group: number }[]>()
