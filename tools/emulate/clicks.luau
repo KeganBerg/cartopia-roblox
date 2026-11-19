@@ -1864,6 +1864,32 @@ do
 	townsFolder:Destroy()
 	print("merges: drawn, merged, turned, upgraded")
 end
+-- (Pictures only with SHOTS=1 or SHOTS_ONLY=menu-hub.)
+-- The front page on a phone held upright and one held sideways (the HUD laid out at its
+-- scaled-up size, as Hud.fit does).
+do
+	local root = hud.gui:FindFirstChild("Root")
+	-- (A Daily Spin left open from the button presses would be pictured instead.)
+	for _, n in { "DailySpin", "Race", "RescueSearch" } do
+		local g = player.PlayerGui:FindFirstChild(n)
+		if g then
+			g:Destroy()
+		end
+	end
+	for _, size in { { 1280, 800, "wide" }, { 709, 1535, "tall" }, { 1535, 709, "side" } } do
+		root.Size = roblox.UDim2.fromOffset(size[1], size[2])
+		hud.ctx.close()
+		hud.openPanel("race", "hub")
+		shot(`menu-hub-{size[3]}`, nil, size[1], size[2])
+		-- Scrolled down to the lanes.
+		local sc = hud.gui:FindFirstChild("Hub", true)
+		if sc then
+			sc.CanvasPosition = roblox.Vector2.new(0, if size[3] == "tall" then 900 else 420)
+			shot(`menu-hub-{size[3]}-down`, nil, size[1], size[2])
+		end
+	end
+	root.Size = roblox.UDim2.fromOffset(1280, 800)
+end
 if SHOTS then
 	for _, p in { "shop", "goals", "menu", "cars" } do
 		hud.ctx.close()
