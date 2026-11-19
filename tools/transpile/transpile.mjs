@@ -567,3 +567,7 @@ writeFileSync(floorsDest, [
   '',
 ].join('\n'))
 console.log(`wrote ${relative(root, floorsDest)}`)
+
+// The web game's Spanish and Portuguese, for client/Lang.
+const { buildI18n } = await import('../i18n/build.mjs')
+for (const l of buildI18n(web)) console.log(`wrote ${l}`)

@@ -44,6 +44,7 @@ function Prefs.cleanUi(raw: any): any
 		askLeave = bool(t.askLeave),
 		askSell = bool(t.askSell),
 		tips = tips,
+		lang = if t.lang == "en" or t.lang == "es" or t.lang == "pt" then t.lang else nil,
 	}
 end
 

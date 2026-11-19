@@ -420,8 +420,12 @@ end
 
 -- How wide a line of text in the display face (Fredoka One) is, in pixels.
 local TextService = game:GetService("TextService")
+-- (Measured in the language it will show in: client/Lang sets Ui.translate.)
+Ui.translate = function(text: string): string
+	return text
+end
 function Ui.textWidth(text: string, size: number): number
-	return TextService:GetTextSize(text, size, Enum.Font.FredokaOne, Vector2.new(10000, 1000)).X
+	return TextService:GetTextSize(Ui.translate(text), size, Enum.Font.FredokaOne, Vector2.new(10000, 1000)).X
 end
 
 -- The web's SheetTabs: a row of tabs, each as wide as its label (flex: 1 0 auto), sharing out the
