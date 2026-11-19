@@ -31,6 +31,7 @@ local rivals = require(Game.rivals) :: any
 local distance = require(Game.distance) :: any
 local fairRace = require(Game.fairRace) :: any
 local paintRivals = require(Game.paintRivals) :: any
+local hubModes = require(Game.hubModes) :: any
 
 local RaceMenu = {}
 
@@ -346,32 +347,56 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 		local s = store.useGame.getState()
 		local level = store.gateLevel(s)
 		local car = myCar()
-		local myPi = if car then raceCar.carPi(car) else 10
 
-		-- The grid: columns 1.25fr 1.25fr 1fr 1fr, gaps of 12, the small buttons in two rows below.
-		local GAP = 12
-		local MINIS_H = 52 * 2 + 10
-		local FR = { 1.25, 1.25, 1, 1 }
-		local function cell(c1: number, c2: number, r1: number, r2: number, rows: number): UDim2 & any
-			local before, span = 0, 0
-			for i = 1, c1 - 1 do
-				before += FR[i]
+		-- The page scrolls, as the web's does: the next race big on top, then the Story, Events
+		-- and Free play lanes (RaceHub.tsx rm-lanes). Phones (under 600 wide) get two columns of
+		-- tiles and four of small buttons; wider screens three tiles and a row of buttons.
+		-- (Widths in the HUD's own units: the HUD is scaled down to fit small screens.)
+		local function width(): number
+			local k = 1
+			local p: Instance? = page
+			while p do
+				local sc = p:FindFirstChildOfClass("UIScale")
+				if sc and sc.Scale > 0 then
+					k *= sc.Scale
+				end
+				p = p.Parent
 			end
-			for i = c1, c2 do
-				span += FR[i]
-			end
-			local gaps = GAP * (#FR - 1)
-			local x = UDim.new(before / 4.5, -gaps * before / 4.5 + GAP * (c1 - 1))
-			local w = UDim.new(span / 4.5, -gaps * span / 4.5 + GAP * (c2 - c1))
-			local hTotal = -(MINIS_H + GAP) - GAP * (rows - 1)
-			local y = UDim.new((r1 - 1) / rows, hTotal * (r1 - 1) / rows + GAP * (r1 - 1))
-			local h = UDim.new((r2 - r1 + 1) / rows, hTotal * (r2 - r1 + 1) / rows + GAP * (r2 - r1))
-			return { pos = UDim2.new(x, y), size = UDim2.new(w, h) }
+			return page.AbsoluteSize.X / k
+		end
+		local W = width()
+		if W < 50 then
+			-- Not laid out yet: from the HUD's size, as the sheet takes it (at most 860 wide).
+			local root = page:FindFirstAncestor("Root")
+			local rw = if root and root:IsA("GuiObject") then root.Size.X.Offset else 1280
+			W = math.min(860, rw - 40) - 28
+		end
+		local phone = W < 760
+		local GAP = if phone then 12 else 14
+		local TG = if phone then 8 else 10
+		local scroll = Ui.new("ScrollingFrame", { Name = "Hub", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 6, ScrollBarImageColor3 = Color3.fromHex("#6c7fa3"), ScrollingDirection = Enum.ScrollingDirection.Y, CanvasSize = UDim2.new(), ElasticBehavior = Enum.ElasticBehavior.Never, Parent = page })
+		-- Room on the right for the scroll bar, and below each tile for its drop shadow.
+		local canvas = Ui.new("Frame", { Name = "Canvas", Size = UDim2.new(1, -10, 1, 0), BackgroundTransparency = 1, Parent = scroll })
+		local y = 4
+		-- Column i (from 0) of n, spanning `span`, `gap` apart.
+		local function col(n: number, i: number, span: number, gap: number): (UDim, UDim)
+			local x = UDim.new(i / n, -gap * (n - 1) * i / n + gap * i)
+			local w = UDim.new(span / n, -gap * (n - 1) * span / n + gap * (span - 1))
+			return x, w
+		end
+		local function at(n: number, i: number, span: number, top: number, h: number): any
+			local x, w = col(n, i, span, TG)
+			return { pos = UDim2.new(x, UDim.new(0, top)), size = UDim2.new(w, UDim.new(0, h)) }
+		end
+		-- A lane's heading (.rm-lane-h).
+		local function laneHead(text: string)
+			Ui.text({ Text = text, TextSize = 20, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(2, y), Size = UDim2.new(1, -4, 0, 24), Parent = canvas })
+			y += 24 + 8
 		end
 
 		-- A tile: navy outline, a gloss along the top, and its picture under the words.
-		local function hubTile(at: any, name: string, onClick: (() -> ())?): any
-			local shadow, face = Ui.shadowed({ Name = name, Position = at.pos, Size = at.size, Parent = page }, { radius = 18, stroke = 3, drop = 4, dark = 0.35, class = "TextButton", color = Ui.WHITE })
+		local function hubTile(where: any, name: string, onClick: (() -> ())?): any
+			local shadow, face = Ui.shadowed({ Name = name, Position = where.pos, Size = where.size, Parent = canvas }, { radius = 18, stroke = 3, drop = 4, dark = 0.35, class = "TextButton", color = Ui.WHITE })
 			face.ClipsDescendants = true
 			if onClick then
 				face.Activated:Connect(onClick)
@@ -516,9 +541,6 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 				end
 			end)
 		end
-		local function money2(n: number): string
-			return money(n)
-		end
 		local function goButton(parent: Instance, props: { [string]: any }, text: string, onClick: (() -> ())?, kind: string?)
 			props.Parent = parent
 			props.ZIndex = 5
@@ -558,80 +580,215 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 				end
 			end
 		end
-		local camp = hubTile(cell(1, 1, 1, 3, 3), "Campaign", function()
-			show("campaign")
-		end)
-		do
-			local rv = if list and nextRace then list[ci].races[nextRace].rival else nil
-			local mine = if car then { model = car.model, color = car.color } else nil
-			local cars = {}
-			if mine then
-				table.insert(cars, mine)
-			end
-			if rv then
-				table.insert(cars, { model = rv.model, color = rv.color })
-			end
-			scene(camp, { banner = "lights", move = "start", cars = cars, carsAt = 0.62, carsH = 0.26, horizon = 0.42 })
-			hubTag(camp, "CAMPAIGN", "#ffb21a")
-		end
-		if list then
-			local ch = list[ci]
-			local foot = if nextRace then 52 else 12
-			title(camp, ch.name, foot + 54, 26)
-			chip(camp, `Chapter {ci} of {#list} · ⭐ {got}/{total}`, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -(foot + 22)) })
-			local barBg = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -(foot + 6)), Size = UDim2.new(1, -24, 0, 9), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.7, ZIndex = 4, Parent = camp }, { Ui.round(), Ui.stroke(1.5, Ui.LINE) })
-			local fill = Ui.new("Frame", { Size = UDim2.fromScale(if total > 0 then got / total else 0, 1), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = barBg }, { Ui.round() })
-			Ui.gradient("#ffe066", "#ff9f1a").Parent = fill
-			if nextRace then
-				local rv = ch.races[nextRace].rival
-				local cta = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.new(1, -20, 0, 40), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.04, ZIndex = 4, Parent = camp }, { Ui.corner(12), Ui.stroke(2, Ui.LINE) })
-				Ui.text({ Text = `{rv.name}{if rv.boss then " 👑" else ""}`, Body = true, TextSize = 13, TextColor3 = Ui.INK, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(9, 0), Size = UDim2.new(1, -110, 1, 0), ZIndex = 4, Parent = cta })
-				local go = goButton(cta, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -3, 0.5, 0), Size = UDim2.fromOffset(96, 32) }, `{money2(rv.prize)} ⛽{data.RACE_FUEL}`, function()
-					start("campaign", { chapter = ci - 1, race = nextRace :: number - 1 })
-				end)
-				-- The tutorial's first race (client/Popups/Tutorial points here, the web's .rm-camp .rm-cta .buy).
-				local goFace = go:FindFirstChildWhichIsA("TextButton", true)
-				if goFace then
-					goFace:SetAttribute("Tut", "camp-go")
-				end
-			end
-		else
-			title(camp, "Loading...", 12, 22)
-		end
-
-		-- Pro Tour: opens once Back Streets is cleared.
 		local won = s.tour or 0
 		local leg = tour.tourLeg(tour.tourLegOf(won))
 		local tv = venues.venue(leg.venue)
 		local tourOpen = list ~= nil and list[1] ~= nil and list[1].cleared == true
-		local tourFace = hubTile(cell(2, 2, 1, 3, 3), "Tour", function()
-			show("tour")
-		end)
-		scene(tourFace, { banner = "finish", move = "finish", night = leg.night, cars = if car then { { model = car.model, color = car.color }, { model = (if list and list[1] and list[1].races[5] then list[1].races[5].rival.model else car.model), color = "#cfd8dc" } } else {}, carsAt = 0.62, carsH = 0.26, horizon = 0.42 })
-		hubTag(tourFace, "PRO TOUR", "#b48cff")
-		title(tourFace, if leg.night then `{tv.name} at Midnight` else `{tv.name} {leg.name}`, if tourOpen then 52 else 58, 24)
-		if tourOpen then
-			chip(tourFace, `Leg {leg.index + 1}{if leg.night then " · 🌙" else ""} · {distance.DIST[distance.tourDist(won)].label}`, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -14) })
-			-- The next race straight from the tile (RaceHub.tsx's tour button).
-			goButton(tourFace, { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -10, 1, -10), Size = UDim2.fromOffset(96, 44) }, `🏁 {money(fairRace.tourPayNow(won))}\n⛽{data.RACE_FUEL}`, function()
-				start("tour", nil)
-			end)
-		else
-			local lock = chip(tourFace, "🔒 Clear Back Streets to open", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -12) })
-			lock.Size = UDim2.new(1, -24, 0, 40)
-			local l = lock:FindFirstChildOfClass("TextLabel") :: TextLabel
-			l.TextWrapped = true
-			l.TextXAlignment = Enum.TextXAlignment.Left
-			l.Position = UDim2.fromOffset(10, 0)
-			l.Size = UDim2.new(1, -20, 1, 0)
+		local campOpen = function()
+			show("campaign")
+		end
+		-- The rivals in the pictures: your car and the one you'd race next.
+		local mine = if car then { model = car.model, color = car.color } else nil
+		local rv = if list and nextRace then list[ci].races[nextRace].rival else nil
+		local campCars = {}
+		if mine then
+			table.insert(campCars, mine)
+		end
+		if rv then
+			table.insert(campCars, { model = rv.model, color = rv.color })
+		end
+		local function tourScene(face: GuiObject, carsAt: number?, carsH: number?)
+			scene(face, { banner = "finish", move = "finish", night = leg.night, cars = if car then { { model = car.model, color = car.color }, { model = (if list and list[1] and list[1].races[5] then list[1].races[5].rival.model else car.model), color = "#cfd8dc" } } else {}, carsAt = carsAt or 0.62, carsH = carsH or 0.26, horizon = 0.42 })
 		end
 
-		-- The rival in town (Rivals.tsx RivalTile).
+		-- The weekly event's progress, used by the lead card and its tile.
+		local ev = events.eventFor()
+		local evp = events.eventProgress(s.event)
+		local evWon = if evp then evp.won or 0 else 0
+		-- The PI the event's rivals sit around: the one entered with, else the best car's (Race.tsx evBase).
+		local evBest = raceCar.bestCar(s.cars or {})
+		local evBase = if evp and evp.pi then evp.pi elseif evBest then raceCar.carPi(evBest) else 0
+		local function eventScene(face: GuiObject)
+			scene(face, { night = ev.night, horizon = 0.55, skyTop = "#ffb36b", skyBottom = "#ffe0b2", cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.95 })
+		end
+
+		-- ── The Next race card: the next campaign race, else this week's event, else the next Pro
+		-- Tour leg, else a quick race (hubModes.nextRace). Its button is the screen's one big button.
+		local pick = if list == nil then "loading" else hubModes.nextRace(if nextRace then nextRace - 1 else -1, evWon < events.EVENT_RACES, tourOpen)
+		local leadH = if phone then 240 else 220
+		local lead = hubTile({ pos = UDim2.fromOffset(0, y), size = UDim2.new(1, 0, 0, leadH) }, "Lead", nil)
+		do
+			local hero: { [string]: any }
+			if pick == "campaign" and list and nextRace and rv then
+				local ch = list[ci]
+				hero = { tag = "CAMPAIGN", title = `{rv.name}{if rv.boss then " 👑" else ""}`, meta = `{ch.name} · {nextRace}/{#ch.races}`, prize = rv.prize, open = "campaign", go = function()
+					start("campaign", { chapter = ci - 1, race = nextRace :: number - 1 })
+				end }
+				scene(lead, { banner = "lights", move = "start", cars = campCars, carsAt = 0.6, carsH = 0.34, horizon = 0.45 })
+			elseif pick == "event" then
+				hero = { tag = "WEEKLY EVENT", title = ev.name, meta = `{evWon + 1}/{events.EVENT_RACES} · ⏳ {trial.shortLeft(data.msToNextWeek())}`, prize = events.eventPrize(evBase, evWon), open = "event", go = function()
+					start("event", nil)
+				end }
+				eventScene(lead)
+			elseif pick == "tour" then
+				hero = { tag = "PRO TOUR", title = tour.tourRivalName(won), meta = if leg.night then `{tv.name} at Midnight` else `{tv.name} {leg.name}`, prize = fairRace.tourPayNow(won), open = "tour", go = function()
+					start("tour", nil)
+				end }
+				tourScene(lead, 0.6, 0.34)
+			else
+				hero = { tag = if pick == "loading" then "" else "QUICK RACE", title = if pick == "loading" then "Loading..." else "Pick a rival", meta = if pick == "loading" then nil else "🏁", prize = nil, open = "quick", go = function()
+					show("quick")
+				end }
+				scene(lead, { banner = "lights", move = "start", cars = campCars, carsAt = 0.6, carsH = 0.34, horizon = 0.45 })
+			end
+			if pick ~= "loading" then
+				lead.Activated:Connect(function()
+					show(hero.open)
+				end)
+			end
+			-- The green ▶ NEXT RACE tab in the corner.
+			local tagText = "▶ NEXT RACE"
+			local tw = math.ceil(Ui.textWidth(tagText, 20)) + 36
+			local t = Ui.new("Frame", { Name = "Tag", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(tw, 40), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = lead }, { Ui.corner(18), Ui.stroke(3, Ui.LINE), Ui.gradient("#7ee05a", "#2f9e35") })
+			Ui.text({ Text = tagText, TextSize = 20, Size = UDim2.fromScale(1, 1), Stroke = 2.5, Shadow = 2, ZIndex = 4, Parent = t })
+			-- The words sit above the button on a phone, beside it on wider screens.
+			local foot = if phone then 78 else 16
+			local right = if phone then 12 else 162
+			local hasMeta = hero.meta ~= nil
+			if hasMeta then
+				chip(lead, hero.meta, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 16, 1, -foot) })
+			end
+			local titleBottom = foot + (if hasMeta then 32 else 0)
+			local big = if phone then 30 else 36
+			Ui.text({ Text = hero.title, TextSize = big, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Bottom, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 16, 1, -titleBottom), Size = UDim2.new(1, -16 - right, 0, big * 2.2), Stroke = 3, Shadow = 3, ZIndex = 4, Parent = lead })
+			if hero.tag ~= "" then
+				Ui.text({ Text = hero.tag, TextSize = 13, TextColor3 = Color3.fromHex("#ffe066"), TextXAlignment = Enum.TextXAlignment.Left, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 16, 1, -(titleBottom + big + 8)), Size = UDim2.new(1, -32, 0, 16), Stroke = 1.5, ZIndex = 4, Parent = lead })
+			end
+			if pick ~= "loading" then
+				local label = if hero.prize ~= nil then `🏁 {money(hero.prize)}  ⛽{data.RACE_FUEL}` else "🏁 Go"
+				local where: { [string]: any } = if phone
+					then { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -12), Size = UDim2.new(1, -24, 0, 56) }
+					else { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -16, 1, -16), Size = UDim2.fromOffset(math.max(140, math.ceil(Ui.textWidth(label, 24)) + 40), 64) }
+				where.Parent = lead
+				where.ZIndex = 5
+				local shadow = Ui.buy(where, label, "green", hero.go, if phone then 24 else 24)
+				for _, d in shadow:GetDescendants() do
+					if d:IsA("GuiObject") then
+						d.ZIndex = 5
+					end
+				end
+				-- The tutorial's first race (client/Popups/Tutorial points here, the web's .rm-lead .rm-lead-go).
+				if pick == "campaign" then
+					local goFace = shadow:FindFirstChildWhichIsA("TextButton", true)
+					if goFace then
+						goFace:SetAttribute("Tut", "camp-go")
+					end
+				end
+			end
+		end
+		y += leadH + GAP + 4
+
+		-- ── Story: Campaign, Pro Tour and the Grand Prix, then the rival in town ──────────────────
+		laneHead("📖 Story")
+		local tileH = if phone then 140 else 132
+		local campAt, tourAt, gpAt
+		if phone then
+			campAt, tourAt = at(2, 0, 1, y, tileH), at(2, 1, 1, y, tileH)
+			gpAt = at(2, 0, 2, y + tileH + TG + 4, tileH)
+			y += (tileH + TG + 4) * 2
+		else
+			campAt, tourAt, gpAt = at(3, 0, 1, y, tileH), at(3, 1, 1, y, tileH), at(3, 2, 1, y, tileH)
+			y += tileH + TG + 4
+		end
+
+		local camp = hubTile(campAt, "Campaign", campOpen)
+		scene(camp, { banner = "lights", move = "start", cars = campCars, carsAt = 0.6, carsH = 0.3, horizon = 0.42 })
+		hubTag(camp, "CAMPAIGN", "#ffb21a")
+		if list then
+			local ch = list[ci]
+			title(camp, ch.name, 46, 20)
+			chip(camp, `{ci}/{#list} · ⭐ {got}/{total}`, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -18) })
+			local barBg = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -6), Size = UDim2.new(1, -20, 0, 7), BackgroundColor3 = Ui.WHITE, BackgroundTransparency = 0.7, ZIndex = 4, Parent = camp }, { Ui.round(), Ui.stroke(1.5, Ui.LINE) })
+			local fill = Ui.new("Frame", { Size = UDim2.fromScale(if total > 0 then got / total else 0, 1), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = barBg }, { Ui.round() })
+			Ui.gradient("#ffe066", "#ff9f1a").Parent = fill
+		else
+			title(camp, "Loading...", 12, 20)
+		end
+
+		local tourFace = hubTile(tourAt, "Tour", function()
+			show("tour")
+		end)
+		tourScene(tourFace)
+		hubTag(tourFace, "PRO TOUR", "#b48cff")
+		title(tourFace, if leg.night then `{tv.name} at Midnight` else `{tv.name} {leg.name}`, 44, 20)
+		if tourOpen then
+			local done = won % tour.TOUR_RACES
+			chip(tourFace, `Leg {leg.index + 1}{if leg.night then " · 🌙" else ""}  {string.rep("●", done)}{string.rep("○", tour.TOUR_RACES - done)}`, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -12) })
+		else
+			chip(tourFace, `🔒 {if list and list[1] then list[1].name else "Back Streets"}`, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -12) })
+			tourFace.BackgroundTransparency = 0
+		end
+		local gp = s.gp or {}
+		local series, si = nil, 0
+		for i, sr in data.GP_SERIES do
+			if ((gp[sr.id] and gp[sr.id].round) or 0) > 0 and data.gpOpen(gp, i - 1, level) then
+				series, si = sr, i - 1
+				break
+			end
+		end
+		if not series then
+			for i = #data.GP_SERIES, 1, -1 do
+				local sr = data.GP_SERIES[i]
+				if data.gpOpen(gp, i - 1, level) and #s.cars >= sr.minCars and not (gp[sr.id] and gp[sr.id].clears) then
+					series, si = sr, i - 1
+					break
+				end
+			end
+		end
+		if not series then
+			series, si = data.GP_SERIES[1], 0
+			for i = #data.GP_SERIES, 1, -1 do
+				if data.gpOpen(gp, i - 1, level) then
+					series, si = data.GP_SERIES[i], i - 1
+					break
+				end
+			end
+		end
+		local round = (gp[series.id] and gp[series.id].round) or 0
+		local gpFace = hubTile(gpAt, "GrandPrix", function()
+			show("gp")
+		end)
+		scene(gpFace, { horizon = 0.35, groundTop = "#7cc56a", groundBottom = "#4f9a46", road = false, move = "weave", cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.72, carsH = if phone then 0.5 else nil })
+		hubTag(gpFace, "GRAND PRIX", "#ffd84a")
+		title(gpFace, series.name, 40, 20)
+		do
+			local pips = Ui.new("Frame", { AnchorPoint = Vector2.new(if phone then 1 else 0, 1), Position = if phone then UDim2.new(1, -10, 1, -10) else UDim2.new(0, 10, 1, -10), Size = UDim2.fromOffset(23 * data.GP_ROUNDS, 22), BackgroundTransparency = 1, ZIndex = 4, Parent = gpFace }, {
+				Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }),
+			})
+			if phone then
+				-- On a phone the name has the row to itself, the rounds sit at the right.
+				local t = gpFace:FindFirstChildOfClass("TextLabel")
+				local _ = t
+			end
+			for i = 1, data.GP_ROUNDS do
+				local done = i - 1 < round
+				local nxt = i - 1 == round
+				local p = Ui.new("Frame", { LayoutOrder = i, Size = UDim2.fromOffset(20, 20), BackgroundColor3 = if done then Color3.fromHex("#43a047") elseif nxt then Ui.WHITE else Color3.fromHex("#dfe7f2"), ZIndex = 4, Parent = pips }, { Ui.round(), Ui.stroke(1.5, Ui.LINE) })
+				Ui.text({ Text = if done then "✔" else tostring(i), TextSize = 12, TextColor3 = if done then Ui.WHITE else Ui.INK, Size = UDim2.fromScale(1, 1), ZIndex = 4, Parent = p })
+			end
+			if not data.gpOpen(gp, si, level) then
+				gpFace.BackgroundTransparency = 0
+			end
+		end
+
 		local cur = rivals.currentRival(level, s.rivals or {}, now())
 		local function openRows()
 			show("rivals")
 		end
-		local rivalFace = hubTile(cell(3, 4, 1, 1, 3), "Rival", openRows)
+		-- The rival in town (Rivals.tsx RivalTile), the lane's full width.
+		local rivalH = 120
+		local rivalFace = hubTile({ pos = UDim2.fromOffset(0, y), size = UDim2.new(1, 0, 0, rivalH) }, "Rival", openRows)
+		y += rivalH + GAP + 4
 		do
 			local color = if cur then cur.def.color else "#ff7043"
 			Ui.gradient(color, color).Parent = rivalFace
@@ -704,141 +861,48 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 			end
 		end
 
-		-- The weekly event.
-		local ev = events.eventFor()
-		local evp = events.eventProgress(s.event)
-		local evWon = if evp then evp.won or 0 else 0
-		-- The PI the event's rivals sit around: the one entered with, else the best car's (Race.tsx evBase).
-		local evBest = raceCar.bestCar(s.cars or {})
-		local evBase = if evp and evp.pi then evp.pi elseif evBest then raceCar.carPi(evBest) else 0
-		local evFace = hubTile(cell(3, 4, 2, 2, 3), "Event", function()
+		-- ── Events: the weekly event and the Time Trial, then the daily and weekly modes ──────────
+		laneHead("📅 Events")
+		local evFace = hubTile(at(2, 0, 1, y, tileH), "Event", function()
 			show("event")
 		end)
-		scene(evFace, { night = ev.night, horizon = 0.55, skyTop = "#ffb36b", skyBottom = "#ffe0b2", cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.95 })
+		eventScene(evFace)
+		hubTag(evFace, "WEEKLY EVENT", ev.color or "#ff5fa2")
+		title(evFace, ev.name, 46, 20)
 		do
-			local ring = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 12, 0.5, 0), Size = UDim2.fromOffset(60, 60), BackgroundColor3 = Ui.WHITE, ZIndex = 4, Parent = evFace }, { Ui.round(), Ui.stroke(4, Color3.fromHex(ev.color or "#26a69a")) })
-			-- The ring glows in the event's colour (.rm-ev-car's ev-glow).
-			local glow = ring:FindFirstChildOfClass("UIStroke") :: UIStroke
-			table.insert(steps, function(t: number)
-				local k = (1 - math.cos(t * math.pi * 2 / 2.4)) / 2
-				glow.Thickness = 4 + k * 2.5
-				glow.Transparency = k * 0.35
-			end)
-			local evCar = if car then Thumb.new("Cars", car.model, UDim2.fromScale(1, 1), Color3.fromHex(car.color)) else nil
-			if evCar then
-				evCar.ZIndex = 4
-				evCar.Parent = ring
-			end
-			local mid = Ui.new("Frame", { Position = UDim2.fromOffset(84, 0), Size = UDim2.new(1, -84 - 112, 1, 0), BackgroundTransparency = 1, ZIndex = 4, Parent = evFace })
-			local tagText = "WEEKLY EVENT"
-			local tw = math.ceil(Ui.textWidth(tagText, 13)) + 18
-			local t = Ui.new("Frame", { Position = UDim2.new(0.5, -tw / 2, 0, 8), Size = UDim2.fromOffset(tw, 22), BackgroundColor3 = Color3.fromHex("#26a69a"), ZIndex = 4, Parent = mid }, { Ui.corner(8), Ui.stroke(2, Ui.LINE) })
-			Ui.text({ Text = tagText, TextSize = 13, Size = UDim2.fromScale(1, 1), Stroke = 1.5, ZIndex = 4, Parent = t })
-			Ui.text({ Text = ev.name, TextSize = 21, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(0, 32), Size = UDim2.new(1, 0, 0, 26), Stroke = 2.5, Shadow = 2, ZIndex = 4, Parent = mid })
-			chip(mid, `{string.rep("●", evWon)}{string.rep("○", events.EVENT_RACES - evWon)}  ⏳ {trial.shortLeft(data.msToNextWeek())}`, { Position = UDim2.fromOffset(0, 64) })
-			local at = { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(96, 52) }
-			if evWon < events.EVENT_RACES then
-				goButton(evFace, at, `🏁 {money(events.eventPrize(evBase, evWon))}\n⛽{data.RACE_FUEL}`, function()
-					start("event", nil)
-				end)
-			else
-				chip(evFace, "✔ Cleared", { AnchorPoint = at.AnchorPoint, Position = at.Position })
-			end
-		end
-
-		-- The Grand Prix: a series under way, else the newest open one not won yet.
-		local gp = s.gp or {}
-		local series, si = nil, 0
-		for i, sr in data.GP_SERIES do
-			if ((gp[sr.id] and gp[sr.id].round) or 0) > 0 and data.gpOpen(gp, i - 1, level) then
-				series, si = sr, i - 1
-				break
-			end
-		end
-		if not series then
-			for i = #data.GP_SERIES, 1, -1 do
-				local sr = data.GP_SERIES[i]
-				if data.gpOpen(gp, i - 1, level) and #s.cars >= sr.minCars and not (gp[sr.id] and gp[sr.id].clears) then
-					series, si = sr, i - 1
-					break
+			local pipsText = `{string.rep("●", evWon)}{string.rep("○", events.EVENT_RACES - evWon)}`
+			local c = chip(evFace, if evWon >= events.EVENT_RACES then "✔ Cleared" else pipsText .. "      ", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -12) })
+			-- The event skin's swatch (.rm-ev-swatch).
+			local skin = data.skinDef(ev.skin)
+			if skin and skin.swatch and evWon < events.EVENT_RACES then
+				local sw = Ui.new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -6, 0.5, 0), Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Color3.fromHex("#888888"), ZIndex = 4, Parent = c }, { Ui.round(), Ui.stroke(1.5, Ui.WHITE) })
+				local ok, swc = pcall(Color3.fromHex, string.match(skin.swatch, "#%x%x%x%x%x%x") or "#888888")
+				if ok then
+					sw.BackgroundColor3 = swc
 				end
 			end
 		end
-		if not series then
-			series, si = data.GP_SERIES[1], 0
-			for i = #data.GP_SERIES, 1, -1 do
-				if data.gpOpen(gp, i - 1, level) then
-					series, si = data.GP_SERIES[i], i - 1
-					break
-				end
-			end
-		end
-		local round = (gp[series.id] and gp[series.id].round) or 0
-		local gpFace = hubTile(cell(3, 3, 3, 3, 3), "GrandPrix", function()
-			show("gp")
-		end)
-		scene(gpFace, { horizon = 0.35, groundTop = "#7cc56a", groundBottom = "#4f9a46", road = false, move = "weave", cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.72 })
-		hubTag(gpFace, "GRAND PRIX", "#ffd84a")
-		title(gpFace, series.name, 40, 19)
-		do
-			local pips = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.new(1, -20, 0, 22), BackgroundTransparency = 1, ZIndex = 4, Parent = gpFace }, {
-				Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }),
-			})
-			for i = 1, data.GP_ROUNDS do
-				local done = i - 1 < round
-				local nxt = i - 1 == round
-				local p = Ui.new("Frame", { LayoutOrder = i, Size = UDim2.fromOffset(20, 20), BackgroundColor3 = if done then Color3.fromHex("#43a047") elseif nxt then Ui.WHITE else Color3.fromHex("#dfe7f2"), ZIndex = 4, Parent = pips }, { Ui.round(), Ui.stroke(1.5, Ui.LINE) })
-				Ui.text({ Text = if done then "✔" else tostring(i), TextSize = 12, TextColor3 = if done then Ui.WHITE else Ui.INK, Size = UDim2.fromScale(1, 1), ZIndex = 4, Parent = p })
-			end
-			if not data.gpOpen(gp, si, level) then
-				gpFace.BackgroundTransparency = 0
-			end
-		end
 
-		-- This week's Time Trial.
 		local week = trial.trialWeek()
 		local tvn = trial.trialVenue(week)
-		local trialFace = hubTile(cell(4, 4, 3, 3, 3), "Trial", function()
+		local trialFace = hubTile(at(2, 1, 1, y, tileH), "Trial", function()
 			show("trial")
 		end)
 		scene(trialFace, { horizon = 0.4, cars = if car then { { model = car.model, color = car.color } } else {}, carsAt = 0.7 })
 		hubTag(trialFace, "TIME TRIAL", "#5ce0d0")
-		title(trialFace, tvn.name, 40, 19)
-		local chips = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.new(1, -20, 0, 26), BackgroundTransparency = 1, ZIndex = 4, Parent = trialFace }, {
-			Ui.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
-		})
+		title(trialFace, tvn.name, 46, 20)
 		local trialBest = PAGES.trial and PAGES.trial.last and PAGES.trial.last.week == week and PAGES.trial.last.board.me
-		chip(chips, if trialBest then string.format("⏱️ %.3fs", trialBest.t) else "⏱️ --", { LayoutOrder = 1 })
-		chip(chips, `⏳ {trial.shortLeft(data.msToNextWeek())}`, { LayoutOrder = 2 })
+		chip(trialFace, `{if trialBest then string.format("⏱️ %.3fs", trialBest.t) else "⏱️ --"} · ⏳ {trial.shortLeft(data.msToNextWeek())}`, { AnchorPoint = Vector2.new(if phone then 1 else 0, 1), Position = if phone then UDim2.new(1, -10, 1, -12) else UDim2.new(0, 10, 1, -12) })
+		y += tileH + TG + 4
 
-		-- The other modes, as the web's small buttons.
-		local minis = Ui.new("Frame", { Name = "Minis", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, MINIS_H), BackgroundTransparency = 1, Parent = page }, {
-			Ui.new("UIGridLayout", { CellSize = UDim2.new(1 / 6, -9, 0, 52), CellPadding = UDim2.fromOffset(10, 10), SortOrder = Enum.SortOrder.LayoutOrder }),
-		})
-		local MINIS = {
-			{ "🏁", "Quick race", function()
-				show("quick")
-			end },
-			{ "🟢", "Live", soon("Live races") },
-			{ "💥", "Bumper Blast", soon("Bumper Blast") },
-			{ "🛠️", "Custom race", soon("Custom races") },
-			{ "🔧", "Tuner Trials", soon("Tuner Trials") },
-			{ "🏆", "Class Cups", soon("Class Cups") },
-			{ "🛣️", "Trophy Road", soon("The Trophy Road") },
-			{ "📅", "Daily Run", soon("The Daily Run") },
-			{ "🌍", "World Tour", soon("The World Tour") },
-			{ "🎆", "Flair", soon("Flair") },
-			{ "👻", "Ghosts", soon("Ghost races") },
-			{ "🏅", "Top racers", function()
-				ctx.open("friends", "leaders")
-			end },
-		}
-		-- A mode with its own page opens it.
-		for _, m in MINIS do
+		-- ── The small buttons (.rm-mini): blue game buttons with a coloured icon disc ──────────────
+		-- A mode with its own page opens it; modes still to come show the next one locked with the
+		-- level it opens at (MODE_LEVEL), so a new player starts with a short menu.
+		local function modeGo(label: string, fallback: (() -> ())?): (() -> ())?
 			for id, p in PAGES do
-				if p.mini and p.mini.label == m[2] then
+				if p.mini and p.mini.label == label then
 					local go = p.mini.go
-					m[3] = function()
+					return function()
 						if go then
 							go(ctx, api)
 						else
@@ -847,14 +911,116 @@ function RaceMenu.open(ctx: any, startTab: string?): Instance
 					end
 				end
 			end
+			return fallback
 		end
-		for i, m in MINIS do
-			local shadow, face = Ui.button({ LayoutOrder = i }, "garage", m[3], { radius = 16, stroke = 2.5, drop = 3 })
-			shadow.Parent = minis
-			local icon = Ui.new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 8, 0.5, 0), Size = UDim2.fromOffset(34, 34), BackgroundColor3 = Color3.fromHex("#ffcc80"), Parent = face }, { Ui.round(), Ui.stroke(2, Ui.LINE) })
-			Ui.text({ Text = m[1], TextSize = 19, Size = UDim2.fromScale(1, 1), Parent = icon })
-			Ui.text({ Text = m[2], TextSize = 15, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, LineHeight = 0.9, Position = UDim2.fromOffset(48, 0), Size = UDim2.new(1, -52, 1, 0), Stroke = 2, Shadow = 1.5, Parent = face })
+		local has = function(m: string): boolean
+			return level >= (hubModes.MODE_LEVEL[m] or 0)
 		end
+		local MINI_COLOR = { live = "#43c84a", ghosts = "#a678ff", cups = "#ffb300", road = "#26c6da", blast = "#ef5350", custom = "#26a69a" }
+		local cols = if phone then 4 else math.max(3, math.floor((W - 10 + 8) / 168))
+		local miniH = if phone then 92 else 56
+		local function minis(items: { any }, locked: { string })
+			-- The next mode to come in this lane, locked.
+			local soonest: string? = nil
+			for _, m in locked do
+				if not has(m) and (soonest == nil or hubModes.MODE_LEVEL[m] < hubModes.MODE_LEVEL[soonest]) then
+					soonest = m
+				end
+			end
+			local list2 = {}
+			for _, it in items do
+				if it.mode == nil or has(it.mode) then
+					table.insert(list2, it)
+				end
+			end
+			if soonest then
+				table.insert(list2, { icon = "🔒", label = hubModes.MODE_NAME[soonest], soon = hubModes.MODE_LEVEL[soonest] })
+			end
+			local rowsN = math.ceil(#list2 / cols)
+			local holder = Ui.new("Frame", { Name = "Minis", Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 0, rowsN * (miniH + 10)), BackgroundTransparency = 1, Parent = canvas })
+			for i, it in list2 do
+				local c, r = (i - 1) % cols, (i - 1) // cols
+				local x, w = col(cols, c, 1, 8)
+				local where = { LayoutOrder = i, Name = it.label, Position = UDim2.new(x, UDim.new(0, r * (miniH + 10))), Size = UDim2.new(w, UDim.new(0, miniH)), Parent = holder }
+				local shadow, face
+				if it.soon then
+					shadow, face = Ui.shadowed(where, { radius = 16, stroke = 2.5, drop = 0, dark = 0.35, class = "TextButton", color = Color3.fromHex("#e8eef7") })
+					face.Activated:Connect(function()
+						ctx.toast(`{it.label} opens at level {it.soon}`)
+					end)
+					shadow:SetAttribute("NoMotion", true)
+					face:SetAttribute("NoMotion", true)
+				else
+					shadow, face = Ui.button(where, "garage", it.go, { radius = 16, stroke = 3, drop = 4 })
+				end
+				shadow.Parent = holder
+				local disc = if phone then 40 else 38
+				local discColor = Color3.fromHex(if it.soon then "#f0b9a0" else (it.color or "#ff7a45"))
+				local icon = Ui.new("Frame", { AnchorPoint = if phone then Vector2.new(0.5, 0) else Vector2.new(0, 0.5), Position = if phone then UDim2.new(0.5, 0, 0, 8) else UDim2.new(0, 7, 0.5, 0), Size = UDim2.fromOffset(disc, disc), BackgroundColor3 = discColor, BackgroundTransparency = if it.soon then 0.3 else 0, Parent = face }, { Ui.round(), Ui.stroke(2.5, Ui.LINE, if it.soon then 0.6 else 0) })
+				Ui.new("UIGradient", { Rotation = 90, Color = ColorSequence.new(discColor:Lerp(Ui.WHITE, 0.45), discColor), Parent = icon })
+				Ui.text({ Text = it.icon, TextSize = if phone then 21 else 20, Size = UDim2.fromScale(1, 1), Parent = icon })
+				local labelProps: { [string]: any } = { Text = it.label, TextSize = if phone then 14 else 16, TextWrapped = true, LineHeight = 0.9, Parent = face }
+				if it.soon then
+					labelProps.TextColor3 = Color3.fromHex("#4a6283")
+				else
+					labelProps.Stroke = 2
+					labelProps.Shadow = 1.5
+				end
+				if phone then
+					labelProps.Position = UDim2.new(0, 3, 0, disc + 10)
+					labelProps.Size = UDim2.new(1, -6, 1, -(disc + 14))
+					labelProps.TextYAlignment = Enum.TextYAlignment.Top
+				else
+					labelProps.TextXAlignment = Enum.TextXAlignment.Left
+					labelProps.Position = UDim2.fromOffset(disc + 14, 0)
+					labelProps.Size = UDim2.new(1, -(disc + 18), 1, 0)
+				end
+				Ui.text(labelProps)
+				-- A count or "!" in the corner (.rm-dot): Lv N on the locked one, ! on a Daily Run not run today.
+				local dot = if it.soon then `Lv {it.soon}` else it.dot
+				if dot then
+					local dw = math.ceil(Ui.textWidth(dot, 12)) + 14
+					local d = Ui.new("Frame", { Name = "Dot", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 6, 0, -9), Size = UDim2.fromOffset(dw, 20), BackgroundColor3 = Color3.fromHex(if it.soon then "#4a6283" else "#43a047"), ZIndex = 3, Parent = shadow }, { Ui.round(), Ui.stroke(2, Ui.WHITE) })
+					Ui.text({ Text = dot, TextSize = 12, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = d })
+				end
+			end
+			y += rowsN * (miniH + 10) + GAP
+		end
+		local dailyPage = PAGES.daily
+		local dailyDue = dailyPage and dailyPage.due and dailyPage.due(s) or false
+		minis({
+			{ icon = "📅", label = "Daily Run", go = modeGo("Daily Run", soon("The Daily Run")), dot = if dailyDue then "!" else nil },
+			{ icon = "🛣️", label = "Trophy Road", mode = "road", color = MINI_COLOR.road, go = modeGo("Trophy Road", soon("The Trophy Road")) },
+			{ icon = "🏆", label = "Class Cups", mode = "cups", color = MINI_COLOR.cups, go = modeGo("Class Cups", soon("Class Cups")) },
+			{ icon = "🌍", label = "World Tour", mode = "world", go = modeGo("World Tour", soon("The World Tour")) },
+		}, { "road", "cups", "world" })
+
+		-- ── Free play ─────────────────────────────────────────────────────────────────────────────
+		laneHead("🎮 Free play")
+		minis({
+			{ icon = "🏁", label = "Quick race", go = function()
+				show("quick")
+			end },
+			{ icon = "🟢", label = "Live", color = MINI_COLOR.live, go = modeGo("Live", soon("Live races")) },
+			{ icon = "👻", label = "Ghosts", mode = "ghosts", color = MINI_COLOR.ghosts, go = modeGo("Ghosts", soon("Ghost races")) },
+			{ icon = "💥", label = "Bumper Blast", mode = "blast", color = MINI_COLOR.blast, go = modeGo("Bumper Blast", soon("Bumper Blast")) },
+			{ icon = "🛠️", label = "Custom race", mode = "custom", color = MINI_COLOR.custom, go = modeGo("Custom race", soon("Custom races")) },
+			{ icon = "🔧", label = "Tuner Trials", mode = "tuner", go = modeGo("Tuner Trials", soon("Tuner Trials")) },
+			{ icon = "🎆", label = "Flair", mode = "flair", go = modeGo("Flair", soon("Flair")) },
+		}, { "ghosts", "blast", "custom", "tuner", "flair" })
+
+		canvas.Size = UDim2.new(1, -10, 0, y)
+		scroll.CanvasSize = UDim2.fromOffset(0, y)
+		-- A phone turned on its side (or a window resized) redraws the page for its new width.
+		local wasPhone = phone
+		local sizeConn
+		sizeConn = page:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+			local w = width()
+			if page.Parent and tab == "hub" and w > 50 and (w < 760) ~= wasPhone then
+				sizeConn:Disconnect()
+				show("hub")
+			end
+		end)
 
 		Motion.loop(page, function(t: number, dt: number)
 			for _, step in steps do
