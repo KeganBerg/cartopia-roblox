@@ -1870,10 +1870,13 @@ end
 do
 	local root = hud.gui:FindFirstChild("Root")
 	-- (A Daily Spin left open from the button presses would be pictured instead.)
+	-- (Moved aside while pictured, and put back after.)
+	local aside = {}
 	for _, n in { "DailySpin", "Race", "RescueSearch" } do
 		local g = player.PlayerGui:FindFirstChild(n)
 		if g then
-			g:Destroy()
+			g.Parent = nil
+			table.insert(aside, g)
 		end
 	end
 	for _, size in { { 1280, 800, "wide" }, { 709, 1535, "tall" }, { 1535, 709, "side" } } do
@@ -1887,6 +1890,70 @@ do
 			sc.CanvasPosition = roblox.Vector2.new(0, if size[3] == "tall" then 900 else 420)
 			shot(`menu-hub-{size[3]}-down`, nil, size[1], size[2])
 		end
+	end
+	-- In Spanish (client/Lang): every text swapped as it's drawn, and back to English after.
+	local Lang = emu.require(client.Lang)
+	Lang.set("es")
+	for _, size in { { 1280, 800, "wide" }, { 709, 1535, "tall" } } do
+		root.Size = roblox.UDim2.fromOffset(size[1], size[2])
+		hud.ctx.close()
+		hud.openPanel("race", "hub")
+		Lang.sweep(hud.gui)
+		shot(`menu-hub-es-{size[3]}`, nil, size[1], size[2])
+	end
+	hud.ctx.close()
+	root.Size = roblox.UDim2.fromOffset(1280, 800)
+	hud.openPanel("menu", "settings")
+	-- (The menu opens on its last tab: press Settings.)
+	for _, d in hud.gui:GetDescendants() do
+		if d.Name == "settings" then
+			local b = if d:IsA("GuiButton") then d else d:FindFirstChildWhichIsA("GuiButton", true)
+			if b then
+				signalFor(b, "Activated"):Fire()
+				break
+			end
+		end
+	end
+	Lang.sweep(hud.gui)
+	shot("menu-hub-es-settings", nil)
+	local spanish = 0
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and (string.find(d.Text, "Idioma", 1, true) or string.find(d.Text, "Sonido", 1, true)) then
+			spanish += 1
+		end
+	end
+	if spanish < 2 then
+		local seen = {}
+		for _, d in hud.gui:GetDescendants() do
+			if d:IsA("TextLabel") and (string.find(d.Text, "🌐", 1, true) or string.find(d.Text, "🔊", 1, true) or string.find(d.Text, "Settings", 1, true) or string.find(d.Text, "Ajustes", 1, true)) then
+				table.insert(seen, d.Text)
+			end
+		end
+		print("lang", Lang.current(), table.concat(seen, " / "))
+	end
+	assert(spanish >= 2, "Settings not in Spanish")
+	Lang.set("en")
+	local english = false
+	for _, d in hud.gui:GetDescendants() do
+		if d:IsA("TextLabel") and string.find(d.Text, "Sound", 1, true) then
+			english = true
+		end
+	end
+	assert(english, "English not put back")
+	-- (Back to the menu's first tab, where the later checks expect it to open.)
+	for _, d in hud.gui:GetDescendants() do
+		if d.Name == "town" then
+			local b = if d:IsA("GuiButton") then d else d:FindFirstChildWhichIsA("GuiButton", true)
+			if b then
+				signalFor(b, "Activated"):Fire()
+				break
+			end
+		end
+	end
+	hud.ctx.close()
+	print("languages: Spanish drawn and English put back")
+	for _, g in aside do
+		g.Parent = player.PlayerGui
 	end
 	root.Size = roblox.UDim2.fromOffset(1280, 800)
 end

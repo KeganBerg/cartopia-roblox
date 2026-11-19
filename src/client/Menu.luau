@@ -21,6 +21,7 @@ local Confirm = require(script.Parent.Confirm)
 local Mixer = require(script.Parent.Sounds.Mixer)
 local Sfx = require(script.Parent.Sounds.Sfx)
 local Prefs = require(script.Parent.Prefs)
+local Lang = require(script.Parent.Lang)
 local Jobs = require(script.Parent.Jobs)
 local Placement = require(script.Parent.Placement)
 local FlashWarning = require(script.Parent.Popups.FlashWarning)
@@ -485,6 +486,14 @@ end
 local function settingsTab(ctx: any, list: Instance, redraw: () -> ()): number
 	local sound = SoundService:FindFirstChild("Cartopia") :: SoundGroup?
 	local prefs = Prefs.get()
+	-- The language (Settings.tsx LangPicker): each named in itself, so it's never translated.
+	local g0, row0 = group(list, 0, "🌐", "Language")
+	local langRow = row0(52)
+	langRow:SetAttribute("NoI18n", true)
+	seg(langRow, Lang.LANGS, Lang.current(), function(id)
+		Lang.set(id :: any)
+		redraw()
+	end)
 	local g1, row1 = group(list, 1, "🔊", "Sound")
 	local r = row1(48)
 	label(r, "Sound")
@@ -543,7 +552,7 @@ local function settingsTab(ctx: any, list: Instance, redraw: () -> ()): number
 	end)
 	local g6 = webTownGroup(ctx, list, 6)
 	local h = 0
-	for _, g in { g1, g2, g3, g4, g5, g6 } do
+	for _, g in { g0, g1, g2, g3, g4, g5, g6 } do
 		h += g.Size.Y.Offset + GAP
 	end
 	return h

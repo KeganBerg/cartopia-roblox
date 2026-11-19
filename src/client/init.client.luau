@@ -10,6 +10,8 @@ end)
 
 -- The player's settings first (graphics, reduce motion and flashing), so everything after starts with them.
 require(script.Prefs)
+-- The language (English, Spanish or Portuguese): every text on screen from here on.
+require(script.Lang).start()
 require(script.DayNight).start()
 require(script.TownCamera).start()
 require(script.Remote)

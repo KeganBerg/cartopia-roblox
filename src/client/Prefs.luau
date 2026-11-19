@@ -33,9 +33,11 @@ export type Ui = {
 	askLeave: boolean,
 	askSell: boolean,
 	tips: { string },
+	-- The language picked in Settings (client/Lang); nil follows the device.
+	lang: string?,
 }
 
-local prefs: Ui = { graphics = "auto", fps = false, reduceMotion = nil, calmFlash = nil, flashHide = false, askLeave = true, askSell = true, tips = {} }
+local prefs: Ui = { graphics = "auto", fps = false, reduceMotion = nil, calmFlash = nil, flashHide = false, askLeave = true, askSell = true, tips = {}, lang = nil }
 -- The saved settings came in (the flashing warning waits for them, so it never flashes up for a
 -- player who hid it).
 Prefs.loaded = false
@@ -113,6 +115,7 @@ local function read(raw: any): Ui
 		askLeave = t.askLeave ~= false,
 		askSell = t.askSell ~= false,
 		tips = tips,
+		lang = if t.lang == "en" or t.lang == "es" or t.lang == "pt" then t.lang else nil,
 	}
 end
 
