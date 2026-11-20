@@ -25,6 +25,7 @@ local TownCamera = require(script.Parent.TownCamera) :: any
 local TownLife = require(script.Parent.TownLife) :: any
 local WorldLife = require(script.Parent.WorldLife) :: any
 local CarDrive = require(script.Parent.CarDrive) :: any
+local ShotMode = require(script.Parent.ShotMode) :: any
 
 -- Where the cars come from: the town's traffic, and the roads between the plots. Road cars'
 -- uids start "visitor:road:".
@@ -362,6 +363,7 @@ end
 -- The buttons: phones get SPRINT/BOOST; everyone gets EXIT while in a car out in the world.
 
 local exitButton: GuiObject? = nil
+local photoButton: GuiObject? = nil
 local boostButton: GuiObject? = nil
 local boostLabel: TextLabel? = nil
 
@@ -375,6 +377,9 @@ local function paintButtons()
 	end
 	if exitButton then
 		exitButton.Visible = driving() and TownCamera.isWalking()
+	end
+	if photoButton then
+		photoButton.Visible = driving() and TownCamera.isWalking()
 	end
 end
 
@@ -430,6 +435,49 @@ local function makeButtons()
 	end, { text = "EXIT", textSize = 18, textStroke = 0.6 })
 	shadow.Visible = false
 	exitButton = shadow
+
+	-- 📸 beside EXIT (the web's Cruise.tsx camera button while driving your own car): the menus
+	-- step aside, Roblox's own capture takes the view and offers to save it (client/ShotMode),
+	-- then a white flash and "📸 Photo saved!".
+	local note = Ui.text({ Name = "PhotoNote", Text = "", TextSize = 18, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 90), Size = UDim2.fromOffset(240, 36), BackgroundColor3 = Color3.fromHex("#1b2440"), BackgroundTransparency = 0.15, Visible = false, Parent = gui })
+	Ui.corner(18).Parent = note
+	local function toast(text: string)
+		note.Text = text
+		note.Size = UDim2.fromOffset(Ui.textWidth(text, 18) + 36, 36)
+		note.Visible = true
+		local mine = text
+		task.delay(2.2, function()
+			if note.Text == mine then
+				note.Visible = false
+			end
+		end)
+	end
+	local flash = Ui.new("Frame", { Name = "Flash", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 10, Parent = gui })
+	local photo = Ui.button({
+		Name = "Photo",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = if touch then UDim2.new(1, -302, 1, -196) else UDim2.new(1, -222, 1, -24),
+		Size = UDim2.fromOffset(48, 48),
+		Parent = gui,
+	}, "white", function()
+		task.spawn(ShotMode.save, function(text: string)
+			if text == "📸 Picture saved!" then
+				text = "📸 Photo saved!"
+			end
+			toast(text)
+		end)
+		-- The flash once the picture's taken (it mustn't be in it).
+		task.delay(0.3, function()
+			flash.BackgroundTransparency = 0.2
+			for i = 1, 8 do
+				task.wait(0.03)
+				flash.BackgroundTransparency = 0.2 + i * 0.1
+			end
+			flash.BackgroundTransparency = 1
+		end)
+	end, { text = "📸", textSize = 24, radius = 14 })
+	photo.Visible = false
+	photoButton = photo
 end
 
 ---------------------------------------------------------------------------------------------------
