@@ -14,9 +14,17 @@
 local Saves = {}
 Saves.__index = Saves
 
+-- Roblox's warn, or print where there's none (the tests run in plain Luau).
+local warn: (...any) -> () = (warn :: any) or print
+
 Saves.LOCK_TTL = 30 * 60
 Saves.RETRIES = 5
 Saves.RETRY_WAIT = 6
+-- A write that the DataStore turns down (throttled, or a hiccup) is tried again a couple of times:
+-- a leaving player's last write is the one that lets their lock go, and if it's lost they can't
+-- get back in on another server until the lock goes stale (LOCK_TTL).
+Saves.WRITE_TRIES = 3
+Saves.WRITE_WAIT = 2
 
 export type Record = { save: any?, lock: { job: string, at: number }?, version: number?, receipts: { string }?, seen: number? }
 export type Store = {
@@ -25,7 +33,7 @@ export type Store = {
 export type Options = { store: Store, job: string, now: () -> number, wait: ((seconds: number) -> ())? }
 
 export type Saves = typeof(setmetatable(
-	{} :: { store: Store, job: string, now: () -> number, wait: (number) -> (), held: { [string]: boolean }, seen: { [string]: number } },
+	{} :: { store: Store, job: string, now: () -> number, wait: (number) -> (), held: { [string]: boolean }, seen: { [string]: number }, writes: { [string]: number } },
 	Saves
 ))
 
@@ -39,6 +47,7 @@ function Saves.new(opts: Options): Saves
 		end,
 		held = {},
 		seen = {},
+		writes = {},
 	}, Saves)
 end
 
@@ -89,7 +98,6 @@ function Saves.load(self: Saves, userId: number): (any?, { string })
 		end)
 		if ok and not busy then
 			self.held[key] = true
-			self.held[key] = true
 			self.seen[key] = seen
 			return save, receipts
 		end
@@ -117,26 +125,39 @@ function Saves.write(self: Saves, userId: number, save: any, release: boolean?, 
 	if not self.held[key] then
 		return false
 	end
+	-- Each write's number: a retry gives way to any newer write, which carries a newer town.
+	local seq = (self.writes[key] or 0) + 1
+	self.writes[key] = seq
 	local wrote = false
-	local ok, err = pcall(function()
-		self.store:UpdateAsync(key, function(old: Record?): Record?
-			local lock = old and old.lock
-			if not lock or lock.job ~= self.job then
-				wrote = false
-				return nil
-			end
-			wrote = true
-			local record = old :: Record
-			record.save = save
-			record.version = (record.version or 0) + 1
-			record.seen = self.now()
-			if receipts then
-				record.receipts = receipts
-			end
-			record.lock = if release then nil else { job = self.job, at = self.now() }
-			return record
+	local ok, err
+	for attempt = 1, Saves.WRITE_TRIES do
+		if attempt > 1 and self.writes[key] ~= seq then
+			return false
+		end
+		ok, err = pcall(function()
+			self.store:UpdateAsync(key, function(old: Record?): Record?
+				local lock = old and old.lock
+				if not lock or lock.job ~= self.job then
+					wrote = false
+					return nil
+				end
+				wrote = true
+				local record = old :: Record
+				record.save = save
+				record.version = (record.version or 0) + 1
+				record.seen = self.now()
+				if receipts then
+					record.receipts = receipts
+				end
+				record.lock = if release then nil else { job = self.job, at = self.now() }
+				return record
+			end)
 		end)
-	end)
+		if ok or attempt == Saves.WRITE_TRIES then
+			break
+		end
+		self.wait(Saves.WRITE_WAIT)
+	end
 	if not ok then
 		warn(`[Cartopia] saving {key} failed: {err}`)
 		return false
