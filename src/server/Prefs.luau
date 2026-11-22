@@ -85,6 +85,8 @@ function Prefs.start(store: any, remote: RemoteEvent, players: Players)
 	local changed: { [Player]: boolean } = {}
 	-- Changes that came in before the saved settings did: put on top once they arrive.
 	local early: { [Player]: { any } } = {}
+	-- Settings writes still going.
+	local writing = 0
 	players.PlayerAdded:Connect(function(player)
 		local ok, saved = pcall(store.GetAsync, store, tostring(player.UserId))
 		if not player.Parent then
@@ -120,7 +122,16 @@ function Prefs.start(store: any, remote: RemoteEvent, players: Players)
 		local dirty = changed[player]
 		current[player], changed[player], early[player] = nil, nil, nil
 		if p and dirty then
+			writing += 1
 			pcall(store.SetAsync, store, tostring(player.UserId), p)
+			writing -= 1
+		end
+	end)
+	-- A server closes as soon as its last player has left: wait for their settings to be written.
+	game:BindToClose(function()
+		local deadline = os.clock() + 25
+		while writing > 0 and os.clock() < deadline do
+			task.wait()
 		end
 	end)
 end

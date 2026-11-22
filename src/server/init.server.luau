@@ -857,10 +857,20 @@ end
 
 -- Writes a player's town, with the Robux purchases it holds (Purchases). True when it wrote.
 local purchases
+-- Town writes still on their way to the DataStore: the server waits for them before it shuts
+-- down (BindToClose), since a server closes as soon as its last player has left, and that
+-- player's last write (the one that lets their lock go) is still going then.
+local writing = 0
 local function saveId(userId: number, release: boolean?): boolean
 	if towns:isOpen(userId) and saves:holds(userId) then
 		local receipts = purchases:toSave(userId)
-		local wrote = saves:write(userId, towns:save(userId), release, receipts)
+		writing += 1
+		local okWrite, wroteOrErr = pcall(saves.write, saves, userId, towns:save(userId), release, receipts)
+		writing -= 1
+		if not okWrite then
+			warn(`[Cartopia] saving {userId}: {wroteOrErr}`)
+		end
+		local wrote = okWrite and wroteOrErr == true
 		if wrote and receipts then
 			purchases:saved(userId, receipts)
 		end
@@ -1064,6 +1074,8 @@ local function allow(player: Player): boolean
 end
 
 Players.PlayerRemoving:Connect(function(player)
+	-- Counted as a write from here, so a server closing behind its last player waits for it.
+	writing += 1
 	-- First, so a double-or-nothing rematch left half way is settled in the save.
 	races:close(player.UserId)
 	duels:leave(player.UserId)
@@ -1081,6 +1093,7 @@ Players.PlayerRemoving:Connect(function(player)
 	visitorAsked[player] = nil
 	linkTries[player] = nil
 	save(player, true)
+	writing -= 1
 	towns:close(player.UserId)
 	purchases:forget(player.UserId)
 	policies:forget(player.UserId)
@@ -2158,7 +2171,9 @@ game:BindToClose(function()
 			left -= 1
 		end)
 	end
-	while left > 0 do
+	-- Then any write already going, such as the last player's as they left (up to Roblox's 30s).
+	local deadline = os.clock() + 25
+	while (left > 0 or writing > 0) and os.clock() < deadline do
 		task.wait()
 	end
 end)
